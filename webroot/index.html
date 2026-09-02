@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'">
+    <title>服务管理</title>
+    <style>
+        :root { --line: rgba(0,0,0,0.08); --text: #1a1a1a; --muted: #888; --accent: #2d2d2d; --bg: #fafafa; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; line-height: 1.5; }
+        .nav { display: flex; border-bottom: 1px solid var(--line); background: #fff; position: sticky; top: 0; z-index: 100; }
+        .nav-item { flex: 1; padding: 14px; text-align: center; cursor: pointer; border: none; background: none; font-size: 12px; color: var(--muted); letter-spacing: 1px; position: relative; }
+        .nav-item.active { color: var(--text); font-weight: 500; }
+        .nav-item.active::after { content: ''; position: absolute; bottom: -1px; left: 50%; transform: translateX(-50%); width: 24px; height: 2px; background: var(--accent); }
+        .container { max-width: 640px; margin: 0 auto; padding: 20px 16px 80px; }
+        .page { display: none; }
+        .page.active { display: block; }
+        .section { margin-bottom: 24px; }
+        .section-hd { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); margin-bottom: 1px; }
+        .section-title { font-size: 14px; color: var(--text); letter-spacing: 1px; font-weight: 600; }
+        .section-body { background: #fff; border: 1px solid var(--line); }
+        .item { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); gap: 12px; cursor: pointer; }
+        .item:last-child { border-bottom: none; }
+        .item-info { flex: 1; min-width: 0; }
+        .item-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+        .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+        .dot-on { background: #22c55e; }
+        .dot-off { background: #d4d4d4; }
+        .dot-restarting { background: #eab308; }
+        .dot-error { background: #dc2626; }
+        .tag { font-size: 9px; padding: 2px 6px; border-radius: 2px; letter-spacing: 0.5px; }
+        .tag-on { background: #f0fdf4; color: #16a34a; }
+        .tag-off { background: #fef2f2; color: #dc2626; }
+        .port { font-size: 9px; padding: 2px 6px; border-radius: 2px; background: #f3f4f6; color: #6b7280; font-family: monospace; }
+        .btn { padding: 6px 12px; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; font-size: 11px; background: #fff; color: var(--text); letter-spacing: 0.5px; }
+        .btn:hover { background: var(--bg); }
+        .btn:active { transform: scale(0.98); }
+        .btn-sm { padding: 4px 8px; font-size: 10px; }
+        .btn-md { padding: 5px 10px; font-size: 12px; }
+        .btn-lg { padding: 6px 12px; font-size: 13px; }
+        .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .btn-primary:hover { background: #404040; }
+        .btn-danger { color: #dc2626; border-color: #fecaca; }
+        .btn-danger:hover { background: #fef2f2; }
+        .actions { display: flex; gap: 6px; flex-shrink: 0; }
+        .empty { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 12px; }
+        .form { padding: 16px; border-bottom: 1px solid var(--line); }
+        .form:last-child { border-bottom: none; }
+        .form-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: block; letter-spacing: 0.5px; }
+        .form-input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; font-size: 13px; background: #fff; }
+        .form-input:focus { outline: none; border-color: var(--accent); }
+        .form-input.error { border-color: #dc2626; }
+        .form-row { display: flex; align-items: center; gap: 8px; }
+        .form-row .form-input { flex: 1; min-width: 0; }
+        .form-textarea { min-height: 100px; resize: vertical; font-family: monospace; font-size: 11px; line-height: 1.6; }
+        .form-hint { font-size: 10px; color: var(--muted); margin-top: 4px; }
+        .form-error { font-size: 10px; color: #dc2626; margin-top: 4px; }
+        .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #fff; padding: 10px 20px; border-radius: 4px; font-size: 12px; z-index: 1000; opacity: 0; transition: opacity 0.2s; letter-spacing: 0.5px; }
+        .run-bar { display: flex; gap: 8px; flex-shrink: 0; }
+        .form-hint-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
+        .form-hint-row .form-hint { margin-top: 0; flex: 1; }
+        .toast.show { opacity: 1; }
+        .toast.error { background: #dc2626; }
+        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: none; justify-content: center; align-items: center; z-index: 200; }
+        .modal.show { display: flex; }
+        .modal-box { background: #fff; border-radius: 8px; width: 90%; max-width: 400px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; }
+        .modal-hd { padding: 16px; border-bottom: 1px solid var(--line); font-weight: 500; font-size: 14px; }
+        .modal-bd { padding: 16px; overflow-y: auto; flex: 1; }
+        .modal-ft { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+        .log-modal { width: 90%; height: 80vh; max-width: none; }
+        .log-modal .modal-bd { background: #1a1a1a; color: #d4d4d4; padding: 0; font-family: monospace; font-size: 11px; line-height: 1.6; }
+        .log-content { white-space: pre-wrap; word-break: break-all; padding: 12px; height: 100%; overflow-y: auto; }
+        .log-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+        .log-title { font-weight: 500; font-size: 13px; }
+        .debug { background: #fef3c7; border: 1px solid #fcd34d; border-radius: 4px; padding: 12px; margin: 16px; font-size: 11px; max-height: 50vh; box-sizing: border-box; overflow: hidden; }
+        .debug pre { white-space: pre-wrap; word-break: break-all; margin-top: 8px; max-height: calc(50vh - 60px); overflow-y: auto; }
+        .expand { padding: 12px 16px; background: #fafafa; border-bottom: 1px solid var(--line); }
+        .expand-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+        .expand-row:last-child { margin-bottom: 0; }
+        .expand-label { font-size: 10px; color: var(--muted); width: 60px; flex-shrink: 0; }
+        .expand-input { flex: 1; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-family: monospace; }
+        .expand-input:focus { outline: none; border-color: var(--accent); }
+        .expand-textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-family: monospace; min-height: 40px; height: auto; resize: none; background: #fff; overflow: hidden; cursor: text; }
+        .expand-textarea:focus { outline: none; border-color: var(--accent); }
+        .switch { position: relative; width: 44px; height: 22px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .switch-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #d4d4d4; border-radius: 11px; transition: 0.2s; }
+        .switch-slider::before { position: absolute; content: ''; height: 16px; width: 16px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+        .switch input:checked + .switch-slider { background: #22c55e; }
+        .switch input:checked + .switch-slider::before { transform: translateX(22px); }
+        .confirm-msg { font-size: 13px; color: var(--text); line-height: 1.6; }
+        .confirm-msg strong { color: #dc2626; }
+    </style>
+</head>
+<body>
+    <div class="debug" id="debug-info" style="display:none;">
+        <strong>调试信息</strong> <button class="btn btn-sm" style="float:right;" onclick="hideDebug()">关闭</button><button class="btn btn-sm" style="float:right;margin-right:6px;" onclick="copyDebugLog()">复制</button>
+        <pre id="debug-text"></pre>
+    </div>
+
+    <div class="nav">
+        <button class="nav-item active" data-page="status">服务状态</button>
+        <button class="nav-item" data-page="config">配置管理</button>
+    </div>
+
+    <div class="container">
+        <div class="page active" id="page-status">
+            <div class="section">
+                <div class="section-hd">
+                    <span class="section-title">Termux 服务</span>
+                    <button class="btn btn-md" onclick="loadStatus(true)">刷新</button>
+                </div>
+                <div class="section-body" id="termux-list"><div class="empty">加载中...</div></div>
+            </div>
+            <div class="section">
+                <div class="section-hd"><span class="section-title">二进制服务</span></div>
+                <div class="section-body" id="binary-list"><div class="empty">加载中...</div></div>
+            </div>
+        </div>
+
+        <div class="page" id="page-config">
+            <div class="section">
+                <div class="section-hd">
+                    <span class="section-title">基本设置</span>
+                    <div class="actions">
+                        <button class="btn btn-lg" onclick="toggleDebugPanel()">调试</button>
+                        <button class="btn btn-lg" onclick="loadConfig(true)">刷新</button>
+                    </div>
+                </div>
+                <div class="section-body">
+                    <div class="form">
+                        <label class="form-label">检查间隔 (秒)</label>
+                        <div class="form-row">
+                            <input type="number" class="form-input" id="input-sleep" value="60" min="5" onblur="autoSaveBasic()" placeholder="最小 5 秒，建议 60 秒">
+                            <button class="btn btn-lg" onclick="showLog('supervisor')">日志</button>
+                        </div>
+                        <div class="form-error" id="error-sleep"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="section">
+                <div class="section-hd">
+                    <span class="section-title">开机命令 & 测试命令</span>
+                    <div class="actions">
+                        <button class="btn btn-sm" id="btn-test-log" onclick="showTestLog()">日志</button>
+                        <span style="font-size:12px;color:var(--muted);display:flex;align-items:center;">测试</span>
+                        <label class="switch" style="margin-right:8px;">
+                            <input type="checkbox" id="test-cmd-switch" onchange="toggleTestCmd()">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="section-body">
+                    <div class="form" style="border-bottom:none;">
+                        <textarea class="form-input form-textarea" id="input-boot-cmds" onblur="saveBootCmds()" placeholder="请自行确认命令安全性和可用性后再放入"></textarea>
+                        <div class="form-hint-row">
+                            <div class="form-hint">模块启动时执行；编辑完成后点击框外自动保存</div>
+                            <div class="actions run-bar" id="test-run-bar" style="display:none;">
+                                <button class="btn btn-lg" onclick="runTestCmds('termux')">以termux运行</button>
+                                <button class="btn btn-lg btn-primary" onclick="runTestCmds('normal')">运行</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="section">
+                <div class="section-hd">
+                    <span class="section-title">Termux 服务</span>
+                    <div class="actions">
+                        <button class="btn btn-lg" id="sort-termux-btn" onclick="toggleSort('termux')">排序</button>
+                        <button class="btn btn-lg" onclick="openModal('termux')">添加</button>
+                    </div>
+                </div>
+                <div class="section-body" id="config-termux-list"><div class="empty">点击刷新加载</div></div>
+            </div>
+            <div class="section">
+                <div class="section-hd">
+                    <span class="section-title">二进制服务</span>
+                    <div class="actions">
+                        <button class="btn btn-lg" id="sort-binary-btn" onclick="toggleSort('binary')">排序</button>
+                        <button class="btn btn-lg" onclick="openModal('binary')">添加</button>
+                    </div>
+                </div>
+                <div class="section-body">
+                    <div class="form" style="border-bottom:1px solid var(--line);">
+                        <label class="form-label">服务目录</label>
+                        <input type="text" class="form-input" id="input-server-dir" onblur="autoSaveBasic()" placeholder="/storage/emulated/0/ → 自动转换可执行目录 /data/media/0/">
+                        <div class="form-hint">务必将二进制文件设为可执行权限</div>
+                    </div>
+                    <div id="config-binary-list"><div class="empty">点击刷新加载</div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-termux">
+        <div class="modal-box">
+            <div class="modal-hd" style="display:flex;justify-content:space-between;align-items:center;">
+                <span id="modal-termux-title">添加 Termux 服务</span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;color:var(--muted);">自动启动 &保活</span>
+                    <label class="switch">
+                        <input type="checkbox" id="input-termux-auto" checked>
+                        <span class="switch-slider"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-bd">
+                <input type="hidden" id="edit-termux-idx" value="-1">
+                <div class="form" style="padding:0 0 10px 0;border:none;display:flex;gap:10px;">
+                    <div style="flex:1;min-width:0;">
+                        <label class="form-label">服务名称 *（必须）</label>
+                        <input type="text" class="form-input" id="input-termux-name">
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <label class="form-label">端口（仅标识，非执行参数）</label>
+                        <input type="text" class="form-input" id="input-termux-port" placeholder="填入可打开对应服务页">
+                    </div>
+                </div>
+                <div class="form" style="padding:0 0 10px 0;border:none;">
+                    <label class="form-label">附加参数 <span class="form-hint" style="display:inline;margin-left:6px;">（一般不须填写，仅对用户、权限敏感的程序使用）</span></label>
+                    <input type="text" class="form-input" id="input-termux-extra" font-size placeholder="-g 3003 网络权限、-u 10123 指定用户运行">
+                </div>
+                <div class="form" style="padding:0;border:none;">
+                    <label class="form-label">启动命令 *（必须）</label>
+                    <textarea class="form-input form-textarea" id="input-termux-cmd" placeholder="多行自动以“;”分隔符按顺序拼接；并行多服务用 & 分隔，如 a & b；nginx 等守护进程需前台运行：nginx -g 'daemon off;'"></textarea>
+                </div>
+            </div>
+            <div class="modal-ft">
+                <button class="btn" onclick="closeModal('termux')">取消</button>
+                <button class="btn btn-primary" onclick="saveTermuxService()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-binary">
+        <div class="modal-box">
+            <div class="modal-hd" style="display:flex;justify-content:space-between;align-items:center;">
+                <span id="modal-binary-title">添加二进制服务</span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;color:var(--muted);">自动启动 & 保活</span>
+                    <label class="switch">
+                        <input type="checkbox" id="input-binary-auto" checked>
+                        <span class="switch-slider"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-bd">
+                <input type="hidden" id="edit-binary-idx" value="-1">
+                <div class="form" style="padding:0 0 10px 0;border:none;display:flex;gap:10px;">
+                    <div style="flex:1;min-width:0;">
+                        <label class="form-label">服务名称 *（必须）</label>
+                        <input type="text" class="form-input" id="input-binary-name">
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <label class="form-label">端口（仅标识，非执行参数）</label>
+                        <input type="text" class="form-input" id="input-binary-port" placeholder="填入可打开对应服务页">
+                    </div>
+                </div>
+                <div class="form" style="padding:0;border:none;">
+                    <label class="form-label">启动命令 *（必须）</label>
+                    <textarea class="form-input form-textarea" id="input-binary-cmd" placeholder="多行以 ; 顺序拼接；并行多服务用 & 分隔，如 a & b；nginx 等守护进程需前台运行：nginx -g 'daemon off;'"></textarea>
+                </div>
+            </div>
+            <div class="modal-ft">
+                <button class="btn" onclick="closeModal('binary')">取消</button>
+                <button class="btn btn-primary" onclick="saveBinaryService()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-log">
+        <div class="modal-box log-modal">
+            <div class="log-toolbar">
+                <span class="log-title" id="log-title">日志</span>
+                <div class="actions">
+                    <button class="btn btn-sm" onclick="logToTop()">↑</button>
+                    <button class="btn btn-sm" onclick="logToBottom()">↓</button>
+                    <button class="btn btn-sm" onclick="refreshLog()">刷新</button>
+                    <button class="btn btn-sm" onclick="copyLog()">复制</button>
+                    <button class="btn btn-sm" onclick="closeLogModal()">关闭</button>
+                </div>
+            </div>
+            <div class="modal-bd"><div class="log-content" id="log-content">加载中...</div></div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-confirm">
+        <div class="modal-box">
+            <div class="modal-hd" id="confirm-title">确认删除</div>
+            <div class="modal-bd">
+                <div class="confirm-msg" id="confirm-message">确定要删除该服务吗？</div>
+            </div>
+            <div class="modal-ft">
+                <button class="btn" onclick="closeConfirm()">取消</button>
+                <button class="btn btn-danger" id="confirm-btn" onclick="">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+        const EXTRA_RE = /^[A-Za-z0-9 ._-]*$/;
+        // 系统进程保留名：进程按 cmdline 子串匹配，此类通用短名会误伤系统进程
+        const SYS_NAME_RE = new RegExp('^(init|sh|su|root|shell|system|kernel|logd|logcat|netd|vold|adbd|zygote|servicemanager|surfaceflinger|audioserver|cameraserver|mediaserver|installd|lmkd|keystore|system_server)$');
+
+        // 服务名前端校验：返回错误文案，空串表示通过（与后端 valid_name 规则一致）
+        function checkServiceName(name) {
+            if (!NAME_RE.test(name)) return '名称只能包含字母数字._-';
+            if (/^[0-9]+$/.test(name)) return '名称不能为纯数字';
+            if (SYS_NAME_RE.test(name)) return '名称与系统进程冲突，请更换';
+            return '';
+        }
+
+        let MODDIR = '';
+        let ksuApi = null;
+        let configData = { sleep_interval: 60, server_dir: '', termux_services: [], services: [], boot_commands: '' };
+        let statusData = { termux_services: [], services: [] };
+        let testCmdData = '';
+        let isTestMode = false;
+        let currentLogName = '';
+        let isStatusLoaded = false;
+        let isConfigLoaded = false;
+        let confirmCallback = null;
+        const sortMode = { termux: false, binary: false };
+        const pendingNames = new Set();
+        const failedNames = new Set();
+        // 调试面板操作日志：记录每次 root 调用与页面消息，实时刷新
+        const OP_LOG_MAX = 100;
+        const opLog = [];
+        let debugVisible = false;
+
+        function fmtExecResult(r) {
+            let s = '';
+            if (r.stdout) s += r.stdout + '\n';
+            if (r.stderr) s += '[stderr] ' + r.stderr + '\n';
+            s += '[errno=' + r.errno + ']';
+            return s;
+        }
+
+        function pushOpLog(cmd, out) {
+            opLog.push({ cmd, out });
+            if (opLog.length > OP_LOG_MAX) opLog.shift();
+            refreshDebugPanel();
+        }
+
+        function renderOpLog() {
+            if (!opLog.length) return '暂无调用记录';
+            return opLog.map(e => '执行：\n$ ' + e.cmd + '\n\n结果（返回信息）：\n' + e.out)
+                .join('\n────────────────\n');
+        }
+
+        function refreshDebugPanel() {
+            if (!debugVisible) return;
+            const pre = document.getElementById('debug-text');
+            pre.textContent = renderOpLog();
+            pre.scrollTop = pre.scrollHeight;
+        }
+
+        function copyDebugLog() {
+            const text = renderOpLog();
+            const done = () => toast('已复制调试日志');
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+            } else {
+                fallbackCopy(text, done);
+            }
+        }
+
+        function fallbackCopy(text, done) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); done(); } catch (e) { toast('复制失败', true); }
+            document.body.removeChild(ta);
+        }
+
+        // 状态页本地缓存：先渲染缓存秒开，后台刷新后覆盖
+        const STATUS_CACHE_KEY = 'svcbox_status_cache_v1';
+
+        function saveStatusCache(d) {
+            try { localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify({ t: Date.now(), d })); } catch (e) { /* 存储不可用时忽略 */ }
+        }
+
+        function loadStatusCache() {
+            try {
+                const raw = localStorage.getItem(STATUS_CACHE_KEY);
+                if (!raw) return null;
+                const o = JSON.parse(raw);
+                return (o && o.d && Array.isArray(o.d.termux_services)) ? o.d : null;
+            } catch (e) { return null; }
+        }
+
+        function showDebug(msg) {
+            pushOpLog('(页面消息)', msg);
+            debugVisible = true;
+            document.getElementById('debug-info').style.display = 'block';
+            refreshDebugPanel();
+        }
+
+        function hideDebug() {
+            debugVisible = false;
+            document.getElementById('debug-info').style.display = 'none';
+        }
+
+        function toggleDebugPanel() {
+            const el = document.getElementById('debug-info');
+            debugVisible = el.style.display === 'none';
+            el.style.display = debugVisible ? 'block' : 'none';
+            if (debugVisible) refreshDebugPanel();
+        }
+
+        function toast(msg, isError = false) {
+            const el = document.getElementById('toast');
+            el.textContent = msg;
+            el.className = 'toast show' + (isError ? ' error' : '');
+            setTimeout(() => el.classList.remove('show'), 2000);
+        }
+
+        function escapeHtml(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        function exec(cmd) {
+            return new Promise(resolve => {
+                let out;
+                if (!ksuApi) {
+                    resolve({ errno: -1, stdout: '', stderr: 'No API' });
+                    out = fmtExecResult({ errno: -1, stdout: '', stderr: 'No API' });
+                } else if (typeof ksuApi.exec === 'function') {
+                    try {
+                        const result = ksuApi.exec(cmd);
+                        let o;
+                        if (result && typeof result === 'object') {
+                            o = { errno: result.errno || result.err || result.exitCode || 0, stdout: result.stdout || result.output || result.out || '', stderr: result.stderr || result.err || '' };
+                        } else if (typeof result === 'string') {
+                            o = { errno: 0, stdout: result, stderr: '' };
+                        } else { o = { errno: -1, stdout: '', stderr: 'Unknown result' }; }
+                        out = fmtExecResult(o);
+                        resolve(o);
+                    } catch (e) {
+                        out = 'exception: ' + e.message;
+                        resolve({ errno: -1, stdout: '', stderr: e.message });
+                    }
+                } else {
+                    resolve({ errno: -1, stdout: '', stderr: 'No exec' });
+                    out = fmtExecResult({ errno: -1, stdout: '', stderr: 'No exec' });
+                }
+                pushOpLog(cmd, out);
+            });
+        }
+
+        // 检测 root 管理器 JS API（KernelSU / Magisk / APatch）
+        function initRootApi() {
+            if (typeof window.ksu !== 'undefined' && window.ksu.exec) { ksuApi = window.ksu; hideDebug(); return true; }
+            if (typeof window.kernel !== 'undefined' && window.kernel.exec) { ksuApi = window.kernel; hideDebug(); return true; }
+            if (typeof window.kmi !== 'undefined' && window.kmi.exec) { ksuApi = window.kmi; hideDebug(); return true; }
+            if (typeof window.ap !== 'undefined' && window.ap.exec) { ksuApi = window.ap; hideDebug(); return true; }
+            if (typeof window.mgi !== 'undefined' && window.mgi.exec) { ksuApi = window.mgi; hideDebug(); return true; }
+            showDebug('未检测到可用的 root 管理器 API\n\n请在 KernelSU / APatch 管理器中打开此页面\nMagisk 可能不支持模块 WebUI，请使用KsuWebUI软件管理');
+            return false;
+        }
+
+        // 模块目录：优先 moduleInfo().moduleDir，失败后按固定模块 ID 定位
+        async function initModuleDir() {
+            if (ksuApi && typeof ksuApi.moduleInfo === 'function') {
+                try {
+                    const info = await ksuApi.moduleInfo();
+                    if (info && info.moduleDir && info.moduleDir.indexOf && info.moduleDir.indexOf('/modules/') >= 0) {
+                        MODDIR = info.moduleDir.replace(/\/+$/, '');
+                        hideDebug();
+                        return true;
+                    }
+                } catch (e) { /* 落入降级路径 */ }
+            }
+            const r = await exec("p=$(find /data/adb/modules -maxdepth 2 -name 'action.sh' -path '*SvcHub*/*' 2>/dev/null | head -n 1); [ -n \"$p\" ] && echo \"${p%/action.sh}\"");
+            const p = (r.stdout || '').trim();
+            if (p) { MODDIR = p; hideDebug(); return true; }
+            showDebug('无法确定模块目录（缺少 moduleInfo 且未在 /data/adb/modules 下找到 action.sh）。\n请在 KernelSU 管理器中打开此页面。');
+            return false;
+        }
+
+        // shell 单引号安全包裹
+        function sq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+
+        // 统一调用模块内固定 helper
+        async function invoke(sub) {
+            if (!MODDIR) return { errno: -1, stdout: '', stderr: 'MODDIR unavailable' };
+            return await exec('sh ' + sq(MODDIR + '/action.sh') + ' ' + sub);
+        }
+
+        // UTF-8 安全的 base64（发送配置给 shell 端）
+        function toB64(str) {
+            const bytes = new TextEncoder().encode(String(str));
+            let bin = '';
+            bytes.forEach(b => { bin += String.fromCharCode(b); });
+            return btoa(bin);
+        }
+
+        // 切换到指定页面（导航点击与滑动共用）
+        function switchPage(name) {
+            document.querySelectorAll('.nav-item').forEach(e => e.classList.toggle('active', e.dataset.page === name));
+            document.querySelectorAll('.page').forEach(e => e.classList.remove('active'));
+            document.getElementById('page-' + name).classList.add('active');
+            if (name === 'status') {
+                loadStatus(true);
+            }
+            if (name === 'config') {
+                if (!isConfigLoaded) loadConfig();
+                else renderConfigFromCache();
+            }
+        }
+
+        document.querySelectorAll('.nav-item').forEach(el => {
+            el.onclick = () => switchPage(el.dataset.page);
+        });
+
+        // 状态页 <-> 配置页左右滑动切换；输入框内触摸不触发，避免干扰文本选择
+        (function initSwipeNav() {
+            const pages = ['status', 'config'];
+            const box = document.querySelector('.container');
+            let sx = 0, sy = 0, tracking = false;
+            box.addEventListener('touchstart', e => {
+                tracking = false;
+                if (!e.touches || e.touches.length !== 1) return;
+                if (e.target.closest && e.target.closest('input, textarea')) return;
+                sx = e.touches[0].clientX;
+                sy = e.touches[0].clientY;
+                tracking = true;
+            }, { passive: true });
+            box.addEventListener('touchend', e => {
+                if (!tracking) return;
+                tracking = false;
+                const dx = e.changedTouches[0].clientX - sx;
+                const dy = e.changedTouches[0].clientY - sy;
+                // 水平位移足够大且明显大于垂直位移才判定为左右滑，避免误伤上下滚动
+                if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+                const current = document.querySelector('.page.active').id.replace('page-', '');
+                const next = pages.indexOf(current) + (dx < 0 ? 1 : -1);
+                if (next >= 0 && next < pages.length) switchPage(pages[next]);
+            }, { passive: true });
+        })();
+
+        // 日志弹窗：点击遮罩（弹窗外）自动关闭
+        document.getElementById('modal-log').addEventListener('click', function(e) {
+            if (e.target === this) closeLogModal();
+        });
+
+        async function loadStatus(force = false) {
+            if (!ksuApi) { document.getElementById('termux-list').innerHTML = '<div class="empty">请先初始化</div>'; return; }
+            if (!force && isStatusLoaded) return;
+            if (force) toast('刷新中...');
+            const r = await invoke('status');
+            if (r.errno !== 0 || !r.stdout) {
+                if (force) toast('刷新失败', true);
+                return;
+            }
+            try {
+                const d = JSON.parse(r.stdout);
+                statusData = d;
+                isStatusLoaded = true;
+                saveStatusCache(d);
+                renderStatusList('termux-list', d.termux_services, true);
+                renderStatusList('binary-list', d.services, false);
+                if (force) toast('已刷新');
+            } catch (e) {
+                document.getElementById('termux-list').innerHTML = '<div class="empty">解析失败</div>';
+            }
+        }
+
+        function renderStatusFromCache() {
+            renderStatusList('termux-list', statusData.termux_services, true);
+            renderStatusList('binary-list', statusData.services, false);
+        }
+
+        function renderStatusList(id, services, isTermux) {
+            const el = document.getElementById(id);
+            if (!services || !services.length) { el.innerHTML = '<div class="empty">暂无服务</div>'; return; }
+            el.innerHTML = services.map((s, i) => {
+                const portText = s.port ? `port:${s.port}` : 'port:未知';
+                const running = s.status === 'running';
+                const pending = pendingNames.has(s.name);
+                const failed = failedNames.has(s.name);
+                const dotCls = pending ? 'dot-restarting' : (running ? 'dot-on' : (failed ? 'dot-error' : 'dot-off'));
+                const openBtn = (running && /^[0-9]{1,5}$/.test(String(s.port || '')))
+                    ? `<button class="btn btn-md" style="border-color:#3b82f6;color:#2563eb;background:#eff6ff;" onclick="openSvcPort('${s.port}')">打开</button>`
+                    : '';
+                return `
+                <div class="item" onclick="toggleExpand('${id}', ${i}, event)">
+                    <span class="dot ${dotCls}"></span>
+                    <div class="item-info">
+                        <div class="item-name">${escapeHtml(s.name)}</div>
+                        <div class="item-meta" style="display:flex;align-items:center;gap:3px;">
+                            <span class="port">${portText}</span>
+                            <span class="tag ${s.auto === 'start' ? 'tag-on' : 'tag-off'}">${escapeHtml(s.auto)}</span>
+                        </div>
+                    </div>
+                    <div class="actions" onclick="event.stopPropagation()">
+                        ${running
+                            ? openBtn + `<button class="btn btn-md" style="border-color:#eab308;color:#b45309;background:#fefce8;" onclick="restartSvc('${s.name}')">重启</button><button class="btn btn-md btn-danger" onclick="stopSvc('${s.name}')">停止</button><button class="btn btn-md" onclick="showLog('${s.name}')">日志</button>`
+                            : `<button class="btn btn-md btn-primary" onclick="startSvc('${isTermux ? 'termux' : 'binary'}','${s.name}')">启动</button><button class="btn btn-md" onclick="showLog('${s.name}')">日志</button>`}
+                    </div>
+                </div>
+                <div class="expand" id="expand-${id}-${i}" style="display:none;">
+                    <textarea class="expand-textarea" readonly ondblclick="copyToClipboard(this)" oninput="autoResize(this)">${escapeHtml(displayCmd(s.cmd))}</textarea>
+                </div>`;
+            }).join('');
+        }
+
+        function openSvcPort(port) {
+            if (!/^[0-9]{1,5}$/.test(String(port))) { toast('端口无效', true); return; }
+            invoke('open ' + sq(port));
+        }
+
+        // 命令显示还原：保存时 " 转义为 \"，读取显示还原为 "
+        function displayCmd(s) { return String(s || '').replace(/\\"/g, '"'); }
+
+        // 命令保存归一：多行每行补 ; 后拼接为一行；" 转义为 \" 保存
+        function normalizeCmd(raw) {
+            const lines = String(raw || '').split('\n');
+            const parts = [];
+            lines.forEach(line => {
+                line = line.trim();
+                if (!line) return;
+                if (!line.endsWith(';')) line += ';';
+                parts.push(line);
+            });
+            let joined = parts.join('').replace(/;+$/, '');
+            joined = joined.replace(/\\"/g, '"').replace(/"/g, '\\"');
+            return joined;
+        }
+
+        function toggleExpand(id, idx, e) {
+            if (e.target.closest('.actions')) return;
+            const el = document.getElementById(`expand-${id}-${idx}`);
+            if (el) {
+                el.style.display = el.style.display === 'none' ? 'block' : 'none';
+                if (el.style.display === 'block') {
+                    const textarea = el.querySelector('.expand-textarea');
+                    if (textarea) autoResize(textarea);
+                }
+            }
+        }
+
+        function autoResize(el) {
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+        }
+
+        function copyToClipboard(el) {
+            const text = el.value;
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(() => toast('已复制'));
+            } else {
+                el.select();
+                document.execCommand('copy');
+                toast('已复制');
+            }
+        }
+
+        async function startSvc(type, name) {
+            const n = sq(name);
+            toast('启动 ' + name);
+            const r = await invoke('start ' + sq(type) + ' ' + n);
+            if (r.errno !== 0) toast('启动失败', true);
+            setTimeout(() => loadStatus(true), 500);
+        }
+
+        async function stopSvc(name) {
+            toast('停止 ' + name);
+            await invoke('stop ' + sq(name));
+            setTimeout(() => loadStatus(true), 500);
+        }
+
+        async function restartSvc(name) {
+            toast('重启 ' + name);
+            await invoke('start auto ' + sq(name));
+            setTimeout(() => loadStatus(true), 500);
+        }
+
+        async function showLog(name) {
+            currentLogName = name;
+            document.getElementById('log-title').textContent = name + ' 日志';
+            document.getElementById('log-content').textContent = '加载中...';
+            document.getElementById('modal-log').classList.add('show');
+            await refreshLog();
+        }
+
+        // 测试区日志按钮：测试开关关 -> 开机命令日志，开 -> 测试运行日志
+        function showTestLog() {
+            showLog(isTestMode ? 'run_test' : 'boot_commands');
+        }
+
+        async function refreshLog() {
+            if (!currentLogName) return;
+            const r = await invoke('readlog ' + sq(currentLogName) + ' 500');
+            if (r.stdout) {
+                try {
+                    const d = JSON.parse(r.stdout);
+                    if (d.content) {
+                        const content = base64ToUtf8(d.content);
+                        document.getElementById('log-content').textContent = content || '无内容';
+                    } else {
+                        document.getElementById('log-content').textContent = d.error || '无内容';
+                    }
+                } catch (e) {
+                    document.getElementById('log-content').textContent = r.stdout;
+                }
+            } else { document.getElementById('log-content').textContent = '无内容'; }
+        }
+
+        function base64ToUtf8(base64) {
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return new TextDecoder('utf-8').decode(bytes);
+        }
+
+        function copyLog() {
+            const content = document.getElementById('log-content').textContent;
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(content).then(() => toast('已复制'));
+            } else {
+                toast('不支持复制');
+            }
+        }
+
+        function closeLogModal() { document.getElementById('modal-log').classList.remove('show'); }
+
+        function logToTop() {
+            const el = document.getElementById('log-content');
+            el.scrollTop = 0;
+        }
+
+        function logToBottom() {
+            const el = document.getElementById('log-content');
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function parseTermux(str) {
+            const arr = [];
+            (str || '').split('\n').forEach(line => {
+                const p = line.trim().split('|');
+                if (p.length >= 5) arr.push({ name: p[0], port: p[1], extra: p[2], auto: p[3], cmd: p.slice(4).join('|') });
+                else if (p.length >= 4) arr.push({ name: p[0], port: '', extra: p[1], auto: p[2], cmd: p.slice(3).join('|') });
+            });
+            return arr;
+        }
+
+        function parseBinary(str) {
+            const arr = [];
+            (str || '').split('\n').forEach(line => {
+                const p = line.trim().split('|');
+                if (p.length >= 4) arr.push({ name: p[0], port: p[1], auto: p[2], cmd: p.slice(3).join('|') });
+                else if (p.length >= 3) arr.push({ name: p[0], port: '', auto: p[1], cmd: p.slice(2).join('|') });
+            });
+            return arr;
+        }
+
+        function stringifyTermux(arr) { return arr.map(s => `${s.name}|${s.port || ''}|${s.extra}|${s.auto}|${s.cmd}`).join('\n'); }
+        function stringifyBinary(arr) { return arr.map(s => `${s.name}|${s.port || ''}|${s.auto}|${s.cmd}`).join('\n'); }
+
+        async function loadConfig(force = false, silent = false) {
+            if (!ksuApi) { toast('请先初始化'); return; }
+            if (!force && isConfigLoaded) return;
+            if (force && !silent) toast('刷新中...');
+            const r = await invoke('getconfig');
+            if (r.errno !== 0 || !r.stdout) {
+                if (force && !silent) toast('刷新失败', true);
+                return;
+            }
+            try {
+                const d = JSON.parse(r.stdout);
+                const sv = parseInt(d.sleep_interval, 10);
+                configData.sleep_interval = (isNaN(sv) || sv < 5) ? 5 : sv;
+                configData.server_dir = d.server_dir || '';
+                configData.termux_services = parseTermux(d.termux_services || '');
+                configData.services = parseBinary(d.services || '');
+                configData.boot_commands = d.boot_commands || '';
+                isConfigLoaded = true;
+                renderConfigFromCache();
+                if (force && !silent) toast('已刷新');
+            } catch (e) { toast('解析失败: ' + e.message); }
+        }
+
+        function renderConfigFromCache() {
+            sortMode.termux = false;
+            sortMode.binary = false;
+            document.getElementById('sort-termux-btn').textContent = '排序';
+            document.getElementById('sort-binary-btn').textContent = '排序';
+            document.getElementById('input-sleep').value = configData.sleep_interval;
+            document.getElementById('input-server-dir').value = configData.server_dir;
+            isTestMode = false;
+            testCmdData = '';
+            document.getElementById('test-cmd-switch').checked = false;
+            document.getElementById('test-run-bar').style.display = 'none';
+            document.getElementById('input-boot-cmds').value = configData.boot_commands;
+            const hint = document.getElementById('input-boot-cmds').parentNode.querySelector('.form-hint');
+            hint.textContent = '模块启动时执行；编辑完成后点击其他位置自动保存';
+            hint.style.color = '';
+            renderConfigLists();
+        }
+
+        function renderConfigLists() {
+            const renderRow = (type, s, i, isTermux) => {
+                const portText = s.port ? `port:${s.port}` : 'port:未知';
+                const sorting = sortMode[type];
+                const actions = sorting
+                    ? `<button class="btn btn-md" onclick="moveItem('${type}', ${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
+                       <button class="btn btn-md" onclick="moveItem('${type}', ${i}, 1)" ${i === (isTermux ? configData.termux_services.length - 1 : configData.services.length - 1) ? 'disabled' : ''}>↓</button>`
+                    : `<button class="btn btn-lg" onclick="openModal('${type}', ${i})">编辑</button>
+                       <button class="btn btn-lg btn-danger" onclick="confirmDelete('${type}', ${i})">删除</button>`;
+                return `
+                <div class="item" ${sorting ? '' : `onclick="openModal('${type}', ${i})"`}>
+                    <div class="item-info">
+                        <div class="item-name">${escapeHtml(s.name)}</div>
+                        <div class="item-meta" style="display:flex;align-items:center;gap:3px;">
+                            <span class="port">${portText}</span>
+                            <span class="tag ${s.auto === 'start' ? 'tag-on' : 'tag-off'}">${escapeHtml(s.auto)}</span>
+                        </div>
+                    </div>
+                    <div class="actions" onclick="event.stopPropagation()">${actions}</div>
+                </div>`;
+            };
+
+            const tEl = document.getElementById('config-termux-list');
+            if (configData.termux_services.length) {
+                tEl.innerHTML = configData.termux_services.map((s, i) => renderRow('termux', s, i, true)).join('');
+            } else { tEl.innerHTML = '<div class="empty">暂无服务</div>'; }
+
+            const bEl = document.getElementById('config-binary-list');
+            if (configData.services.length) {
+                bEl.innerHTML = configData.services.map((s, i) => renderRow('binary', s, i, false)).join('');
+            } else { bEl.innerHTML = '<div class="empty">暂无服务</div>'; }
+        }
+
+        function toggleSort(type) {
+            sortMode[type] = !sortMode[type];
+            document.getElementById('sort-' + type + '-btn').textContent = sortMode[type] ? '确认' : '排序';
+            renderConfigLists();
+            if (!sortMode[type]) {
+                toast('保存排序...');
+                saveConfig();
+            }
+        }
+
+        function moveItem(type, idx, dir) {
+            const arr = type === 'termux' ? configData.termux_services : configData.services;
+            const j = idx + dir;
+            if (j < 0 || j >= arr.length) return;
+            const t = arr[idx];
+            arr[idx] = arr[j];
+            arr[j] = t;
+            renderConfigLists();
+        }
+
+        function confirmDelete(type, idx) {
+            const name = type === 'termux' ? configData.termux_services[idx].name : configData.services[idx].name;
+            document.getElementById('confirm-message').innerHTML = `确定要删除服务 <strong>${escapeHtml(name)}</strong> 吗？`;
+            document.getElementById('modal-confirm').classList.add('show');
+            confirmCallback = () => {
+                if (type === 'termux') {
+                    configData.termux_services.splice(idx, 1);
+                } else {
+                    configData.services.splice(idx, 1);
+                }
+                renderConfigLists();
+                toast('保存中...');
+                saveConfig();
+                closeConfirm();
+            };
+        }
+
+        function closeConfirm() {
+            document.getElementById('modal-confirm').classList.remove('show');
+            confirmCallback = null;
+        }
+
+        document.getElementById('confirm-btn').onclick = () => {
+            if (confirmCallback) confirmCallback();
+        };
+
+        function openModal(type, idx) {
+            const editing = typeof idx === 'number' && idx >= 0;
+            document.getElementById('modal-' + type).classList.add('show');
+            if (type === 'termux') {
+                const s = editing ? configData.termux_services[idx] : { name: '', port: '', extra: '', auto: 'start', cmd: '' };
+                document.getElementById('modal-termux-title').textContent = editing ? '编辑 Termux 服务' : '添加 Termux 服务';
+                document.getElementById('edit-termux-idx').value = editing ? idx : -1;
+                document.getElementById('input-termux-name').value = s.name;
+                document.getElementById('input-termux-port').value = s.port || '';
+                document.getElementById('input-termux-extra').value = s.extra || '';
+                document.getElementById('input-termux-auto').checked = s.auto !== 'stop';
+                document.getElementById('input-termux-cmd').value = displayCmd(s.cmd);
+            } else {
+                const s = editing ? configData.services[idx] : { name: '', port: '', auto: 'start', cmd: '' };
+                document.getElementById('modal-binary-title').textContent = editing ? '编辑二进制服务' : '添加二进制服务';
+                document.getElementById('edit-binary-idx').value = editing ? idx : -1;
+                document.getElementById('input-binary-name').value = s.name;
+                document.getElementById('input-binary-port').value = s.port || '';
+                document.getElementById('input-binary-auto').checked = s.auto !== 'stop';
+                document.getElementById('input-binary-cmd').value = displayCmd(s.cmd);
+            }
+        }
+
+        function closeModal(type) { document.getElementById('modal-' + type).classList.remove('show'); }
+
+        function saveTermuxService() {
+            const idx = parseInt(document.getElementById('edit-termux-idx').value);
+            const s = {
+                name: document.getElementById('input-termux-name').value.trim(),
+                port: document.getElementById('input-termux-port').value.trim(),
+                extra: document.getElementById('input-termux-extra').value.trim(),
+                auto: document.getElementById('input-termux-auto').checked ? 'start' : 'stop',
+                cmd: normalizeCmd(document.getElementById('input-termux-cmd').value)
+            };
+            if (!s.name || !s.cmd) { toast('请填写必填项', true); return; }
+            const nameErr = checkServiceName(s.name);
+            if (nameErr) { toast(nameErr, true); return; }
+            if (!EXTRA_RE.test(s.extra)) { toast('附加参数不合法', true); return; }
+            if (idx === -1) configData.termux_services.push(s);
+            else configData.termux_services[idx] = s;
+            closeModal('termux');
+            renderConfigLists();
+            toast('保存中...');
+            saveConfig();
+        }
+
+        function saveBinaryService() {
+            const idx = parseInt(document.getElementById('edit-binary-idx').value);
+            const s = {
+                name: document.getElementById('input-binary-name').value.trim(),
+                port: document.getElementById('input-binary-port').value.trim(),
+                auto: document.getElementById('input-binary-auto').checked ? 'start' : 'stop',
+                cmd: normalizeCmd(document.getElementById('input-binary-cmd').value)
+            };
+            if (!s.name || !s.cmd) { toast('请填写必填项', true); return; }
+            const nameErr = checkServiceName(s.name);
+            if (nameErr) { toast(nameErr, true); return; }
+            if (idx === -1) configData.services.push(s);
+            else configData.services[idx] = s;
+            closeModal('binary');
+            renderConfigLists();
+            toast('保存中...');
+            saveConfig();
+        }
+
+        function validateBasic() {
+            let valid = true;
+            const sleepEl = document.getElementById('input-sleep');
+            const sleepErr = document.getElementById('error-sleep');
+            const raw = (sleepEl.value || '').trim();
+            if (!/^\d*$/.test(raw) || (raw !== '' && parseInt(raw, 10) < 5)) {
+                sleepErr.textContent = '最小值为5秒';
+                sleepEl.classList.add('error');
+                valid = false;
+            } else {
+                sleepErr.textContent = '';
+                sleepEl.classList.remove('error');
+            }
+            return valid;
+        }
+
+        function autoSaveBasic() {
+            if (validateBasic()) {
+                toast('保存中...');
+                saveConfig();
+            } else {
+                toast('数据无效，请修正', true);
+            }
+        }
+
+        function saveBootCmds() {
+            const value = document.getElementById('input-boot-cmds').value;
+            if (isTestMode) {
+                testCmdData = value;
+                return;
+            }
+            configData.boot_commands = value;
+            toast('保存中...');
+            saveConfig();
+        }
+
+        async function toggleTestCmd() {
+            const runBar = document.getElementById('test-run-bar');
+            const textarea = document.getElementById('input-boot-cmds');
+            const hint = textarea.parentNode.querySelector('.form-hint');
+            isTestMode = document.getElementById('test-cmd-switch').checked;
+            const btnDisplay = isTestMode ? 'flex' : 'none';
+            runBar.style.display = btnDisplay;
+
+            if (isTestMode) {
+                await invoke('clearlog run_test');
+                if (!testCmdData && textarea.value === configData.boot_commands) {
+                    testCmdData = '';
+                }
+                textarea.value = testCmdData;
+                hint.textContent = '测试模式：编辑的内容不会保存开机命令中';
+                hint.style.color = '#dc2626';
+            } else {
+                testCmdData = textarea.value;
+                textarea.value = configData.boot_commands;
+                hint.textContent = '开机命令：模块启动时执行，编辑后点击框外自动保存';
+                hint.style.color = '';
+            }
+        }
+
+        async function runTestCmds(mode) {
+            const cmds = document.getElementById('input-boot-cmds').value.trim();
+            if (!cmds) { toast('请输入要执行的命令', true); return; }
+            const useTermux = mode === 'termux';
+            toast(useTermux ? '以 Termux 运行（测试）命令...' : '运行（测试）命令...');
+            const sub = useTermux ? 'runcmdtermux' : 'runcmd';
+            const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
+            const script = 'sh ' + sq(MODDIR + '/action.sh') + ' ' + sub + ' <<' + sq(tag) + '\n' + cmds + '\n' + tag;
+            const r = await exec(script);
+            if (r.errno === 0) { toast('已执行，详情可查看日志'); }
+            else { toast('执行失败', true); }
+        }
+
+        async function saveConfig() {
+            if (!ksuApi || !MODDIR) { toast('请先初始化', true); return; }
+            let sleepInterval = parseInt(document.getElementById('input-sleep').value);
+            if (isNaN(sleepInterval) || sleepInterval < 5) sleepInterval = 5;
+            if (sleepInterval > 86400) sleepInterval = 86400;
+            const serverDir = (document.getElementById('input-server-dir').value || '').trim().replace(/\/storage\/emulated\/0\//g, '/data/media/0/');
+            const termuxStr = stringifyTermux(configData.termux_services);
+            const binaryStr = stringifyBinary(configData.services);
+            const bootStr = isTestMode ? configData.boot_commands : (document.getElementById('input-boot-cmds').value || '');
+
+            // 通过固定 helper 传输 key=base64(value)，shell 端白名单校验，不做命令拼接执行
+            const payload = [
+                'sleep_interval=' + toB64(String(sleepInterval)),
+                'server_dir=' + toB64(serverDir),
+                'termux_services=' + toB64(termuxStr),
+                'services=' + toB64(binaryStr),
+                'boot_commands=' + toB64(bootStr)
+            ].join('\n');
+            const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
+            const script = 'sh ' + sq(MODDIR + '/action.sh') + ' saveconfig <<' + sq(tag) + '\n' + payload + '\n' + tag;
+            const r = await exec(script);
+            if (r.errno === 0) {
+                try {
+                    const d = JSON.parse(r.stdout || '{}');
+                    if (d.success) {
+                        await loadConfig(true, true);
+                        toast('已保存');
+                        return;
+                    }
+                    showDebug('保存配置返回失败：\n\nstdout:\n' + (r.stdout || '') + '\n\nstderr:\n' + (r.stderr || ''));
+                    toast(d.error || '保存失败', true);
+                } catch (e) {
+                    showDebug('保存配置返回无法解析：\n\nstdout:\n' + (r.stdout || '') + '\n\n解析错误：' + e.message);
+                    toast('保存失败', true);
+                }
+            } else {
+                showDebug('执行保存命令失败：\nerrno=' + r.errno + '\nstderr:\n' + (r.stderr || ''));
+                toast('保存失败', true);
+            }
+        }
+
+        async function init() {
+            if (!initRootApi()) return;
+            // 先用上次缓存立即渲染列表（页面秒开），随后后台刷新真实状态
+            const cached = loadStatusCache();
+            if (cached) {
+                statusData = cached;
+                isStatusLoaded = true;
+                renderStatusFromCache();
+            }
+            const ok = await initModuleDir();
+            if (!ok || !MODDIR) return;
+            loadStatus(true);
+        }
+        init();
+    </script>
+</body>
+</html>

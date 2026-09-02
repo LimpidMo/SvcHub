@@ -1,0 +1,16 @@
+# 打包产物 / 发布文件
+*.zip
+*.img
+
+# 日志与运行期临时文件（模块在设备上生成的 run/ log/ 也不入库）
+*.log
+*.tmp
+*.pid
+run/
+log/
+
+# 编辑器 / 系统
+*.swp
+*~
+.DS_Store
+Thumbs.db

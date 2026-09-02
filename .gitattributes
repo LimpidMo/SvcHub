@@ -1,0 +1,7 @@
+# 模块脚本必须保持 LF（在 Android /system/bin/sh 上执行，CRLF 会破坏 shebang）
+* text=auto
+*.sh text eol=lf
+module.prop text eol=lf
+*.conf text eol=lf
+*.html text eol=lf
+*.json text eol=lf

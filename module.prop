@@ -1,0 +1,6 @@
+id=SvcHub
+name=SvcHub
+version=1.0
+versionCode=1
+author=Mo
+description=开机自启和保活 Termux 服务与二进制服务，并提供 WebUI 聚合管理
