@@ -21,6 +21,8 @@ TERMUX_UID=$(stat -c '%u' "$TERMUX_HOME" 2>/dev/null || stat -c '%u' /data/data/
 # Termux 启动命令必须注入的环境（单引号保留 $PATH 让 su 内 shell 展开）；
 TERMUX_ENV='export PREFIX=/data/data/com.termux/files/usr; export PATH=$PREFIX/bin:$PATH; export TMPDIR=$PREFIX/tmp; export LD_LIBRARY_PATH=$PREFIX/lib;'
 DEFAULT_SERVER_DIR="/data/media/0/Server"
+# 日志统一上限（字节），默认1MB=1048576
+LOG_MAX_BYTES=1048576
 
 mkdir -p "$RUNDIR" "$LOG_DIR"
 
@@ -47,53 +49,6 @@ cfg_get() {
     printf '%s' "$val" | dec_js
 }
 
-# 一次性把五项配置写成 config.json（原子替换）
-write_config_json() {
-    local si=$1 sd=$2 ts=$3 sv=$4 bc=$5 tmp="$CONFIG_FILE.tmp"
-    {
-        echo '{'
-        printf '  "sleep_interval": "%s",\n'  "$(printf '%s' "$si" | enc_js)"
-        printf '  "server_dir": "%s",\n'      "$(printf '%s' "$sd" | enc_js)"
-        printf '  "termux_services": "%s",\n' "$(printf '%s' "$ts" | enc_js)"
-        printf '  "services": "%s",\n'        "$(printf '%s' "$sv" | enc_js)"
-        printf '  "boot_commands": "%s"\n'    "$(printf '%s' "$bc" | enc_js)"
-        echo '}'
-    } > "$tmp" && mv -f "$tmp" "$CONFIG_FILE"
-}
-
-# 旧版 base64 行格式 config 一次性迁移到 config.json（仅当新文件不存在时）
-if [ -f "$MODDIR/config" ] && [ ! -f "$CONFIG_FILE" ]; then
-    _legacy_get() {
-        local key=$1 line k b64
-        while IFS= read -r line; do
-            k=${line%%=*}
-            [ "$k" = "$key" ] || continue
-            b64=${line#*=}
-            [ -n "$b64" ] || return 0
-            printf '%s' "$b64" | base64 -d 2>/dev/null
-            return 0
-        done < "$MODDIR/config"
-        return 0
-    }
-    write_config_json \
-        "$(_legacy_get sleep_interval)" \
-        "$(_legacy_get server_dir)" \
-        "$(_legacy_get termux_services)" \
-        "$(_legacy_get services)" \
-        "$(_legacy_get boot_commands)"
-    mv -f "$MODDIR/config" "$MODDIR/config.legacy"
-fi
-
-# ---------- su 可用性检测（兼容 KernelSU / Magisk / APatch） ----------
-
-su_ready() {
-    command -v su >/dev/null 2>&1 && return 0
-    [ -e /system/bin/su ] && return 0
-    [ -e /data/adb/ap/bin/su ] && return 0
-    [ -e /data/adb/magisk/busybox ] && return 0
-    return 1
-}
-
 # ---------- 校验 ----------
 
 is_int() {
@@ -110,25 +65,71 @@ valid_name() {
     return 0
 }
 
+# 一次性把五项配置写成 config.json（原子替换）
+write_config_json() {
+    local si=$1 sd=$2 ts=$3 sv=$4 bc=$5 tmp="$CONFIG_FILE.tmp"
+    {
+        echo '{'
+        printf '  "sleep_interval": "%s",\n'  "$(printf '%s' "$si" | enc_js)"
+        printf '  "server_dir": "%s",\n'      "$(printf '%s' "$sd" | enc_js)"
+        printf '  "termux_services": "%s",\n' "$(printf '%s' "$ts" | enc_js)"
+        printf '  "services": "%s",\n'        "$(printf '%s' "$sv" | enc_js)"
+        printf '  "boot_commands": "%s"\n'    "$(printf '%s' "$bc" | enc_js)"
+        echo '}'
+    } > "$tmp" && mv -f "$tmp" "$CONFIG_FILE"
+}
+
+
+# ---------- su 可用性检测（兼容 KernelSU / Magisk / APatch） ----------
+
+# 只负责找 su 入口
+get_su_bin() {
+    local p
+
+    p=$(command -v su 2>/dev/null)
+    if [ -n "$p" ] && [ -x "$p" ]; then
+        printf '%s\n' "$p"
+        return 0
+    fi
+
+    # 仅兜底 PATH 异常；Magic Mount 主入口
+    for p in /system/bin/su; do
+        if [ -x "$p" ]; then
+            printf '%s\n' "$p"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 # ---------- 日志 ----------
 
-# 日志超过上限时保留最近一半，避免无限增长
+# 日志超过上限时保留最近1/4，避免无限增长
 rotate_log() {
-    local log=$1 max=${2:-524288} sz
+    local log=$1 max=${2:-$LOG_MAX_BYTES} sz
     [ -f "$log" ] || return 0
     sz=$(wc -c < "$log" 2>/dev/null | tr -d ' ')
-    [ -n "$sz" ] && [ "$sz" -le "$max" ] && return 0
-    if command -v tail >/dev/null 2>&1; then
-        tail -c $((max / 2)) "$log" > "$log.tmp" 2>/dev/null && mv -f "$log.tmp" "$log" || : > "$log"
-    else
-        : > "$log"
-    fi
+    [ "$sz" -le "$max" ] 2>/dev/null && return 0
+    tail -c $((max / 4)) "$log" > "$log.tmp" 2>/dev/null || { : > "$log"; return 0; }
+    cat "$log.tmp" > "$log"
+    rm -f "$log.tmp"
+    return 0
+}
+
+# 巡检时全量轮转：log/ 下所有日志套用统一上限
+rotate_all_logs() {
+    local f
+    for f in "$LOG_DIR"/*.log; do
+        [ -f "$f" ] || continue
+        rotate_log "$f"
+    done
+    return 0
 }
 
 # 从 stdin 逐行执行并记录（sh -c，不做 eval；# 注释行会保留执行）
 run_command_lines() {
     local mark=$1 line log="$LOG_DIR/boot_commands.log"
-    rotate_log "$log" 1048576
     {
         echo "=== $mark $(date '+%Y-%m-%d %H:%M:%S') ==="
         while IFS= read -r line; do
@@ -215,15 +216,8 @@ start_svc() {
     # svc_running 已确认不在运行，残留 pid 文件直接清理后重新启动
     rm -f "$pidf"
     ( cd "$dir" 2>/dev/null ) || return 2
-    rotate_log "$log"
-    # 优先按 PATH 解析 su；解析不到时依次尝试常见绝对路径（兼容 KernelSU / Magisk / APatch）
-    su_bin=$(command -v su 2>/dev/null)
-    if [ -z "$su_bin" ]; then
-        for p in /system/bin/su /data/adb/ap/bin/su /data/adb/magisk/busybox; do
-            [ -e "$p" ] && { su_bin="$p"; break; }
-        done
-    fi
-    [ -n "$su_bin" ] || su_bin="/system/bin/su"
+    # 先找 su 入口，若不存在则直接返回失败（不尝试启动）
+    su_bin=$(get_su_bin) || return 3
     (
         cd "$dir"
         : > "$log"
@@ -234,14 +228,31 @@ start_svc() {
     return 0
 }
 
-# 按 pid 文件终止：读取首行 pid，向整个进程组发送 SIGKILL
+# 按 pid 文件终止：读取首行 pid，先向整个进程组发送 发送 SIGTERM 优雅终止再SIGKILL 强杀
 kill_by_name() {
     local name=$1 pidf="$RUNDIR/$1.pid" pid
     [ -f "$pidf" ] || return 1
-    read -r pid < "$pidf" || return 1
+    read -r pid < "$pidf" || { rm -f "$pidf"; return 1; }
+    # pid 合法性校验：必须是大于 1 的纯数字，防止 pid 文件损坏
+    is_int "$pid" || { rm -f "$pidf"; return 1; }
+    [ "$pid" -gt 1 ] || { rm -f "$pidf"; return 1; }
 
-    # 向整个进程组发送 SIGKILL
-    kill -9 -- -"$pid" 2>/dev/null
+    # 1. 发送 SIGTERM (15) 优雅终止,让程序自行执行退出程序防止残留
+    kill -15 -- -"$pid" 2>/dev/null || kill -15 "-$pid" 2>/dev/null
+
+    # 2. 轮询等待退出（最多 2 秒，间隔 0.5 秒）
+    local i=0
+    while [ $i -lt 4 ] && kill -0 "$pid" 2>/dev/null; do
+        sleep 0.5
+        i=$((i + 1))
+    done
+
+    # 3. 若仍存活，发送 SIGKILL (9) 强杀
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -9 -- -"$pid" 2>/dev/null || kill -9 "-$pid" 2>/dev/null
+    fi
+
+    return 0
 }
 
 

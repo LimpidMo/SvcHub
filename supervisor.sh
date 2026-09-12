@@ -18,7 +18,6 @@ fi
 
 echo "$$" > "$SPPID"
 echo "$(date '+%F %T') supervisor 启动 pid=$$" >> "$SUPERLOG"
-rotate_log "$SUPERLOG" 262144
 
 # 分三阶段等待并分开记录日志，全部就绪后才进行首次巡检：
 # 阶段一（系统启动）：sys.boot_completed=1 且开机动画结束（init.svc.bootanim=stopped）
@@ -31,30 +30,46 @@ while [ "$i" -lt 300 ]; do
     if [ "$stage" -eq 1 ]; then
         boot_done=$(getprop sys.boot_completed 2>/dev/null)
         anim_done=$(getprop init.svc.bootanim 2>/dev/null)
-        if [ "$boot_done" = "1" ] && [ "$anim_done" = "stopped" ]; then
+
+        if { [ "$boot_done" = "1" ] || [ "$boot_done" = "true" ]; } &&
+           { [ -z "$anim_done" ] || [ "$anim_done" = "stopped" ]; }; then
             echo "$(date '+%F %T') 系统启动完成" >> "$SUPERLOG"
             stage=2
         fi
+
     elif [ "$stage" -eq 2 ]; then
         ce_ready=$(getprop sys.user.0.ce_available 2>/dev/null)
-        if [ "$ce_ready" = "true" ]; then
-            echo "$(date '+%F %T') 设备解锁，服务目录可访问" >> "$SUPERLOG"
+
+        # /data/media/0 是 CE 存储，必须解锁后才能读取；仅判断 -d 不够，需判断可读
+        if [ "$ce_ready" = "true" ] || [ -z "$ce_ready" ] || ls /data/media/0 >/dev/null 2>&1; then
+            echo "$(date '+%F %T') 设备解锁，服务存储可访问" >> "$SUPERLOG"
             stage=3
         fi
+
     else
-        if su_ready; then
-            echo "$(date '+%F %T') su 就绪，开始巡检" >> "$SUPERLOG"
+        if su_bin=$(get_su_bin 2>/dev/null); then
+            su_state=yes
+            echo "$(date '+%F %T') su 就绪：$su_bin，开始巡检" >> "$SUPERLOG"
             break
         fi
     fi
     sleep 1
     i=$((i + 1))
 done
+
 if [ "$i" -ge 300 ]; then
-    su_ready && su_state=yes || su_state=no
+    if get_su_bin 2>/dev/null; then
+        su_state=yes
+    else
+        su_state=no
+    fi
+
     echo "$(date '+%F %T') 等待系统启动/解锁/su 超时(300s)，继续巡检 (boot=$boot_done anim=$anim_done ce=$ce_ready su=$su_state)" >> "$SUPERLOG"
 fi
-#sleep 30
+
+#首轮加载一次配置
+load_cfg_sh
+
 while :; do
     if [ -f "$DISABLE_FILE" ]; then
         echo "$(date '+%F %T') 检测到 disable，停止全部受管服务" >> "$SUPERLOG"
@@ -62,8 +77,6 @@ while :; do
         rm -f "$SPPID"
         exit 0
     fi
-
-    load_cfg_sh
 
     echo "[$(date '+%F %T')] 巡检开始 interval=${SLEEP_INTERVAL}s" >> "$SUPERLOG"
 
@@ -119,6 +132,34 @@ $SERVICES
 EOF
 
     echo "[$(date '+%F %T')] 巡检完成" >> "$SUPERLOG"
-    rotate_log "$SUPERLOG" 262144
-    sleep "$SLEEP_INTERVAL"
+    rotate_all_logs
+    
+    # 分片休眠：长间隔拆成 <=60s 的分片，每片后重读配置，实现间隔热更新；
+    # 防止从 3600s 调回 120s 需等待整个旧周期才能生效。
+    elapsed=0
+    target=$SLEEP_INTERVAL
+
+    while [ "$elapsed" -lt "$target" ]; do
+        # disable 优先响应，避免睡完整个长周期
+        [ -f "$DISABLE_FILE" ] && break
+
+        chunk=$((target - elapsed))
+        [ "$chunk" -gt 60 ] && chunk=60
+
+        sleep "$chunk" || break
+        elapsed=$((elapsed + chunk))
+
+        # 每片后重读配置，检查间隔是否被修改
+        old_target=$target
+        load_cfg_sh
+        target=$SLEEP_INTERVAL
+
+        # 间隔发生变化时写入日志
+        if [ "$target" != "$old_target" ]; then
+            echo "[$(date '+%F %T')] 检查间隔更新为 ${target}s" >> "$SUPERLOG"
+        fi
+
+        # 新间隔已到或已过，立即结束本轮休眠进入巡检
+        [ "$elapsed" -ge "$target" ] && break
+    done
 done

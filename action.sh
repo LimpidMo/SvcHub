@@ -254,7 +254,6 @@ api_save_config() {
 # $1=标记 $2=su 调用基准（正常=su，termux=su $TERMUX_UID） $3=命令前缀（termux 注入 TERMUX_ENV）
 run_test_lines() {
     local mark=$1 runner=$2 env_prefix=$3 line log="$LOG_DIR/run_test.log"
-    rotate_log "$log" 1048576
     {
         echo "=== $mark $(date '+%Y-%m-%d %H:%M:%S') ==="
         while IFS= read -r line; do
