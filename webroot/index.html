@@ -64,6 +64,7 @@
         .toast.error { background: #dc2626; }
         .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: none; justify-content: center; align-items: center; z-index: 200; }
         .modal.show { display: flex; }
+        body.modal-open { overflow: hidden; }
         .modal-box { background: #fff; border-radius: 8px; width: 90%; max-width: 400px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; }
         .modal-hd { padding: 16px; border-bottom: 1px solid var(--line); font-weight: 500; font-size: 14px; }
         .modal-bd { padding: 16px; overflow-y: auto; flex: 1; }
@@ -89,6 +90,12 @@
         .switch-slider::before { position: absolute; content: ''; height: 16px; width: 16px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
         .switch input:checked + .switch-slider { background: #22c55e; }
         .switch input:checked + .switch-slider::before { transform: translateX(22px); }
+        .wifi-group-title { font-size: 11px; color: var(--muted); letter-spacing: 0.5px; margin: 10px 0 6px; }
+        .wifi-group-title:first-child { margin-top: 0; }
+        .wifi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px; }
+        .wifi-grid label { display: flex; align-items: center; gap: 8px; padding: 6px 4px; font-size: 13px; cursor: pointer; border-radius: 4px; }
+        .wifi-grid label:active { background: var(--bg); }
+        .wifi-grid .port { margin-left: auto; }
         .confirm-msg { font-size: 13px; color: var(--text); line-height: 1.6; }
         .confirm-msg strong { color: #dc2626; }
     </style>
@@ -136,6 +143,26 @@
                             <button class="btn btn-lg" onclick="showLog('supervisor')">日志</button>
                         </div>
                         <div class="form-error" id="error-sleep"></div>
+                    </div>
+                    <div class="form">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label class="form-label" style="margin:0;">Wi-Fi 启停服务</label>
+                            <label class="switch">
+                                <input type="checkbox" id="wifi-service-switch" onchange="toggleWifiService()">
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                        <div id="wifi-service-panel" style="display:none;">
+                            <div style="display:flex;gap:6px;margin-bottom:10px;">
+                                <button class="btn btn-lg" id="wifi-pick-btn" style="flex:1;" onclick="openWifiModal('on')">连接启停组 (0)</button>
+                                <button class="btn btn-lg" id="wifi-pick-off-btn" style="flex:1;" onclick="openWifiModal('off')">断开启停组 (0)</button>
+                                <button class="btn btn-lg" onclick="showLog('wifi')">日志</button>
+                            </div>
+                            <div class="form-hint" style="margin-bottom:10px;">两组选择的服务互斥，防止冲突循环启动</div>
+                            <label class="form-label">Wi-Fi SSID（每行一个，留空 = 任意 WiFi）</label>
+                            <textarea class="form-input form-textarea" id="input-wifi-ssids" onblur="saveWifiSsids()" placeholder="每行一个 SSID，留空表示任意 WiFi 连接均可"></textarea>
+                            <div class="form-hint">两组共用；编辑完成后点击框外自动保存</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -286,6 +313,17 @@
         </div>
     </div>
 
+    <div class="modal" id="modal-wifi-pick">
+        <div class="modal-box">
+            <div class="modal-hd" id="wifi-pick-title">选择参与 Wi-Fi 启停的服务</div>
+            <div class="modal-bd" id="wifi-pick-body"></div>
+            <div class="modal-ft">
+                <button class="btn" onclick="closeWifiModal()">取消</button>
+                <button class="btn btn-primary" id="wifi-pick-ok" onclick="confirmWifiPick()">确定</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal" id="modal-confirm">
         <div class="modal-box">
             <div class="modal-hd" id="confirm-title">确认删除</div>
@@ -317,7 +355,7 @@
 
         let MODDIR = '';
         let ksuApi = null;
-        let configData = { sleep_interval: 60, server_dir: '', termux_services: [], services: [], boot_commands: '' };
+        let configData = { sleep_interval: 60, server_dir: '', termux_services: [], services: [], boot_commands: '', wifi_service_enabled: false, wifi_service_names: new Set(), wifi_service_names_off: new Set(), wifi_ssids: '' };
         let statusData = { termux_services: [], services: [] };
         let testCmdData = '';
         let isTestMode = false;
@@ -503,6 +541,7 @@
 
         // 切换到指定页面（导航点击与滑动共用）
         function switchPage(name) {
+            if (anyModalOpen()) return; // 弹窗打开时不允许切页
             document.querySelectorAll('.nav-item').forEach(e => e.classList.toggle('active', e.dataset.page === name));
             document.querySelectorAll('.page').forEach(e => e.classList.remove('active'));
             document.getElementById('page-' + name).classList.add('active');
@@ -526,6 +565,7 @@
             let sx = 0, sy = 0, tracking = false;
             box.addEventListener('touchstart', e => {
                 tracking = false;
+                if (anyModalOpen()) return; // 弹窗打开时不跟踪滑动
                 if (!e.touches || e.touches.length !== 1) return;
                 if (e.target.closest && e.target.closest('input, textarea')) return;
                 sx = e.touches[0].clientX;
@@ -686,7 +726,7 @@
             currentLogName = name;
             document.getElementById('log-title').textContent = name + ' 日志';
             document.getElementById('log-content').textContent = '加载中...';
-            document.getElementById('modal-log').classList.add('show');
+            showAnyModal('modal-log');
             await refreshLog();
         }
 
@@ -731,7 +771,7 @@
             }
         }
 
-        function closeLogModal() { document.getElementById('modal-log').classList.remove('show'); }
+        function closeLogModal() { hideAnyModal('modal-log'); }
 
         function logToTop() {
             const el = document.getElementById('log-content');
@@ -783,6 +823,14 @@
                 configData.termux_services = parseTermux(d.termux_services || '');
                 configData.services = parseBinary(d.services || '');
                 configData.boot_commands = d.boot_commands || '';
+                configData.wifi_service_enabled = d.wifi_service_enabled === '1';
+                configData.wifi_service_names = new Set(
+                    (d.wifi_service_names || '').split('\n').map(s => s.trim()).filter(Boolean)
+                );
+                configData.wifi_service_names_off = new Set(
+                    (d.wifi_service_names_off || '').split('\n').map(s => s.trim()).filter(Boolean)
+                );
+                configData.wifi_ssids = d.wifi_ssids || '';
                 isConfigLoaded = true;
                 renderConfigFromCache();
                 if (force && !silent) toast('已刷新');
@@ -804,6 +852,10 @@
             const hint = document.getElementById('input-boot-cmds').parentNode.querySelector('.form-hint');
             hint.textContent = '模块启动时执行；编辑完成后点击其他位置自动保存';
             hint.style.color = '';
+            document.getElementById('wifi-service-switch').checked = configData.wifi_service_enabled;
+            document.getElementById('wifi-service-panel').style.display = configData.wifi_service_enabled ? 'block' : 'none';
+            document.getElementById('input-wifi-ssids').value = configData.wifi_ssids;
+            updateWifiPickBtn();
             renderConfigLists();
         }
 
@@ -860,10 +912,21 @@
             renderConfigLists();
         }
 
+        // —— 真模态：任一弹窗打开期间，锁定背景滚动与滑动切页 ——
+        function anyModalOpen() { return !!document.querySelector('.modal.show'); }
+        function showAnyModal(id) {
+            document.getElementById(id).classList.add('show');
+            document.body.classList.add('modal-open');
+        }
+        function hideAnyModal(id) {
+            document.getElementById(id).classList.remove('show');
+            if (!anyModalOpen()) document.body.classList.remove('modal-open');
+        }
+
         function confirmDelete(type, idx) {
             const name = type === 'termux' ? configData.termux_services[idx].name : configData.services[idx].name;
             document.getElementById('confirm-message').innerHTML = `确定要删除服务 <strong>${escapeHtml(name)}</strong> 吗？`;
-            document.getElementById('modal-confirm').classList.add('show');
+            showAnyModal('modal-confirm');
             confirmCallback = () => {
                 if (type === 'termux') {
                     configData.termux_services.splice(idx, 1);
@@ -878,7 +941,7 @@
         }
 
         function closeConfirm() {
-            document.getElementById('modal-confirm').classList.remove('show');
+            hideAnyModal('modal-confirm');
             confirmCallback = null;
         }
 
@@ -888,7 +951,7 @@
 
         function openModal(type, idx) {
             const editing = typeof idx === 'number' && idx >= 0;
-            document.getElementById('modal-' + type).classList.add('show');
+            showAnyModal('modal-' + type);
             if (type === 'termux') {
                 const s = editing ? configData.termux_services[idx] : { name: '', port: '', extra: '', auto: 'start', cmd: '' };
                 document.getElementById('modal-termux-title').textContent = editing ? '编辑 Termux 服务' : '添加 Termux 服务';
@@ -909,7 +972,7 @@
             }
         }
 
-        function closeModal(type) { document.getElementById('modal-' + type).classList.remove('show'); }
+        function closeModal(type) { hideAnyModal('modal-' + type); }
 
         function saveTermuxService() {
             const idx = parseInt(document.getElementById('edit-termux-idx').value);
@@ -987,6 +1050,165 @@
             saveConfig();
         }
 
+        // —— Wi-Fi 启停服务 ——
+
+        // SSID 仅做行级整理（去首尾空白、去空行、去重），不限制字符集：
+        // 中文、全角符号、空格、emoji 均允许，仅 | 与真实换行因存储格式受限被剔除。
+        // 保留行内空格，只去掉首尾空白，避免 "My Home" 这类 SSID 被改写。
+        function normalizeSsidText(raw) {
+            const seen = new Set();
+            const out = [];
+            String(raw || '').split('\n').forEach(line => {
+                line = line.replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+                if (!line || /[|]/.test(line) || seen.has(line)) return;
+                seen.add(line);
+                out.push(line);
+            });
+            return out.join('\n');
+        }
+
+        // SSID 文本框失焦：整理后走单键保存（轻量，不触发全页重载）
+        function saveWifiSsids() {
+            if (!isConfigLoaded) {
+                toast('配置未加载完成，请稍后再试', true);
+                return;
+            }
+            const el = document.getElementById('input-wifi-ssids');
+            const cleaned = normalizeSsidText(el.value);
+            if (cleaned !== el.value) el.value = cleaned;
+            if (cleaned === configData.wifi_ssids) return; // 无变化不打扰后端
+            toast('保存中...');
+            saveWifiKey('wifi_ssids', cleaned, (ok) => {
+                if (!ok) el.value = configData.wifi_ssids; // 失败回滚显示
+            });
+        }
+
+        function toggleWifiService() {
+            if (!isConfigLoaded) {
+                // 配置未加载完成：回弹开关并阻止保存，避免把内存中的空列表写空设备配置
+                document.getElementById('wifi-service-switch').checked = false;
+                toast('配置未加载完成，请稍后再试', true);
+                return;
+            }
+            const on = document.getElementById('wifi-service-switch').checked;
+            document.getElementById('wifi-service-panel').style.display = on ? 'block' : 'none';
+            if (on) {
+                const ssidEl = document.getElementById('input-wifi-ssids');
+                ssidEl.value = normalizeSsidText(ssidEl.value);
+            }
+            // 轻量保存：只发开关单键（saveconfig 缺键继承其余），不做全量重载；
+            // 面板展开是同步的，体感即时。失败时回弹开关。
+            configData.wifi_service_enabled = on;
+            toast('保存中...');
+            saveWifiKey('wifi_service_enabled', on ? '1' : '0', (ok) => {
+                if (!ok) {
+                    configData.wifi_service_enabled = !on;
+                    document.getElementById('wifi-service-switch').checked = !on;
+                    document.getElementById('wifi-service-panel').style.display = !on ? 'block' : 'none';
+                }
+            });
+        }
+
+        // 单键保存：只提交一个 wifi 键，后端缺键继承其余配置；不触发全页重载
+        async function saveWifiKey(key, value, done) {
+            if (!ksuApi || !MODDIR || !isConfigLoaded) {
+                toast('配置未加载完成，已取消保存', true);
+                if (done) done(false);
+                return;
+            }
+            const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
+            const script = 'sh ' + sq(MODDIR + '/action.sh') + ' saveconfig <<' + sq(tag) + '\n' + key + '=' + toB64(value) + '\n' + tag;
+            const r = await exec(script);
+            let ok = false;
+            if (r.errno === 0) {
+                try { ok = !!(JSON.parse(r.stdout || '{}').success); } catch (e) { ok = false; }
+            }
+            if (ok) {
+                if (key === 'wifi_service_enabled') configData.wifi_service_enabled = (value === '1');
+                else if (key === 'wifi_ssids') configData.wifi_ssids = value;
+                toast('已保存');
+            } else {
+                toast('保存失败', true);
+            }
+            if (done) done(ok);
+        }
+
+        function updateWifiPickBtn() {
+            document.getElementById('wifi-pick-btn').textContent = '连接启停组 (' + configData.wifi_service_names.size + ')';
+            document.getElementById('wifi-pick-off-btn').textContent = '断开启停组 (' + configData.wifi_service_names_off.size + ')';
+        }
+
+        // 选择弹窗：只显示服务名（不读端口，省渲染）；另一组的已选服务直接过滤掉，
+        // 两组互斥在选择时即生效，无需确定后再踢除。
+        function renderWifiPickBody(picked, excluded) {
+            const groups = [
+                { title: 'Termux 服务', list: configData.termux_services },
+                { title: '二进制服务', list: configData.services }
+            ].map(g => ({ title: g.title, list: g.list.filter(s => !excluded.has(s.name)) }))
+             .filter(g => g.list.length);
+            if (!groups.length) return '<div class="empty">暂无可选服务（其余已在另一组）</div>';
+            return groups.map(g => `
+                <div class="wifi-group-title">${g.title}</div>
+                <div class="wifi-grid">
+                    ${g.list.map(s => `
+                    <label>
+                        <input type="checkbox" value="${escapeHtml(s.name)}" ${picked.has(s.name) ? 'checked' : ''}>
+                        <span>${escapeHtml(s.name)}</span>
+                    </label>`).join('')}
+                </div>`).join('');
+        }
+
+        // wifi 弹窗按 mode 复用：on=连接启停组名单，off=断开启停组名单
+        let wifiPickMode = 'on';
+        let wifiPickBackup = null;
+
+        function wifiPickTarget() {
+            return wifiPickMode === 'off' ? configData.wifi_service_names_off : configData.wifi_service_names;
+        }
+
+        function openWifiModal(mode) {
+            wifiPickMode = (mode === 'off') ? 'off' : 'on';
+            const picked = new Set(wifiPickTarget());
+            // 另一组已选的直接不显示，互斥在选择时生效
+            const excluded = wifiPickMode === 'off' ? configData.wifi_service_names : configData.wifi_service_names_off;
+            wifiPickBackup = picked;
+            document.getElementById('wifi-pick-title').textContent =
+                wifiPickMode === 'off' ? '选择断开组服务（断开则运行，连上则停止）' : '选择连接组服务（连上时运行,断开则停止）';
+            document.getElementById('wifi-pick-body').innerHTML = renderWifiPickBody(picked, excluded);
+            document.getElementById('wifi-pick-ok').disabled = !configData.termux_services.length && !configData.services.length;
+            showAnyModal('modal-wifi-pick');
+        }
+
+        function closeWifiModal() {
+            // 取消：恢复弹窗打开前的选择
+            if (wifiPickBackup) {
+                if (wifiPickMode === 'off') configData.wifi_service_names_off = new Set(wifiPickBackup);
+                else configData.wifi_service_names = new Set(wifiPickBackup);
+            }
+            wifiPickBackup = null;
+            hideAnyModal('modal-wifi-pick');
+        }
+
+        function confirmWifiPick() {
+            const picked = new Set();
+            document.querySelectorAll('#wifi-pick-body input[type="checkbox"]:checked').forEach(el => picked.add(el.value));
+            // 互斥已在渲染时过滤，确定时直接落盘（后端连接优先仍是兜底）
+            if (wifiPickMode === 'off') configData.wifi_service_names_off = picked;
+            else configData.wifi_service_names = picked;
+            wifiPickBackup = null;
+            hideAnyModal('modal-wifi-pick');
+            updateWifiPickBtn();
+            // 轻量保存：只发本组名单单键，不做全量重载；失败回滚按钮计数
+            toast('保存中...');
+            const key = wifiPickMode === 'off' ? 'wifi_service_names_off' : 'wifi_service_names';
+            saveWifiKey(key, [...picked].join('\n'), (ok) => { if (ok) updateWifiPickBtn(); });
+        }
+
+        // 弹窗遮罩点击 = 取消
+        document.getElementById('modal-wifi-pick').addEventListener('click', function(e) {
+            if (e.target === this) closeWifiModal();
+        });
+
         async function toggleTestCmd() {
             const runBar = document.getElementById('test-run-bar');
             const textarea = document.getElementById('input-boot-cmds');
@@ -1026,6 +1248,8 @@
 
         async function saveConfig() {
             if (!ksuApi || !MODDIR) { toast('请先初始化', true); return; }
+            // 配置未成功加载前一律拒绝保存：内存里是空列表，全量提交会把设备配置写空
+            if (!isConfigLoaded) { toast('配置未加载完成，已取消保存', true); return; }
             let sleepInterval = parseInt(document.getElementById('input-sleep').value);
             if (isNaN(sleepInterval) || sleepInterval < 5) sleepInterval = 5;
             if (sleepInterval > 86400) sleepInterval = 86400;
@@ -1033,6 +1257,10 @@
             const termuxStr = stringifyTermux(configData.termux_services);
             const binaryStr = stringifyBinary(configData.services);
             const bootStr = isTestMode ? configData.boot_commands : (document.getElementById('input-boot-cmds').value || '');
+            const wifiEnabled = document.getElementById('wifi-service-switch').checked ? '1' : '0';
+            const wifiNames = [...configData.wifi_service_names].join('\n');
+            const wifiNamesOff = [...configData.wifi_service_names_off].join('\n');
+            const wifiSsids = normalizeSsidText(document.getElementById('input-wifi-ssids').value);
 
             // 通过固定 helper 传输 key=base64(value)，shell 端白名单校验，不做命令拼接执行
             const payload = [
@@ -1040,7 +1268,11 @@
                 'server_dir=' + toB64(serverDir),
                 'termux_services=' + toB64(termuxStr),
                 'services=' + toB64(binaryStr),
-                'boot_commands=' + toB64(bootStr)
+                'boot_commands=' + toB64(bootStr),
+                'wifi_service_enabled=' + toB64(wifiEnabled),
+                'wifi_service_names=' + toB64(wifiNames),
+                'wifi_service_names_off=' + toB64(wifiNamesOff),
+                'wifi_ssids=' + toB64(wifiSsids)
             ].join('\n');
             const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
             const script = 'sh ' + sq(MODDIR + '/action.sh') + ' saveconfig <<' + sq(tag) + '\n' + payload + '\n' + tag;

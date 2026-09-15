@@ -1,13 +1,24 @@
 # 打包产物 / 发布文件
 *.zip
-*.img
+*.7z
 
-# 日志与运行期临时文件（模块在设备上生成的 run/ log/ 也不入库）
+#项目相关文件
+dist/
+docs/
+tools/
+AGENTS.md
+
+# 日志与运行期临时文件
 *.log
 *.tmp
 *.pid
 run/
 log/
+config.json
+
+
+# 本地联调沙盒
+.mock-sandbox/
 
 # 编辑器 / 系统
 *.swp
