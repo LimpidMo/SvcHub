@@ -21,11 +21,13 @@ ui_print "+ 正在安装 ${NAME} v${VER}"
 
 # ==================== 音量键选择函数 ====================
 # 返回 0 = 音量上(VOL+)， 1 = 音量下(VOL-)， 2 = 超时或失败
+# 总时长收敛：按 deadline 耗满 DELAY 即返回，不做第二轮重试
 chooseport() {
-    local DELAY=${1:-5}
-    local error=false
-    local count=0
+    local DELAY=${1:-10}
     local GETEVENT=""
+    local vk_file deadline now remaining chunk rc
+
+    [ "$DELAY" -gt 0 ] 2>/dev/null || DELAY=10
 
     # 依次探测可用的 getevent
     if [ -x /system/bin/getevent ]; then
@@ -39,28 +41,31 @@ chooseport() {
     else
         return 2
     fi
+    command -v timeout >/dev/null 2>&1 || return 2
 
-    while true; do
-        count=0
-        while true; do
-            timeout "$DELAY" $GETEVENT -lqc 1 > "$TMPDIR/_vk" 2>/dev/null
-            if grep -q 'KEY_VOLUMEUP.*DOWN' "$TMPDIR/_vk" 2>/dev/null; then
-                rm -f "$TMPDIR/_vk"
-                return 0
-            elif grep -q 'KEY_VOLUMEDOWN.*DOWN' "$TMPDIR/_vk" 2>/dev/null; then
-                rm -f "$TMPDIR/_vk"
-                return 1
-            fi
-            count=$((count + 1))
-            [ $count -gt 10 ] && break
-        done
+    vk_file="${TMPDIR:-/dev/tmp}/_vk"
+    deadline=$(date +%s 2>/dev/null) || return 2
+    deadline=$((deadline + DELAY))
 
-        if $error; then
-            rm -f "$TMPDIR/_vk"
-            return 2
-        else
-            error=true
-            ui_print "  ! 未检测到按键，请重试..."
+    while :; do
+        now=$(date +%s 2>/dev/null) || { rm -f "$vk_file"; return 2; }
+        remaining=$((deadline - now))
+        [ "$remaining" -le 0 ] && { rm -f "$vk_file"; return 2; }
+        # 短轮询：按键最多延迟一个 chunk 即被捕获，无按键时耗满剩余时间即判超时
+        chunk=$remaining
+        [ "$chunk" -gt 2 ] && chunk=2
+        timeout "$chunk" $GETEVENT -lqc 1 > "$vk_file" 2>/dev/null
+        rc=$?
+        if grep -q 'KEY_VOLUMEUP.*DOWN' "$vk_file" 2>/dev/null; then
+            rm -f "$vk_file"
+            return 0
+        elif grep -q 'KEY_VOLUMEDOWN.*DOWN' "$vk_file" 2>/dev/null; then
+            rm -f "$vk_file"
+            return 1
+        fi
+        # 非超时类异常(缺二进制等)短暂歇一下再继续，仍受总超时约束
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ "$rc" -ne 142 ]; then
+            sleep 1 2>/dev/null
         fi
     done
 }

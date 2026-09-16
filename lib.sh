@@ -11,6 +11,7 @@ RUNDIR="$MODDIR/run"
 LOG_DIR="$MODDIR/log"
 SUPERLOG="$LOG_DIR/supervisor.log"
 SPPID="$RUNDIR/supervisor.pid"
+BOOTID_FILE="$RUNDIR/boot_id"
 DISABLE_FILE="$MODDIR/disable"
 CONFIG_FILE="$MODDIR/config.json"
 
@@ -80,7 +81,7 @@ valid_name() {
 
 # 配置一次性写成 config.json（原子替换）
 write_config_json() {
-	local si=$1 sd=$2 ts=$3 sv=$4 bc=$5 wse=$6 wsn=$7 wss=$8 wsn_off=$9 tmp="$CONFIG_FILE.tmp"
+	local si=$1 sd=$2 ts=$3 sv=$4 bc=$5 wse=$6 wsn=$7 wss=$8 wsn_off=$9 sche=${10} schstop=${11} schstart=${12} tmp="$CONFIG_FILE.tmp"
 	{
 		echo '{'
 		printf '  "sleep_interval": "%s",\n'          "$(printf '%s' "$si" | enc_js)"
@@ -91,7 +92,10 @@ write_config_json() {
 		printf '  "wifi_service_enabled": "%s",\n'    "$(printf '%s' "$wse" | enc_js)"
 		printf '  "wifi_service_names": "%s",\n'      "$(printf '%s' "$wsn" | enc_js)"
 		printf '  "wifi_service_names_off": "%s",\n'  "$(printf '%s' "$wsn_off" | enc_js)"
-		printf '  "wifi_ssids": "%s"\n'               "$(printf '%s' "$wss" | enc_js)"
+		printf '  "wifi_ssids": "%s",\n'              "$(printf '%s' "$wss" | enc_js)"
+		printf '  "schedule_enabled": "%s",\n'        "$(printf '%s' "$sche" | enc_js)"
+		printf '  "schedule_stop": "%s",\n'           "$(printf '%s' "$schstop" | enc_js)"
+		printf '  "schedule_start": "%s"\n'           "$(printf '%s' "$schstart" | enc_js)"
 		echo '}'
 	} > "$tmp" && mv -f "$tmp" "$CONFIG_FILE"
 }
@@ -293,6 +297,20 @@ stop_svc() {
 	return 0
 }
 
+# 停止配置中已被删除的服务：对比新旧两类行列表，旧有新无且仍在运行则停
+stop_removed_services() {
+	local old_ts=$1 new_ts=$2 old_sv=$3 new_sv=$4 name
+	{
+		printf '%s\n' "$old_ts" | list_names
+		printf '%s\n' "$old_sv" | list_names
+	} | sort -u | while IFS= read -r name; do
+		[ -n "$name" ] || continue
+		printf '%s\n' "$new_ts" | awk -F'|' -v n="$name" '$1==n{found=1; exit} END{exit !found}' && continue
+		printf '%s\n' "$new_sv" | awk -F'|' -v n="$name" '$1==n{found=1; exit} END{exit !found}' && continue
+		svc_running "$name" && stop_svc "$name"
+	done
+}
+
 # 停止全部已配置服务
 stop_all() {
 	printf '%s\n' "$(cfg_get termux_services)" | while IFS='|' read -r name port extra auto cmd; do
@@ -342,6 +360,41 @@ ensure_wifi_defaults() {
 	return 0
 }
 
+# 旧版 config.json 缺定时键时，只做行级插入补默认值，不触碰已有行。
+# 注意：与 ensure_wifi_defaults 同理，基础键缺失说明文件结构异常，此时不动文件。
+ensure_schedule_defaults() {
+	local k missing tmp
+	[ -f "$CONFIG_FILE" ] || return 0
+	missing=""
+	for k in schedule_enabled schedule_stop schedule_start; do
+		grep -q "^[[:space:]]*\"$k\"[[:space:]]*:" "$CONFIG_FILE" 2>/dev/null || missing="$missing $k"
+	done
+	[ -n "$missing" ] || return 0
+	for k in sleep_interval server_dir termux_services services boot_commands; do
+		grep -q "^[[:space:]]*\"$k\"[[:space:]]*:" "$CONFIG_FILE" 2>/dev/null || return 0
+	done
+	tmp="$CONFIG_FILE.tmp"
+	awk '
+		/"schedule_enabled"/ { have_sche = 1 }
+		/"schedule_stop"/ { have_schstop = 1 }
+		/"schedule_start"/ { have_schstart = 1 }
+		/^[[:space:]]*}[[:space:]]*$/ && !done {
+			if (prev != "" && prev !~ /,[[:space:]]*$/) prev = prev ","
+			if (prev != "") print prev
+			prev = ""
+			if (!have_sche) print "  \"schedule_enabled\": \"0\","
+			if (!have_schstop) print "  \"schedule_stop\": \"\","
+			if (!have_schstart) print "  \"schedule_start\": \"\""
+			print $0
+			done = 1
+			next
+		}
+		{ if (prev != "") print prev; prev = $0 }
+		END { if (!done && prev != "") print prev }
+	' "$CONFIG_FILE" > "$tmp" && mv -f "$tmp" "$CONFIG_FILE"
+	return 0
+}
+
 load_cfg_sh() {
 	SLEEP_INTERVAL=$(cfg_get sleep_interval)
 	SERVER_DIR=$(cfg_get server_dir)
@@ -352,11 +405,14 @@ load_cfg_sh() {
 	WIFI_SERVICE_NAMES=$(cfg_get wifi_service_names)
 	WIFI_SERVICE_NAMES_OFF=$(cfg_get wifi_service_names_off)
 	WIFI_SSIDS=$(cfg_get wifi_ssids)
+	SCHEDULE_ENABLED=$(cfg_get schedule_enabled)
+	SCHEDULE_STOP=$(cfg_get schedule_stop)
+	SCHEDULE_START=$(cfg_get schedule_start)
 
 	[ -n "$SLEEP_INTERVAL" ] || SLEEP_INTERVAL=60
 	is_int "$SLEEP_INTERVAL" || SLEEP_INTERVAL=60
-    # 保活间隔最小 5 秒，最大 86400 秒
-	[ "$SLEEP_INTERVAL" -lt 5 ] && SLEEP_INTERVAL=5
+    # 保活间隔最小 10 秒，最大 86400 秒
+	[ "$SLEEP_INTERVAL" -lt 10 ] && SLEEP_INTERVAL=10
 	[ "$SLEEP_INTERVAL" -gt 86400 ] && SLEEP_INTERVAL=86400
 
 	[ -n "$SERVER_DIR" ] || SERVER_DIR="$DEFAULT_SERVER_DIR"
@@ -367,7 +423,10 @@ load_cfg_sh() {
 
 	[ "$WIFI_SERVICE_ENABLED" = "1" ] || WIFI_SERVICE_ENABLED="0"
 
+	[ "$SCHEDULE_ENABLED" = "1" ] || SCHEDULE_ENABLED="0"
+
 	ensure_wifi_defaults
+	ensure_schedule_defaults
 }
 
 # 按名称从配置取整行（awk 保留 cmd 中的 |；返回整行 $0）
@@ -385,6 +444,56 @@ should_run() {
 	a=$(printf '%s\n' "$TERMUX_SERVICES" | awk -F'|' -v n="$name" '$1==n { print $4; exit }')
 	[ -n "$a" ] || a=$(printf '%s\n' "$SERVICES" | awk -F'|' -v n="$name" '$1==n { print $3; exit }')
 	printf '%s' "$a"
+}
+
+# ---------- 定时启停 ----------
+
+# 定时专用日志（独立于 supervisor.log，WebUI 日志按钮读取 SCHED_LOG_NAME）
+SCHED_LOG_NAME="schedule"
+SCHED_LOG="$LOG_DIR/$SCHED_LOG_NAME.log"
+# 停止窗状态（内存态）：1=当前在停止窗内，巡检与 Wi-Fi 启动分支均跳过
+SCHED_IN_WINDOW="0"
+
+sched_log() {
+	[ -n "$1" ] || return 0
+	echo "[$(date '+%F %T')] $1" >> "$SCHED_LOG"
+}
+
+# 纯判定：当前 now 是否落在 [stop, start) 停止窗内；返回 0=在窗内，1=窗外。
+# $1=stop(HH:MM) $2=start(HH:MM) $3=now(HH:MM)；无副作用，可直接单元测试。
+# 跨夜（stop > start）视为 [stop,24:00)∪[00:00,start)；stop==start 或任一非法视为窗外。
+sched_in_window() {
+	local stop_h stop_m start_h start_m now_h now_m stop start now
+	case "$1" in
+		[0-2][0-9]:[0-5][0-9]) ;;
+		*) return 1 ;;
+	esac
+	case "$2" in
+		[0-2][0-9]:[0-5][0-9]) ;;
+		*) return 1 ;;
+	esac
+	case "$3" in
+		[0-2][0-9]:[0-5][0-9]) ;;
+		*) return 1 ;;
+	esac
+	stop_h=${1%%:*}; stop_m=${1#*:}
+	start_h=${2%%:*}; start_m=${2#*:}
+	now_h=${3%%:*}; now_m=${3#*:}
+	[ "$stop_h" -le 23 ] 2>/dev/null || return 1
+	[ "$start_h" -le 23 ] 2>/dev/null || return 1
+	[ "$now_h" -le 23 ] 2>/dev/null || return 1
+	# 去前导零后再算术（POSIX sh 无 10# 前缀，08/09 会被当八进制报错）
+	stop_h=${stop_h#0}; start_h=${start_h#0}; now_h=${now_h#0}
+	stop_m=${stop_m#0}; start_m=${start_m#0}; now_m=${now_m#0}
+	[ -n "$stop_h" ] || stop_h=0; [ -n "$start_h" ] || start_h=0; [ -n "$now_h" ] || now_h=0
+	[ -n "$stop_m" ] || stop_m=0; [ -n "$start_m" ] || start_m=0; [ -n "$now_m" ] || now_m=0
+	stop=$((stop_h * 60 + stop_m)); start=$((start_h * 60 + start_m)); now=$((now_h * 60 + now_m))
+	[ "$stop" -eq "$start" ] && return 1
+	if [ "$stop" -lt "$start" ]; then
+		[ "$now" -ge "$stop" ] && [ "$now" -lt "$start" ] && return 0 || return 1
+	else
+		[ "$now" -ge "$stop" ] || [ "$now" -lt "$start" ] && return 0 || return 1
+	fi
 }
 
 # ---------- Wi-Fi 策略控制 ----------
@@ -616,7 +725,7 @@ sync_wifi_service_policy() {
 		if [ "$new_policy" = "allow" ]; then do_start=1; do_stop=""; else do_start=""; do_stop=1; fi
 	fi
 
-	if [ -n "$do_start" ]; then
+	if [ -n "$do_start" ] && [ "$SCHED_IN_WINDOW" != "1" ]; then
 		for name in $names_list; do
 			valid_name "$name" || continue
 			svc_running "$name" && continue

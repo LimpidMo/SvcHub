@@ -48,8 +48,10 @@
         .form { padding: 16px; border-bottom: 1px solid var(--line); }
         .form:last-child { border-bottom: none; }
         .form-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: block; letter-spacing: 0.5px; }
+        .form-label-strong { font-size: 12px; color: var(--text); font-weight: 600; margin-bottom: 6px; display: block; letter-spacing: 0.5px; }
         .form-input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; font-size: 13px; background: #fff; }
         .form-input:focus { outline: none; border-color: var(--accent); }
+        .form-input::placeholder { font-size: 11px; color: #aaa; }
         .form-input.error { border-color: #dc2626; }
         .form-row { display: flex; align-items: center; gap: 8px; }
         .form-row .form-input { flex: 1; min-width: 0; }
@@ -137,16 +139,40 @@
                 </div>
                 <div class="section-body">
                     <div class="form">
-                        <label class="form-label">检查间隔 (秒)</label>
+                        <label class="form-label-strong">检查间隔 (秒)</label>
                         <div class="form-row">
-                            <input type="number" class="form-input" id="input-sleep" value="60" min="5" onblur="autoSaveBasic()" placeholder="最小 5 秒，建议 60 秒">
+                            <input type="number" class="form-input" id="input-sleep" value="60" min="10" onblur="autoSaveBasic()" placeholder="最小 10 秒，建议 60 秒">
                             <button class="btn btn-lg" onclick="showLog('supervisor')">日志</button>
                         </div>
                         <div class="form-error" id="error-sleep"></div>
                     </div>
                     <div class="form">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                            <label class="form-label" style="margin:0;">Wi-Fi 启停服务</label>
+                            <label class="form-label-strong" style="margin:0;">定时启停服务</label>
+                            <label class="switch">
+                                <input type="checkbox" id="schedule-switch" onchange="toggleSchedule()">
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                        <div id="schedule-panel" style="display:none;">
+                            <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end;">
+                                <div style="flex:1;min-width:0;">
+                                    <label class="form-label">停止时间</label>
+                                    <input type="time" class="form-input" id="input-schedule-stop" value="" onchange="autoSaveSchedule()">
+                                </div>
+                                <div style="flex:1;min-width:0;">
+                                    <label class="form-label">启动时间</label>
+                                    <input type="time" class="form-input" id="input-schedule-start" value="" onchange="autoSaveSchedule()">
+                                </div>
+                                <button class="btn btn-lg" style="flex-shrink:0;" onclick="showLog('schedule')">日志</button>
+                            </div>
+                            <div class="form-hint">每日生效；停止早于启动为跨夜窗口（如停 22:00、启 07:00）；选好时间自动保存，关闭只停功能，时间保留</div>
+                            <div class="form-error" id="error-schedule"></div>
+                        </div>
+                    </div>
+                    <div class="form">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label class="form-label-strong" style="margin:0;">Wi-Fi 启停服务</label>
                             <label class="switch">
                                 <input type="checkbox" id="wifi-service-switch" onchange="toggleWifiService()">
                                 <span class="switch-slider"></span>
@@ -164,6 +190,7 @@
                             <div class="form-hint">两组共用；编辑完成后点击框外自动保存</div>
                         </div>
                     </div>
+
                 </div>
             </div>
             <div class="section">
@@ -211,7 +238,7 @@
                 </div>
                 <div class="section-body">
                     <div class="form" style="border-bottom:1px solid var(--line);">
-                        <label class="form-label">服务目录</label>
+                        <label class="form-label-strong">服务目录</label>
                         <input type="text" class="form-input" id="input-server-dir" onblur="autoSaveBasic()" placeholder="/storage/emulated/0/ → 自动转换可执行目录 /data/media/0/">
                         <div class="form-hint">务必将二进制文件设为可执行权限</div>
                     </div>
@@ -242,12 +269,12 @@
                     </div>
                     <div style="flex:1;min-width:0;">
                         <label class="form-label">端口（仅标识，非执行参数）</label>
-                        <input type="text" class="form-input" id="input-termux-port" placeholder="填入可打开对应服务页">
+                        <input type="text" class="form-input" id="input-termux-port" placeholder="用于打开 Web 页">
                     </div>
                 </div>
                 <div class="form" style="padding:0 0 10px 0;border:none;">
                     <label class="form-label">附加参数 <span class="form-hint" style="display:inline;margin-left:6px;">（一般不须填写，仅对用户、权限敏感的程序使用）</span></label>
-                    <input type="text" class="form-input" id="input-termux-extra" font-size placeholder="-g 3003 网络权限、-u 10123 指定用户运行">
+                    <input type="text" class="form-input" id="input-termux-extra" placeholder="-g 3003 网络权限、-u 10123 指定用户运行">
                 </div>
                 <div class="form" style="padding:0;border:none;">
                     <label class="form-label">启动命令 *（必须）</label>
@@ -282,7 +309,7 @@
                     </div>
                     <div style="flex:1;min-width:0;">
                         <label class="form-label">端口（仅标识，非执行参数）</label>
-                        <input type="text" class="form-input" id="input-binary-port" placeholder="填入可打开对应服务页">
+                        <input type="text" class="form-input" id="input-binary-port" placeholder="可用于打开 Web 页">
                     </div>
                 </div>
                 <div class="form" style="padding:0;border:none;">
@@ -302,9 +329,10 @@
             <div class="log-toolbar">
                 <span class="log-title" id="log-title">日志</span>
                 <div class="actions">
-                    <button class="btn btn-sm" onclick="logToTop()">↑</button>
-                    <button class="btn btn-sm" onclick="logToBottom()">↓</button>
-                    <button class="btn btn-sm" onclick="refreshLog()">刷新</button>
+                    <button class="btn btn-sm" id="log-top-btn" onclick="logToTop()">↑</button>
+                    <button class="btn btn-sm" id="log-bottom-btn" onclick="logToBottom()">↓</button>
+                    <button class="btn btn-sm" id="log-clear-btn" onclick="confirmClearLog()">清空</button>
+                    <button class="btn btn-sm" id="log-refresh-btn" onclick="toggleLogRefresh()">暂停</button>
                     <button class="btn btn-sm" onclick="copyLog()">复制</button>
                     <button class="btn btn-sm" onclick="closeLogModal()">关闭</button>
                 </div>
@@ -355,7 +383,7 @@
 
         let MODDIR = '';
         let ksuApi = null;
-        let configData = { sleep_interval: 60, server_dir: '', termux_services: [], services: [], boot_commands: '', wifi_service_enabled: false, wifi_service_names: new Set(), wifi_service_names_off: new Set(), wifi_ssids: '' };
+        let configData = { sleep_interval: 60, server_dir: '', termux_services: [], services: [], boot_commands: '', wifi_service_enabled: false, wifi_service_names: new Set(), wifi_service_names_off: new Set(), wifi_ssids: '', schedule_enabled: false, schedule_stop: '', schedule_start: '' };
         let statusData = { termux_services: [], services: [] };
         let testCmdData = '';
         let isTestMode = false;
@@ -420,10 +448,22 @@
         }
 
         // 状态页本地缓存：先渲染缓存秒开，后台刷新后覆盖
+        // 跨重启防护：缓存附带 boot_id + 5 分钟过期，刷新失败即清缓存，
+        // 避免后端脚本出错时一直呈现旧数据
         const STATUS_CACHE_KEY = 'svcbox_status_cache_v1';
+        const STATUS_BOOT_KEY = 'svcbox_status_boot_v1';
+        const STATUS_CACHE_TTL = 5 * 60 * 1000;
+
+        function clearStatusCache() {
+            try { localStorage.removeItem(STATUS_CACHE_KEY); } catch (e) { /* 存储不可用时忽略 */ }
+            try { localStorage.removeItem(STATUS_BOOT_KEY); } catch (e) { /* 存储不可用时忽略 */ }
+        }
 
         function saveStatusCache(d) {
             try { localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify({ t: Date.now(), d })); } catch (e) { /* 存储不可用时忽略 */ }
+            try {
+                if (d && d.boot_id !== undefined) localStorage.setItem(STATUS_BOOT_KEY, String(d.boot_id));
+            } catch (e) { /* 存储不可用时忽略 */ }
         }
 
         function loadStatusCache() {
@@ -431,7 +471,10 @@
                 const raw = localStorage.getItem(STATUS_CACHE_KEY);
                 if (!raw) return null;
                 const o = JSON.parse(raw);
-                return (o && o.d && Array.isArray(o.d.termux_services)) ? o.d : null;
+                if (!o || !o.d || !Array.isArray(o.d.termux_services)) return null;
+                // 过期缓存直接丢弃，下次打开不再呈现旧数据
+                if (!o.t || Date.now() - o.t > STATUS_CACHE_TTL) { clearStatusCache(); return null; }
+                return o.d;
             } catch (e) { return null; }
         }
 
@@ -596,11 +639,22 @@
             if (force) toast('刷新中...');
             const r = await invoke('status');
             if (r.errno !== 0 || !r.stdout) {
+                // 刷新失败清旧数据：缓存 + 内存，避免一直呈现重启前的旧状态
+                clearStatusCache();
+                statusData = { termux_services: [], services: [] };
+                isStatusLoaded = false;
+                document.getElementById('termux-list').innerHTML = '<div class="empty">刷新失败，请重试</div>';
+                document.getElementById('binary-list').innerHTML = '<div class="empty">刷新失败，请重试</div>';
                 if (force) toast('刷新失败', true);
                 return;
             }
             try {
                 const d = JSON.parse(r.stdout);
+                // 跨重启识别：后端 boot_id 变化说明设备已重启，不再用本次之前的覆盖写入
+                try {
+                    const lastBoot = localStorage.getItem(STATUS_BOOT_KEY);
+                    if (lastBoot !== null && d.boot_id !== undefined && String(d.boot_id) !== String(lastBoot)) clearStatusCache();
+                } catch (e) { /* 存储不可用时忽略 */ }
                 statusData = d;
                 isStatusLoaded = true;
                 saveStatusCache(d);
@@ -608,7 +662,11 @@
                 renderStatusList('binary-list', d.services, false);
                 if (force) toast('已刷新');
             } catch (e) {
-                document.getElementById('termux-list').innerHTML = '<div class="empty">解析失败</div>';
+                clearStatusCache();
+                statusData = { termux_services: [], services: [] };
+                isStatusLoaded = false;
+                document.getElementById('termux-list').innerHTML = '<div class="empty">解析失败，请重试</div>';
+                document.getElementById('binary-list').innerHTML = '<div class="empty">解析失败，请重试</div>';
             }
         }
 
@@ -617,16 +675,31 @@
             renderStatusList('binary-list', statusData.services, false);
         }
 
+        // 端口标签：纯数字且 1~65535 显示 port:数字；其他文本直显当标签；空显示 port:未知
+        function parseValidPort(port) {
+            const p = String(port || '').trim();
+            if (!/^[0-9]+$/.test(p)) return null;
+            const n = parseInt(p, 10);
+            if (n < 1 || n > 65535) return null;
+            return n;
+        }
+        function formatPort(port) {
+            const p = String(port || '').trim();
+            if (!p) return 'port:未知';
+            const n = parseValidPort(p);
+            return n === null ? p : 'port:' + n;
+        }
+
         function renderStatusList(id, services, isTermux) {
             const el = document.getElementById(id);
             if (!services || !services.length) { el.innerHTML = '<div class="empty">暂无服务</div>'; return; }
             el.innerHTML = services.map((s, i) => {
-                const portText = s.port ? `port:${s.port}` : 'port:未知';
+                const portText = formatPort(s.port);
                 const running = s.status === 'running';
                 const pending = pendingNames.has(s.name);
                 const failed = failedNames.has(s.name);
                 const dotCls = pending ? 'dot-restarting' : (running ? 'dot-on' : (failed ? 'dot-error' : 'dot-off'));
-                const openBtn = (running && /^[0-9]{1,5}$/.test(String(s.port || '')))
+                const openBtn = (running && parseValidPort(s.port) !== null)
                     ? `<button class="btn btn-md" style="border-color:#3b82f6;color:#2563eb;background:#eff6ff;" onclick="openSvcPort('${s.port}')">打开</button>`
                     : '';
                 return `
@@ -651,9 +724,12 @@
             }).join('');
         }
 
-        function openSvcPort(port) {
-            if (!/^[0-9]{1,5}$/.test(String(port))) { toast('端口无效', true); return; }
-            invoke('open ' + sq(port));
+        async function openSvcPort(port) {
+            if (parseValidPort(port) === null) { toast('端口无效', true); return; }
+            const r = await invoke('open ' + sq(String(port).trim()));
+            let ok = false;
+            try { ok = r.errno === 0 && !!JSON.parse(r.stdout || '{}').success; } catch (e) { ok = false; }
+            if (!ok) toast('打开失败', true);
         }
 
         // 命令显示还原：保存时 " 转义为 \"，读取显示还原为 "
@@ -726,8 +802,11 @@
             currentLogName = name;
             document.getElementById('log-title').textContent = name + ' 日志';
             document.getElementById('log-content').textContent = '加载中...';
+            logAutoRefresh = true;
+            updateLogRefreshBtn();
             showAnyModal('modal-log');
-            await refreshLog();
+            await refreshLog(true);
+            startLogAutoRefresh();
         }
 
         // 测试区日志按钮：测试开关关 -> 开机命令日志，开 -> 测试运行日志
@@ -735,7 +814,41 @@
             showLog(isTestMode ? 'run_test' : 'boot_commands');
         }
 
-        async function refreshLog() {
+        // 日志自动刷新：打开即每 3 秒拉取，按钮在暂停/刷新间切换；每次刷新滑到底部
+        let logAutoRefresh = false;
+        let logTimer = null;
+
+        function updateLogRefreshBtn() {
+            document.getElementById('log-refresh-btn').textContent = logAutoRefresh ? '暂停' : '刷新';
+            // 刷新态隐藏顶部/底部按钮、显示清空；暂停态反之
+            document.getElementById('log-top-btn').style.display = logAutoRefresh ? 'none' : '';
+            document.getElementById('log-bottom-btn').style.display = logAutoRefresh ? 'none' : '';
+            document.getElementById('log-clear-btn').style.display = logAutoRefresh ? '' : 'none';
+        }
+
+        function startLogAutoRefresh() {
+            stopLogAutoRefresh();
+            logTimer = setInterval(() => {
+                if (logAutoRefresh && currentLogName && document.getElementById('modal-log').classList.contains('show')) {
+                    refreshLog(true);
+                }
+            }, 3000);
+        }
+
+        function stopLogAutoRefresh() {
+            if (logTimer) { clearInterval(logTimer); logTimer = null; }
+        }
+
+        function toggleLogRefresh() {
+            logAutoRefresh = !logAutoRefresh;
+            updateLogRefreshBtn();
+            if (logAutoRefresh) {
+                toast('自动刷新中');
+                refreshLog(true);
+            }
+        }
+
+        async function refreshLog(toBottom = false) {
             if (!currentLogName) return;
             const r = await invoke('readlog ' + sq(currentLogName) + ' 500');
             if (r.stdout) {
@@ -751,6 +864,7 @@
                     document.getElementById('log-content').textContent = r.stdout;
                 }
             } else { document.getElementById('log-content').textContent = '无内容'; }
+            if (toBottom) logToBottom();
         }
 
         function base64ToUtf8(base64) {
@@ -771,7 +885,29 @@
             }
         }
 
-        function closeLogModal() { hideAnyModal('modal-log'); }
+        // 清空当前日志：复用删除确认弹窗二次确认，调后端 clearlog
+        function confirmClearLog() {
+            if (!currentLogName) return;
+            const name = currentLogName;
+            document.getElementById('confirm-title').textContent = '确认清空';
+            document.getElementById('confirm-message').innerHTML = `确定要清空 <strong>${escapeHtml(name)}</strong> 的日志吗？`;
+            document.getElementById('confirm-btn').textContent = '清空';
+            showAnyModal('modal-confirm');
+            confirmCallback = async () => {
+                const r = await invoke('clearlog ' + sq(name));
+                closeConfirm();
+                let ok = false;
+                try { ok = r.errno === 0 && !!JSON.parse(r.stdout || '{}').success; } catch (e) { ok = false; }
+                if (ok) {
+                    document.getElementById('log-content').textContent = '无内容';
+                    toast('已清空');
+                } else {
+                    toast('清空失败', true);
+                }
+            };
+        }
+
+        function closeLogModal() { stopLogAutoRefresh(); logAutoRefresh = false; hideAnyModal('modal-log'); }
 
         function logToTop() {
             const el = document.getElementById('log-content');
@@ -818,7 +954,7 @@
             try {
                 const d = JSON.parse(r.stdout);
                 const sv = parseInt(d.sleep_interval, 10);
-                configData.sleep_interval = (isNaN(sv) || sv < 5) ? 5 : sv;
+                configData.sleep_interval = (isNaN(sv) || sv < 5) ? 60 : sv;
                 configData.server_dir = d.server_dir || '';
                 configData.termux_services = parseTermux(d.termux_services || '');
                 configData.services = parseBinary(d.services || '');
@@ -831,6 +967,9 @@
                     (d.wifi_service_names_off || '').split('\n').map(s => s.trim()).filter(Boolean)
                 );
                 configData.wifi_ssids = d.wifi_ssids || '';
+                configData.schedule_enabled = d.schedule_enabled === '1';
+                configData.schedule_stop = d.schedule_stop || '';
+                configData.schedule_start = d.schedule_start || '';
                 isConfigLoaded = true;
                 renderConfigFromCache();
                 if (force && !silent) toast('已刷新');
@@ -856,12 +995,17 @@
             document.getElementById('wifi-service-panel').style.display = configData.wifi_service_enabled ? 'block' : 'none';
             document.getElementById('input-wifi-ssids').value = configData.wifi_ssids;
             updateWifiPickBtn();
+            document.getElementById('schedule-switch').checked = configData.schedule_enabled;
+            document.getElementById('schedule-panel').style.display = configData.schedule_enabled ? 'block' : 'none';
+            document.getElementById('input-schedule-stop').value = configData.schedule_stop;
+            document.getElementById('input-schedule-start').value = configData.schedule_start;
+            document.getElementById('error-schedule').textContent = '';
             renderConfigLists();
         }
 
         function renderConfigLists() {
             const renderRow = (type, s, i, isTermux) => {
-                const portText = s.port ? `port:${s.port}` : 'port:未知';
+                const portText = formatPort(s.port);
                 const sorting = sortMode[type];
                 const actions = sorting
                     ? `<button class="btn btn-md" onclick="moveItem('${type}', ${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
@@ -927,13 +1071,20 @@
             const name = type === 'termux' ? configData.termux_services[idx].name : configData.services[idx].name;
             document.getElementById('confirm-message').innerHTML = `确定要删除服务 <strong>${escapeHtml(name)}</strong> 吗？`;
             showAnyModal('modal-confirm');
-            confirmCallback = () => {
+            confirmCallback = async () => {
+                // 先停后删：运行中则先停止，防止配置已删、进程残留
+                toast('停止 ' + name + '...');
+                await invoke('stop ' + sq(name));
                 if (type === 'termux') {
                     configData.termux_services.splice(idx, 1);
                 } else {
                     configData.services.splice(idx, 1);
                 }
+                // 同步清理 Wi-Fi 启停名单中的残留，避免名单指向不存在的服务
+                configData.wifi_service_names.delete(name);
+                configData.wifi_service_names_off.delete(name);
                 renderConfigLists();
+                updateWifiPickBtn();
                 toast('保存中...');
                 saveConfig();
                 closeConfirm();
@@ -943,6 +1094,9 @@
         function closeConfirm() {
             hideAnyModal('modal-confirm');
             confirmCallback = null;
+            // 恢复删除弹窗默认文案，防止清空日志的确认文案残留
+            document.getElementById('confirm-title').textContent = '确认删除';
+            document.getElementById('confirm-btn').textContent = '删除';
         }
 
         document.getElementById('confirm-btn').onclick = () => {
@@ -1019,8 +1173,8 @@
             const sleepEl = document.getElementById('input-sleep');
             const sleepErr = document.getElementById('error-sleep');
             const raw = (sleepEl.value || '').trim();
-            if (!/^\d*$/.test(raw) || (raw !== '' && parseInt(raw, 10) < 5)) {
-                sleepErr.textContent = '最小值为5秒';
+            if (!/^\d*$/.test(raw) || (raw !== '' && parseInt(raw, 10) < 10)) {
+                sleepErr.textContent = '最小值为10秒';
                 sleepEl.classList.add('error');
                 valid = false;
             } else {
@@ -1109,6 +1263,98 @@
             });
         }
 
+        // —— 定时启停服务 ——
+
+        const SCHEDULE_TIME_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+
+        function toggleSchedule() {
+            if (!isConfigLoaded) {
+                // 配置未加载完成：回弹开关并阻止保存，避免把内存中的空列表写空设备配置
+                document.getElementById('schedule-switch').checked = false;
+                toast('配置未加载完成，请稍后再试', true);
+                return;
+            }
+            const on = document.getElementById('schedule-switch').checked;
+            document.getElementById('schedule-panel').style.display = on ? 'block' : 'none';
+            // 关闭只停功能，时间保留；开启且时间都填了则随开关一起落盘
+            configData.schedule_enabled = on;
+            toast('保存中...');
+            saveScheduleKey('schedule_enabled', on ? '1' : '0', (ok) => {
+                if (!ok) {
+                    configData.schedule_enabled = !on;
+                    document.getElementById('schedule-switch').checked = !on;
+                    document.getElementById('schedule-panel').style.display = !on ? 'block' : 'none';
+                }
+            });
+        }
+
+        // 时间选择器变更自动保存：两边都填且合法才提交；只填一边时静默等待另一边
+        let scheduleSaving = false;
+        async function autoSaveSchedule() {
+            if (!isConfigLoaded || scheduleSaving) return;
+            const errEl = document.getElementById('error-schedule');
+            const stop = document.getElementById('input-schedule-stop').value.trim();
+            const start = document.getElementById('input-schedule-start').value.trim();
+            errEl.textContent = '';
+            if (stop && !SCHEDULE_TIME_RE.test(stop)) { errEl.textContent = '停止时间格式错误'; return; }
+            if (start && !SCHEDULE_TIME_RE.test(start)) { errEl.textContent = '启动时间格式错误'; return; }
+            if (!stop || !start) return; // 只改了一边，等另一边选好再存
+            if (stop === start) { errEl.textContent = '停止时间与启动时间不能相同'; return; }
+            // 与内存一致则不打扰后端
+            if (stop === configData.schedule_stop && start === configData.schedule_start) return;
+            scheduleSaving = true;
+            toast('保存中...');
+            const on = document.getElementById('schedule-switch').checked ? '1' : '0';
+            const payload = [
+                'schedule_enabled=' + toB64(on),
+                'schedule_stop=' + toB64(stop),
+                'schedule_start=' + toB64(start)
+            ].join('\n');
+            const ok = await saveSchedulePayload(payload);
+            scheduleSaving = false;
+            if (ok) {
+                configData.schedule_enabled = (on === '1');
+                configData.schedule_stop = stop;
+                configData.schedule_start = start;
+                toast('已保存');
+            } else {
+                toast('保存失败', true);
+            }
+        }
+
+        // 单键保存（开关切换用）：复用 saveWifiKey 的 heredoc 链路
+        async function saveScheduleKey(key, value, done) {
+            const ok = await saveSchedulePayload(key + '=' + toB64(value));
+            if (ok) {
+                if (key === 'schedule_enabled') configData.schedule_enabled = (value === '1');
+                else if (key === 'schedule_stop') configData.schedule_stop = value;
+                else if (key === 'schedule_start') configData.schedule_start = value;
+                toast('已保存');
+            } else {
+                toast('保存失败', true);
+            }
+            if (done) done(ok);
+        }
+
+        async function saveSchedulePayload(payload) {
+            if (!ksuApi || !MODDIR || !isConfigLoaded) {
+                toast('配置未加载完成，已取消保存', true);
+                return false;
+            }
+            const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
+            const script = 'sh ' + sq(MODDIR + '/action.sh') + ' saveconfig <<' + sq(tag) + '\n' + payload + '\n' + tag;
+            const r = await exec(script);
+            if (r.errno === 0) {
+                try {
+                    const d = JSON.parse(r.stdout || '{}');
+                    if (d.success) return true;
+                    const errEl = document.getElementById('error-schedule');
+                    if (errEl && d.error) errEl.textContent = d.error;
+                } catch (e) { /* 落入失败 */ }
+            }
+            return false;
+        }
+
         // 单键保存：只提交一个 wifi 键，后端缺键继承其余配置；不触发全页重载
         async function saveWifiKey(key, value, done) {
             if (!ksuApi || !MODDIR || !isConfigLoaded) {
@@ -1138,23 +1384,23 @@
             document.getElementById('wifi-pick-off-btn').textContent = '断开启停组 (' + configData.wifi_service_names_off.size + ')';
         }
 
-        // 选择弹窗：只显示服务名（不读端口，省渲染）；另一组的已选服务直接过滤掉，
-        // 两组互斥在选择时即生效，无需确定后再踢除。
+        // 选择弹窗：另一组已选的服务置灰禁用（仍可见，不可勾选），互斥一目了然
         function renderWifiPickBody(picked, excluded) {
             const groups = [
                 { title: 'Termux 服务', list: configData.termux_services },
                 { title: '二进制服务', list: configData.services }
-            ].map(g => ({ title: g.title, list: g.list.filter(s => !excluded.has(s.name)) }))
-             .filter(g => g.list.length);
-            if (!groups.length) return '<div class="empty">暂无可选服务（其余已在另一组）</div>';
+            ].filter(g => g.list.length);
+            if (!groups.length) return '<div class="empty">暂无服务</div>';
             return groups.map(g => `
                 <div class="wifi-group-title">${g.title}</div>
                 <div class="wifi-grid">
-                    ${g.list.map(s => `
-                    <label>
-                        <input type="checkbox" value="${escapeHtml(s.name)}" ${picked.has(s.name) ? 'checked' : ''}>
+                    ${g.list.map(s => {
+                        const locked = excluded.has(s.name);
+                        return `
+                    <label style="${locked ? 'opacity:0.45;' : ''}">
+                        <input type="checkbox" value="${escapeHtml(s.name)}" ${picked.has(s.name) ? 'checked' : ''} ${locked ? 'disabled' : ''}>
                         <span>${escapeHtml(s.name)}</span>
-                    </label>`).join('')}
+                    </label>`; }).join('')}
                 </div>`).join('');
         }
 
@@ -1169,7 +1415,7 @@
         function openWifiModal(mode) {
             wifiPickMode = (mode === 'off') ? 'off' : 'on';
             const picked = new Set(wifiPickTarget());
-            // 另一组已选的直接不显示，互斥在选择时生效
+            // 另一组已选的置灰禁用，互斥在选择时生效
             const excluded = wifiPickMode === 'off' ? configData.wifi_service_names : configData.wifi_service_names_off;
             wifiPickBackup = picked;
             document.getElementById('wifi-pick-title').textContent =
@@ -1192,7 +1438,7 @@
         function confirmWifiPick() {
             const picked = new Set();
             document.querySelectorAll('#wifi-pick-body input[type="checkbox"]:checked').forEach(el => picked.add(el.value));
-            // 互斥已在渲染时过滤，确定时直接落盘（后端连接优先仍是兜底）
+            // 禁用项不可勾选，确定时直接落盘（后端连接优先仍是兜底）
             if (wifiPickMode === 'off') configData.wifi_service_names_off = picked;
             else configData.wifi_service_names = picked;
             wifiPickBackup = null;
@@ -1250,8 +1496,11 @@
             if (!ksuApi || !MODDIR) { toast('请先初始化', true); return; }
             // 配置未成功加载前一律拒绝保存：内存里是空列表，全量提交会把设备配置写空
             if (!isConfigLoaded) { toast('配置未加载完成，已取消保存', true); return; }
-            let sleepInterval = parseInt(document.getElementById('input-sleep').value);
-            if (isNaN(sleepInterval) || sleepInterval < 5) sleepInterval = 5;
+            const sleepRaw = (document.getElementById('input-sleep').value || '').trim();
+            // 清空输入框视为恢复默认 60；非法数字也回退 60，小于 5 按最小值钳制
+            let sleepInterval = sleepRaw === '' ? 60 : parseInt(sleepRaw, 10);
+            if (isNaN(sleepInterval)) sleepInterval = 60;
+            if (sleepInterval < 5) sleepInterval = 5;
             if (sleepInterval > 86400) sleepInterval = 86400;
             const serverDir = (document.getElementById('input-server-dir').value || '').trim().replace(/\/storage\/emulated\/0\//g, '/data/media/0/');
             const termuxStr = stringifyTermux(configData.termux_services);
@@ -1261,6 +1510,9 @@
             const wifiNames = [...configData.wifi_service_names].join('\n');
             const wifiNamesOff = [...configData.wifi_service_names_off].join('\n');
             const wifiSsids = normalizeSsidText(document.getElementById('input-wifi-ssids').value);
+            const schedEnabled = document.getElementById('schedule-switch').checked ? '1' : '0';
+            const schedStop = (document.getElementById('input-schedule-stop').value || '').trim();
+            const schedStart = (document.getElementById('input-schedule-start').value || '').trim();
 
             // 通过固定 helper 传输 key=base64(value)，shell 端白名单校验，不做命令拼接执行
             const payload = [
@@ -1272,7 +1524,10 @@
                 'wifi_service_enabled=' + toB64(wifiEnabled),
                 'wifi_service_names=' + toB64(wifiNames),
                 'wifi_service_names_off=' + toB64(wifiNamesOff),
-                'wifi_ssids=' + toB64(wifiSsids)
+                'wifi_ssids=' + toB64(wifiSsids),
+                'schedule_enabled=' + toB64(schedEnabled),
+                'schedule_stop=' + toB64(schedStop),
+                'schedule_start=' + toB64(schedStart)
             ].join('\n');
             const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
             const script = 'sh ' + sq(MODDIR + '/action.sh') + ' saveconfig <<' + sq(tag) + '\n' + payload + '\n' + tag;

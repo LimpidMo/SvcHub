@@ -3,7 +3,7 @@
 # 每个子命令都做白名单校验；不执行任意 shell、不使用 pkill -f 模糊匹配、不做 eval。
 MODDIR=${0%/*}
 [ -n "$MODDIR" ] && [ -d "$MODDIR" ] || exit 1
-. "$MODDIR/bin/lib.sh" 2>/dev/null || exit 1
+. "$MODDIR/lib.sh" 2>/dev/null || exit 1
 
 json_escape() {
 	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | tr '\n' '\a' | sed 's/\a/\\n/g'
@@ -90,7 +90,8 @@ api_get_status() {
 			printf '%s\n' "$SERVICES" | list_names
 		} | detect_running
 	)
-	printf '{"server_dir":"%s","termux_services":[' "$(json_escape "$SERVER_DIR")"
+	boot_id=$(cat "$BOOTID_FILE" 2>/dev/null)
+	printf '{"boot_id":"%s","server_dir":"%s","termux_services":[' "$(json_escape "$boot_id")" "$(json_escape "$SERVER_DIR")"
 	rows_to_json 1 "$runset" <<EOF
 $TERMUX_SERVICES
 EOF
@@ -190,6 +191,10 @@ api_get_config() {
 	printf '%s' "$(json_escape "$WIFI_SERVICE_NAMES_OFF")"
 	printf '","wifi_ssids":"'
 	printf '%s' "$(json_escape "$WIFI_SSIDS")"
+	printf '","schedule_enabled":"%s","schedule_stop":"' "$SCHEDULE_ENABLED"
+	printf '%s' "$(json_escape "$SCHEDULE_STOP")"
+	printf '","schedule_start":"'
+	printf '%s' "$(json_escape "$SCHEDULE_START")"
 	printf '"}\n'
 }
 
@@ -197,13 +202,15 @@ api_get_config() {
 api_save_config() {
 	local line key b64 val
 	local has_si=0 has_sd=0 has_ts=0 has_sv=0 has_bc=0 has_wse=0 has_wsn=0 has_wsn_off=0 has_wss=0
+	local has_sche=0 has_schstop=0 has_schstart=0
 	local si= sd= ts= sv= bc= wse= wsn= wsn_off= wss=
+	local sche= schstop= schstart=
 	while IFS= read -r line; do
 		[ -z "$line" ] && continue
 		key=${line%%=*}
 		b64=${line#*=}
 		case "$key" in
-		sleep_interval|server_dir|termux_services|services|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids) ;;
+		sleep_interval|server_dir|termux_services|services|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start) ;;
 		*) echo '{"success":false,"error":"未知配置键"}'; exit 1 ;;
 		esac
 		case "$b64" in
@@ -215,8 +222,8 @@ api_save_config() {
 		sleep_interval)
 			[ -n "$val" ] || val=60
 			is_int "$val" || { echo '{"success":false,"error":"间隔必须为数字"}'; exit 1; }
-			# 保活间隔最小 5 秒，最大 86400 秒
-			[ "$val" -lt 5 ] && val=5
+			# 保活间隔最小 10 秒，最大 86400 秒
+			[ "$val" -lt 10 ] && val=10
 			[ "$val" -gt 86400 ] && val=86400
 			si=$val; has_si=1
 			;;
@@ -261,10 +268,29 @@ api_save_config() {
 			fi
 			wss=$val; has_wss=1
 			;;
+		schedule_enabled)
+			case "$val" in
+			0|1) sche=$val; has_sche=1 ;;
+			*) echo '{"success":false,"error":"定时功能开关必须为 0 或 1"}'; exit 1 ;;
+			esac
+			;;
+		schedule_stop|schedule_start)
+			if [ -n "$val" ]; then
+				case "$val" in
+				[0-2][0-9]:[0-5][0-9])
+					[ "${val%%:*}" -le 23 ] 2>/dev/null || { echo '{"success":false,"error":"定时时间格式错误(HH:MM)"}'; exit 1; }
+					;;
+				*) echo '{"success":false,"error":"定时时间格式错误(HH:MM)"}'; exit 1 ;;
+				esac
+			fi
+			if [ "$key" = schedule_stop ]; then schstop=$val; has_schstop=1; else schstart=$val; has_schstart=1; fi
+			;;
 		esac
 	done
 	# 未提供的键沿用现有配置，避免误清空
 	load_cfg_sh
+	old_ts=$TERMUX_SERVICES
+	old_sv=$SERVICES
 	[ "$has_si" -eq 1 ] || si=$SLEEP_INTERVAL
 	[ "$has_sd" -eq 1 ] || sd=$SERVER_DIR
 	[ "$has_ts" -eq 1 ] || ts=$TERMUX_SERVICES
@@ -274,14 +300,27 @@ api_save_config() {
 	[ "$has_wsn" -eq 1 ] || wsn=$WIFI_SERVICE_NAMES
 	[ "$has_wsn_off" -eq 1 ] || wsn_off=$WIFI_SERVICE_NAMES_OFF
 	[ "$has_wss" -eq 1 ] || wss=$WIFI_SSIDS
+	[ "$has_sche" -eq 1 ] || sche=$SCHEDULE_ENABLED
+	[ "$has_schstop" -eq 1 ] || schstop=$SCHEDULE_STOP
+	[ "$has_schstart" -eq 1 ] || schstart=$SCHEDULE_START
+	# 停止与启动时间相同无意义：启用状态下拒绝，避免进窗判定恒为窗外却让用户误以为生效
+	if [ "$sche" = "1" ] && [ -n "$schstop" ] && [ "$schstop" = "$schstart" ]; then
+		echo '{"success":false,"error":"停止时间与启动时间不能相同"}'
+		exit 1
+	fi
 
-	write_config_json "$si" "$sd" "$ts" "$sv" "$bc" "$wse" "$wsn" "$wss" "$wsn_off" || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
+	write_config_json "$si" "$sd" "$ts" "$sv" "$bc" "$wse" "$wsn" "$wss" "$wsn_off" "$sche" "$schstop" "$schstart" || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
+	# 删除后收尾：被删掉的服务若仍在运行则停止，防止配置已删、进程残留
+	if [ "$has_ts" -eq 1 ] || [ "$has_sv" -eq 1 ]; then
+		stop_removed_services "$old_ts" "$ts" "$old_sv" "$sv"
+	fi
 	# 写入后回读自校验：任一字段不一致即报错，杜绝“字段错位”静默发生
 	if [ "$(cfg_get sleep_interval)" != "$si" ] || [ "$(cfg_get server_dir)" != "$sd" ] \
 	|| [ "$(cfg_get termux_services)" != "$ts" ] || [ "$(cfg_get services)" != "$sv" ] \
 	|| [ "$(cfg_get boot_commands)" != "$bc" ] || [ "$(cfg_get wifi_service_enabled)" != "$wse" ] \
 	|| [ "$(cfg_get wifi_service_names)" != "$wsn" ] || [ "$(cfg_get wifi_service_names_off)" != "$wsn_off" ] \
-	|| [ "$(cfg_get wifi_ssids)" != "$wss" ]; then
+	|| [ "$(cfg_get wifi_ssids)" != "$wss" ] || [ "$(cfg_get schedule_enabled)" != "$sche" ] \
+	|| [ "$(cfg_get schedule_stop)" != "$schstop" ] || [ "$(cfg_get schedule_start)" != "$schstart" ]; then
 		echo '{"success":false,"error":"配置写入校验不一致"}'
 		exit 1
 	fi
@@ -341,8 +380,7 @@ runcmdtermux)
 	echo '{"success":true}'
 	;;
 clearlog)
-	clear_log "$2" || echo '{"success":false,"error":"名称不合法"}'
-	echo '{"success":true}'
+	if clear_log "$2"; then echo '{"success":true}'; else echo '{"success":false,"error":"名称不合法"}'; fi
 	;;
 open)
 	port=$2
