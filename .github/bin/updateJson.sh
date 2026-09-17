@@ -7,7 +7,7 @@ VERSION_CODE="${2}"
 CHANGELOG="${3}"
 ZIP_NAME="${4}"
 
-BASE_REL_DOWNLOAD="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+BASE_REL_DOWNLOAD="https://v4.gh-proxy.org/https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
 
 cat << EOF > update.json
 {
