@@ -1,0 +1,2 @@
+changelog=CHANGELOG.md
+zip_exclude=CHANGELOG.md .git .github .gitignore .gitattributes LICENSE update.json release_notes.md README.md AGENTS.md docs tools config.json

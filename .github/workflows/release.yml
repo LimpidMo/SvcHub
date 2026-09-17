@@ -1,0 +1,69 @@
+---
+# Github action that runs on module release to create files like
+# Update JSON, CHANGELOG, ...
+
+name: Generate update JSON and release module
+
+on:
+  push:
+    tags:
+      - '*'
+  
+jobs:
+  get_vars:
+    name: Get module variables from module.prop and config.prop
+    runs-on: ubuntu-latest
+    outputs:
+      # Module.prop variables
+      id: ${{ steps.vars.outputs.id }}
+      name: ${{ steps.vars.outputs.name }}
+      version: ${{ steps.vars.outputs.version }}
+      versionCode: ${{ steps.vars.outputs.versionCode }}
+      author: ${{ steps.vars.outputs.author }}
+      description: ${{ steps.vars.outputs.description }}
+      # Config.prop variables
+      zip_exclude: ${{ steps.vars.outputs.zip_exclude }}
+      changelog: ${{ steps.vars.outputs.changelog }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Get variables
+        id: vars
+        run: bash .github/bin/variables.sh
+
+  create_release:
+    name: Create release
+    needs:
+      - get_vars
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout
+      - name: Create module ZIP
+        id: zip
+        run: |
+          ZIPNAME=${{ needs.get_vars.outputs.id }}-${{ needs.get_vars.outputs.version }}.zip
+          echo zipname=$ZIPNAME >> $GITHUB_OUTPUT
+          zip -0qry ./$ZIPNAME * -x .github ${{ needs.get_vars.outputs.zip_exclude }}
+      
+      - name: Generate update JSON
+        run: bash .github/bin/updateJson.sh ${{ needs.get_vars.outputs.version }} ${{ needs.get_vars.outputs.versionCode }} ${{ needs.get_vars.outputs.changelog }} ${{ steps.zip.outputs.zipname }}
+
+      - name: Extract release notes
+        id: notes
+        run: |
+          bash .github/bin/releaseNotes.sh "${{ github.ref_name }}" "${{ needs.get_vars.outputs.changelog }}" release_notes.md
+          echo "notes_file=release_notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Release
+        uses: softprops/action-gh-release@v2.3.1
+        with:
+          name: ${{ needs.get_vars.outputs.name }} ${{ github.ref_name }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
+          files: |
+            ${{ steps.zip.outputs.zipname }}
+            ${{ needs.get_vars.outputs.changelog }}
+            update.json
