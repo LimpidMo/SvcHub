@@ -44,6 +44,9 @@ WIFI_SSID_CACHE_TIME=0
 mkdir -p "$RUNDIR" "$LOG_DIR"
 
 # ---------- 配置（模块私有 config.json，明文 JSON） ----------
+# 配置 schema 唯一定义：新增配置键只需在此登记，并同步补全 load_cfg_sh / cfg_global / write_config_json 各一行
+CONFIG_KEYS='sleep_interval server_dir termux_services services boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start'
+
 # JSON 字符串编码：换行转义为字面 \n 两字符序列，保证写入的 JSON 合法
 enc_js() {
 	awk '{ gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); if (NR > 1) printf "\\n"; printf "%s", $0 }'
@@ -79,27 +82,46 @@ valid_name() {
 	return 0
 }
 
-# 配置一次性写成 config.json（原子替换）
+# 配置一次性写成 config.json（原子替换）。
+# 无参：直接从 load_cfg_sh 的同名全局变量读取；调用前必须已 load_cfg_sh 或完整设置 12 个变量，
+# 键序在此集中维护，与 CONFIG_KEYS 一致。
 write_config_json() {
-	local si=$1 sd=$2 ts=$3 sv=$4 bc=$5 wse=$6 wsn=$7 wss=$8 wsn_off=$9 sche=${10} schstop=${11} schstart=${12} tmp="$CONFIG_FILE.tmp"
+	local tmp="$CONFIG_FILE.tmp"
 	{
 		echo '{'
-		printf '  "sleep_interval": "%s",\n'          "$(printf '%s' "$si" | enc_js)"
-		printf '  "server_dir": "%s",\n'              "$(printf '%s' "$sd" | enc_js)"
-		printf '  "termux_services": "%s",\n'         "$(printf '%s' "$ts" | enc_js)"
-		printf '  "services": "%s",\n'                "$(printf '%s' "$sv" | enc_js)"
-		printf '  "boot_commands": "%s",\n'           "$(printf '%s' "$bc" | enc_js)"
-		printf '  "wifi_service_enabled": "%s",\n'    "$(printf '%s' "$wse" | enc_js)"
-		printf '  "wifi_service_names": "%s",\n'      "$(printf '%s' "$wsn" | enc_js)"
-		printf '  "wifi_service_names_off": "%s",\n'  "$(printf '%s' "$wsn_off" | enc_js)"
-		printf '  "wifi_ssids": "%s",\n'              "$(printf '%s' "$wss" | enc_js)"
-		printf '  "schedule_enabled": "%s",\n'        "$(printf '%s' "$sche" | enc_js)"
-		printf '  "schedule_stop": "%s",\n'           "$(printf '%s' "$schstop" | enc_js)"
-		printf '  "schedule_start": "%s"\n'           "$(printf '%s' "$schstart" | enc_js)"
+		printf '  "sleep_interval": "%s",\n'          "$(printf '%s' "$SLEEP_INTERVAL" | enc_js)"
+		printf '  "server_dir": "%s",\n'              "$(printf '%s' "$SERVER_DIR" | enc_js)"
+		printf '  "termux_services": "%s",\n'         "$(printf '%s' "$TERMUX_SERVICES" | enc_js)"
+		printf '  "services": "%s",\n'                "$(printf '%s' "$SERVICES" | enc_js)"
+		printf '  "boot_commands": "%s",\n'           "$(printf '%s' "$BOOT_COMMANDS" | enc_js)"
+		printf '  "wifi_service_enabled": "%s",\n'    "$(printf '%s' "$WIFI_SERVICE_ENABLED" | enc_js)"
+		printf '  "wifi_service_names": "%s",\n'      "$(printf '%s' "$WIFI_SERVICE_NAMES" | enc_js)"
+		printf '  "wifi_service_names_off": "%s",\n'  "$(printf '%s' "$WIFI_SERVICE_NAMES_OFF" | enc_js)"
+		printf '  "wifi_ssids": "%s",\n'              "$(printf '%s' "$WIFI_SSIDS" | enc_js)"
+		printf '  "schedule_enabled": "%s",\n'        "$(printf '%s' "$SCHEDULE_ENABLED" | enc_js)"
+		printf '  "schedule_stop": "%s",\n'           "$(printf '%s' "$SCHEDULE_STOP" | enc_js)"
+		printf '  "schedule_start": "%s"\n'           "$(printf '%s' "$SCHEDULE_START" | enc_js)"
 		echo '}'
 	} > "$tmp" && mv -f "$tmp" "$CONFIG_FILE"
 }
 
+# 输出 load_cfg_sh 全局变量中 key 对应的值；供 api_get_config 与保存后回读校验共用
+cfg_global() {
+	case "$1" in
+		sleep_interval)         printf '%s' "$SLEEP_INTERVAL" ;;
+		server_dir)             printf '%s' "$SERVER_DIR" ;;
+		termux_services)        printf '%s' "$TERMUX_SERVICES" ;;
+		services)               printf '%s' "$SERVICES" ;;
+		boot_commands)          printf '%s' "$BOOT_COMMANDS" ;;
+		wifi_service_enabled)   printf '%s' "$WIFI_SERVICE_ENABLED" ;;
+		wifi_service_names)     printf '%s' "$WIFI_SERVICE_NAMES" ;;
+		wifi_service_names_off) printf '%s' "$WIFI_SERVICE_NAMES_OFF" ;;
+		wifi_ssids)             printf '%s' "$WIFI_SSIDS" ;;
+		schedule_enabled)       printf '%s' "$SCHEDULE_ENABLED" ;;
+		schedule_stop)          printf '%s' "$SCHEDULE_STOP" ;;
+		schedule_start)         printf '%s' "$SCHEDULE_START" ;;
+	esac
+}
 
 # ---------- su 可用性检测（兼容 KernelSU / Magisk / APatch） ----------
 
@@ -119,7 +141,7 @@ get_su_bin() {
 		return 0
 	fi
 
-    # 仅兜底 PATH 异常；Magic Mount 主入口
+	# 仅兜底 PATH 异常；Magic Mount 主入口
 	for p in /system/bin/su; do
 		if [ -x "$p" ]; then
 			printf '%s\n' "$p"
@@ -131,6 +153,12 @@ get_su_bin() {
 }
 
 # ---------- 日志 ----------
+
+# supervisor.log 统一日志行（supervisor.sh / service.sh 共用）
+sup_log() {
+	[ -n "$1" ] || return 0
+	echo "[$(date '+%F %T')] $1" >> "$SUPERLOG"
+}
 
 # 日志超过上限时保留最近1/4，避免无限增长
 rotate_log() {
@@ -154,55 +182,64 @@ rotate_all_logs() {
 	return 0
 }
 
-# 从 stdin 逐行执行并记录（sh -c，不做 eval；# 注释行会保留执行）
-run_command_lines() {
-    local mark=$1 line log="$LOG_DIR/boot_commands.log"
-    {
-        echo "=== $mark $(date '+%Y-%m-%d %H:%M:%S') ==="
-        while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            echo "> $line"
-            sh -c "$line"
-            echo "[exit=$?]"
-        done
-    } >> "$log" 2>&1
+# 从 stdin 逐行执行并记录（不做 eval）。
+# $1=日志文件 $2=标记 $3=runner（如 sh / su / "su 10000"，词分割展开） $4=命令前缀（Termux 注入 TERMUX_ENV）
+run_lines() {
+	local log=$1 mark=$2 runner=${3:-sh} env_prefix=${4:-} line
+	{
+		echo "=== $mark $(date '+%F %T') ==="
+		while IFS= read -r line; do
+			[ -z "$line" ] && continue
+			echo "> $line"
+			$runner -c "$env_prefix $line"
+			echo "[exit=$?]"
+		done
+	} >> "$log" 2>&1
 }
 
 # ---------- 会话清理 ----------
 # 清空上一会话残留：run 目录删除全部残留 pid 文件；
 # log 目录除开机命令日志全部删除。服务日志会在下次启动时重建。
 clean_session_files() {
-    local f base pid
-    if [ -d "$RUNDIR" ]; then
-        for f in "$RUNDIR"/*; do
-            [ -e "$f" ] || continue
-            base=${f##*/}
-            rm -f "$f"
-        done
-    fi
-    if [ -d "$LOG_DIR" ]; then
-        for f in "$LOG_DIR"/*; do
-            [ -f "$f" ] || continue
-            base=${f##*/}
-            [ "$base" = boot_commands.log ] && continue
-            rm -f "$f"
-        done
-    fi
-    return 0
+	local f base
+	if [ -d "$RUNDIR" ]; then
+		for f in "$RUNDIR"/*; do
+			[ -e "$f" ] || continue
+			rm -f "$f"
+		done
+	fi
+	if [ -d "$LOG_DIR" ]; then
+		for f in "$LOG_DIR"/*; do
+			[ -f "$f" ] || continue
+			base=${f##*/}
+			[ "$base" = boot_commands.log ] && continue
+			rm -f "$f"
+		done
+	fi
+	return 0
 }
 
 # ---------- 进程管理（完全基于 pid 文件，杜绝按名模糊匹配） ----------
 # 每个服务以 name 作为 $RUNDIR/<name>.pid 的索引，文件仅保存 setsid 进程组 leader 的 pid。
-# 检查服务是否在运行：pid 文件存在且首行 pid 存活即在运行；进程已退出则顺手清理过期 pid 文件
-svc_running() {
-	local pidf="$RUNDIR/$1.pid"
+
+# pid 文件活性检查：存在且首行 pid 存活则输出该 pid 并返回 0；
+# 进程已退出/文件损坏则顺手清理过期 pid 文件并返回 1。
+# 注意：输出供 supervisor 单实例日志等场景取 pid 用，仅作布尔判定时须用 >/dev/null 吞掉。
+pidfile_alive() {
+	local pidf=$1 pid
 	[ -f "$pidf" ] || return 1
-	read -r pid < "$pidf" || { rm -f "$pidf"; return 1; }
+	read -r pid < "$pidf" 2>/dev/null || { rm -f "$pidf"; return 1; }
 	if kill -0 "$pid" 2>/dev/null; then
+		printf '%s\n' "$pid"
 		return 0
 	fi
 	rm -f "$pidf"
 	return 1
+}
+
+# 检查服务是否在运行：pid 文件存在且首行 pid 存活即在运行
+svc_running() {
+	pidfile_alive "$RUNDIR/$1.pid" >/dev/null
 }
 
 # 成员判断：$1=name 是否存在于换行分隔的名单 $2 中（零 fork，供批量结果查询）
@@ -211,6 +248,14 @@ name_in_set() {
 '
 	case "$nl$2$nl" in
 		*"$nl$1$nl"*) return 0 ;;
+	esac
+	return 1
+}
+
+# 成员判断：$1=词是否存在于空格分隔的集合 $2 中（供 CONFIG_KEYS 白名单等）
+word_in_set() {
+	case " $2 " in
+		*" $1 "*) return 0 ;;
 	esac
 	return 1
 }
@@ -230,18 +275,35 @@ detect_running() {
 	done
 }
 
+# 批量检测全部配置内运行中的服务名（换行分隔输出）；依赖 load_cfg_sh 后的 TERMUX_SERVICES/SERVICES
+compute_runset() {
+	{
+		printf '%s\n' "$TERMUX_SERVICES" | list_names
+		printf '%s\n' "$SERVICES" | list_names
+	} | detect_running
+}
+
+# 按服务类型启动：$1=kind(termux|binary) $2=名称 $3=extra $4=命令文本。
+# 统一收口 supervisor 巡检 / Wi-Fi 同步 / WebUI 手动启动的 kind 分支。
+launch_svc() {
+	case "$1" in
+		termux) start_svc "$2" "$TERMUX_HOME" "$3" "$TERMUX_ENV $4" ;;
+		binary) start_svc "$2" "$SERVER_DIR" "" "$4" ;;
+	esac
+}
+
 # 启动服务：$1=名称 $2=工作目录 $3=su 附加参数 $4=命令文本
 # setsid 让服务成为独立会话/进程组 leader，命令末尾补 wait 等待全部子进程。
 start_svc() {
 	local name=$1 dir=$2 extra=$3 cmdtext=$4 log="$LOG_DIR/$1.log" pidf="$RUNDIR/$1.pid" leader su_bin
 	valid_name "$name" || return 1
 	if svc_running "$name"; then
-        return 0    # 已在运行则不重复启动
+		return 0    # 已在运行则不重复启动
 	fi
-    # svc_running 已确认不在运行，残留 pid 文件直接清理后重新启动
+	# svc_running 已确认不在运行，残留 pid 文件直接清理后重新启动
 	rm -f "$pidf"
 	( cd "$dir" 2>/dev/null ) || return 2
-    # 先找 su 入口，若不存在则直接返回失败（不尝试启动）
+	# 先找 su 入口，若不存在则直接返回失败（不尝试启动）
 	su_bin=$(get_su_bin) || return 3
 	(
 		cd "$dir"
@@ -258,21 +320,21 @@ kill_by_name() {
 	local name=$1 pidf="$RUNDIR/$1.pid" pid
 	[ -f "$pidf" ] || return 1
 	read -r pid < "$pidf" || { rm -f "$pidf"; return 1; }
-    # pid 合法性校验：必须是大于 1 的纯数字，防止 pid 文件损坏
+	# pid 合法性校验：必须是大于 1 的纯数字，防止 pid 文件损坏
 	is_int "$pid" || { rm -f "$pidf"; return 1; }
 	[ "$pid" -gt 1 ] || { rm -f "$pidf"; return 1; }
 
-    # 1. 发送 SIGTERM (15) 优雅终止,让程序自行执行退出程序防止残留
+	# 1. 发送 SIGTERM (15) 优雅终止,让程序自行执行退出程序防止残留
 	kill -15 -- -"$pid" 2>/dev/null || kill -15 "-$pid" 2>/dev/null
 
-    # 2. 轮询等待退出（最多 2 秒，间隔 0.5 秒）
+	# 2. 轮询等待退出（最多 2 秒，间隔 0.5 秒）
 	local i=0
 	while [ $i -lt 4 ] && kill -0 "$pid" 2>/dev/null; do
 		sleep 0.5
 		i=$((i + 1))
 	done
 
-    # 3. 若仍存活，发送 SIGKILL (9) 强杀
+	# 3. 若仍存活，发送 SIGKILL (9) 强杀
 	if kill -0 "$pid" 2>/dev/null; then
 		kill -9 -- -"$pid" 2>/dev/null || kill -9 "-$pid" 2>/dev/null
 	fi
@@ -287,7 +349,7 @@ stop_svc() {
 	valid_name "$name" || return 0
 	kill_by_name "$name"
 	rm -f "$LOG_DIR/$1.log"
-    # 短等待直至进程消失（防 fork 竞争残留）
+	# 短等待直至进程消失（防 fork 竞争残留）
 	while [ "$i" -lt 20 ]; do
 		svc_running "$name" || break
 		sleep 0.2
@@ -322,13 +384,13 @@ stop_all() {
 }
 
 # ---------- 配置加载 ----------
-# 旧版 config.json 缺 wifi 键时，只做行级插入补默认值，不触碰已有行。
+# 旧版 config.json 缺指定键时，只做行级插入补默认值，不触碰已有行（$@=键列表，来自 CONFIG_KEYS 子集）。
+# 默认值规则：*_enabled 键补 "0"，其余补 ""。
 # 注意：绝不能用解码后的变量全量重写——若文件本身已损坏，解码出空值会覆盖掉原有配置。
-ensure_wifi_defaults() {
-	local k missing tmp
+ensure_config_keys() {
+	local k missing= tmp
 	[ -f "$CONFIG_FILE" ] || return 0
-	missing=""
-	for k in wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids; do
+	for k in "$@"; do
 		grep -q "^[[:space:]]*\"$k\"[[:space:]]*:" "$CONFIG_FILE" 2>/dev/null || missing="$missing $k"
 	done
 	[ -n "$missing" ] || return 0
@@ -337,54 +399,24 @@ ensure_wifi_defaults() {
 		grep -q "^[[:space:]]*\"$k\"[[:space:]]*:" "$CONFIG_FILE" 2>/dev/null || return 0
 	done
 	tmp="$CONFIG_FILE.tmp"
-	awk '
-		/"wifi_service_enabled"/ { have_wse = 1 }
-		/"wifi_service_names"/ && !/"wifi_service_names_off"/ { have_wsn = 1 }
-		/"wifi_service_names_off"/ { have_wsn_off = 1 }
-		/"wifi_ssids"/ { have_wss = 1 }
-		/^[[:space:]]*}[[:space:]]*$/ && !done {
-			if (prev != "" && prev !~ /,[[:space:]]*$/) prev = prev ","
-			if (prev != "") print prev
-			prev = ""
-			if (!have_wse) print "  \"wifi_service_enabled\": \"0\","
-			if (!have_wsn) print "  \"wifi_service_names\": \"\","
-			if (!have_wsn_off) print "  \"wifi_service_names_off\": \"\","
-			if (!have_wss) print "  \"wifi_ssids\": \"\""
-			print $0
-			done = 1
-			next
+	awk -v keys="$*" '
+		BEGIN { n = split(keys, kl, " ") }
+		{
+			for (i = 1; i <= n; i++)
+				if ($0 ~ "\"" kl[i] "\"[[:space:]]*:") have[i] = 1
 		}
-		{ if (prev != "") print prev; prev = $0 }
-		END { if (!done && prev != "") print prev }
-	' "$CONFIG_FILE" > "$tmp" && mv -f "$tmp" "$CONFIG_FILE"
-	return 0
-}
-
-# 旧版 config.json 缺定时键时，只做行级插入补默认值，不触碰已有行。
-# 注意：与 ensure_wifi_defaults 同理，基础键缺失说明文件结构异常，此时不动文件。
-ensure_schedule_defaults() {
-	local k missing tmp
-	[ -f "$CONFIG_FILE" ] || return 0
-	missing=""
-	for k in schedule_enabled schedule_stop schedule_start; do
-		grep -q "^[[:space:]]*\"$k\"[[:space:]]*:" "$CONFIG_FILE" 2>/dev/null || missing="$missing $k"
-	done
-	[ -n "$missing" ] || return 0
-	for k in sleep_interval server_dir termux_services services boot_commands; do
-		grep -q "^[[:space:]]*\"$k\"[[:space:]]*:" "$CONFIG_FILE" 2>/dev/null || return 0
-	done
-	tmp="$CONFIG_FILE.tmp"
-	awk '
-		/"schedule_enabled"/ { have_sche = 1 }
-		/"schedule_stop"/ { have_schstop = 1 }
-		/"schedule_start"/ { have_schstart = 1 }
 		/^[[:space:]]*}[[:space:]]*$/ && !done {
+			m = 0
+			for (i = 1; i <= n; i++) {
+				if (!have[i]) {
+					v = (kl[i] ~ /_enabled$/) ? "0" : ""
+					def[m++] = "  \"" kl[i] "\": \"" v "\""
+				}
+			}
 			if (prev != "" && prev !~ /,[[:space:]]*$/) prev = prev ","
 			if (prev != "") print prev
 			prev = ""
-			if (!have_sche) print "  \"schedule_enabled\": \"0\","
-			if (!have_schstop) print "  \"schedule_stop\": \"\","
-			if (!have_schstart) print "  \"schedule_start\": \"\""
+			for (i = 0; i < m; i++) print def[i] ((i < m - 1) ? "," : "")
 			print $0
 			done = 1
 			next
@@ -411,7 +443,7 @@ load_cfg_sh() {
 
 	[ -n "$SLEEP_INTERVAL" ] || SLEEP_INTERVAL=60
 	is_int "$SLEEP_INTERVAL" || SLEEP_INTERVAL=60
-    # 保活间隔最小 10 秒，最大 86400 秒
+	# 保活间隔最小 10 秒，最大 86400 秒
 	[ "$SLEEP_INTERVAL" -lt 10 ] && SLEEP_INTERVAL=10
 	[ "$SLEEP_INTERVAL" -gt 86400 ] && SLEEP_INTERVAL=86400
 
@@ -425,8 +457,7 @@ load_cfg_sh() {
 
 	[ "$SCHEDULE_ENABLED" = "1" ] || SCHEDULE_ENABLED="0"
 
-	ensure_wifi_defaults
-	ensure_schedule_defaults
+	ensure_config_keys wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start
 }
 
 # 按名称从配置取整行（awk 保留 cmd 中的 |；返回整行 $0）
@@ -436,14 +467,6 @@ pick_termux() {
 
 pick_binary() {
 	printf '%s\n' "$SERVICES" | awk -F'|' -v n="$1" '$1==n { print; exit }'
-}
-
-# 查询某名称在两类配置中的 auto 值（start/stop/空）
-should_run() {
-	local name=$1 a
-	a=$(printf '%s\n' "$TERMUX_SERVICES" | awk -F'|' -v n="$name" '$1==n { print $4; exit }')
-	[ -n "$a" ] || a=$(printf '%s\n' "$SERVICES" | awk -F'|' -v n="$name" '$1==n { print $3; exit }')
-	printf '%s' "$a"
 }
 
 # ---------- 定时启停 ----------
@@ -510,10 +533,6 @@ WIFI_LOG_NETID=""
 wifi_log() {
 	[ -n "$1" ] || return 0
 	echo "[$(date '+%F %T')] $1" >> "$WIFI_LOG"
-}
-
-wifi_log_rotate() {
-	rotate_log "$WIFI_LOG"
 }
 
 wifi_log_connected_text() {
@@ -665,6 +684,17 @@ calc_wifi_policy() {
 	fi
 }
 
+# 巡检启动前的 Wi-Fi 策略兜底：返回 0=跳过启动。
+# block（Wi-Fi 不满足）时跳过连接组名单；allow（已连接）时跳过断开组名单，
+# 防止普通巡检重新拉起刚被 Wi-Fi 策略停掉的服务。
+wifi_should_skip() {
+	case "$WIFI_POLICY" in
+		block) name_in_set "$1" "$WIFI_SERVICE_NAMES" && return 0 ;;
+		allow) name_in_set "$1" "$WIFI_SERVICE_NAMES_OFF" && return 0 ;;
+	esac
+	return 1
+}
+
 # 根据策略同步受管服务的启停
 # $1=策略(allow/block/disabled) $2=模式(on=连接组，allow起/block停；off=断开组，反向：allow停/block起)
 # 重叠规则：同一服务同时在两组时连接组优先，断开组跳过并记警告。
@@ -744,7 +774,7 @@ sync_wifi_service_policy() {
 				IFS='|' read -r _ port extra auto cmd <<EOF
 $row
 EOF
-				start_svc "$name" "$TERMUX_HOME" "$extra" "$TERMUX_ENV $cmd"
+				launch_svc termux "$name" "$extra" "$cmd"
 			done
 		fi
 		if [ -n "$b_start" ]; then
@@ -754,7 +784,7 @@ EOF
 				IFS='|' read -r _ port auto cmd <<EOF
 $row
 EOF
-				start_svc "$name" "$SERVER_DIR" "" "$cmd"
+				launch_svc binary "$name" "" "$cmd"
 			done
 		fi
 		[ -n "$missing" ] && wifi_log "WiFi 条件满足，但${group}名单内服务$missing 不在服务配置中，跳过"

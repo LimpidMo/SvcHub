@@ -4,11 +4,10 @@ MODDIR=${0%/*}
 [ -n "$MODDIR" ] && [ -d "$MODDIR" ] || exit 0
 . "$MODDIR/lib.sh" 2>/dev/null || exit 0
 
-if [ -f "$SPPID" ]; then
-    pid=$(awk '{print $1}' "$SPPID" 2>/dev/null)
-    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
-    rm -f "$SPPID"
+if pid=$(pidfile_alive "$SPPID" 2>/dev/null); then
+	kill -9 "$pid" 2>/dev/null
 fi
+rm -f "$SPPID"
 
 stop_all
 rm -rf "$RUNDIR"

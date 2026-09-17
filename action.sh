@@ -5,12 +5,9 @@ MODDIR=${0%/*}
 [ -n "$MODDIR" ] && [ -d "$MODDIR" ] || exit 1
 . "$MODDIR/lib.sh" 2>/dev/null || exit 1
 
-json_escape() {
-	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | tr '\n' '\a' | sed 's/\a/\\n/g'
-}
-
+# 行数统计：grep -c 无匹配时已输出 0，仅吞掉非零退出码（避免二次 echo 0 拼成两行）
 count_rows() {
-	printf '%s\n' "$1" | grep -c '^[^|]\{1,\}|' 2>/dev/null || echo 0
+	printf '%s\n' "$1" | grep -c '^[^|]\{1,\}|' 2>/dev/null || true
 }
 
 validate_rows() {
@@ -81,17 +78,12 @@ $1 != "" {
 }
 
 api_get_status() {
-	local runset
+	local runset boot_id
 	load_cfg_sh
-	# 批量检测全部服务运行状态（单次 pgrep），避免逐服务 fork
-	runset=$(
-		{
-			printf '%s\n' "$TERMUX_SERVICES" | list_names
-			printf '%s\n' "$SERVICES" | list_names
-		} | detect_running
-	)
+	# 批量检测全部服务运行状态（单次遍历 pid 文件），避免逐服务 fork
+	runset=$(compute_runset)
 	boot_id=$(cat "$BOOTID_FILE" 2>/dev/null)
-	printf '{"boot_id":"%s","server_dir":"%s","termux_services":[' "$(json_escape "$boot_id")" "$(json_escape "$SERVER_DIR")"
+	printf '{"boot_id":"%s","server_dir":"%s","termux_services":[' "$(printf '%s' "$boot_id" | enc_js)" "$(printf '%s' "$SERVER_DIR" | enc_js)"
 	rows_to_json 1 "$runset" <<EOF
 $TERMUX_SERVICES
 EOF
@@ -113,7 +105,7 @@ api_start_service() {
 $row
 EOF
 		stop_svc "$name"
-		if start_svc "$name" "$TERMUX_HOME" "$extra" "$TERMUX_ENV $cmd"; then
+		if launch_svc termux "$name" "$extra" "$cmd"; then
 			echo '{"success":true}'
 		else
 			echo '{"success":false,"error":"启动失败（可能是 Termux 目录不存在或命令错误）"}'
@@ -130,7 +122,7 @@ EOF
 $row
 EOF
 		stop_svc "$name"
-		if start_svc "$name" "$SERVER_DIR" "" "$cmd"; then
+		if launch_svc binary "$name" "" "$cmd"; then
 			echo '{"success":true}'
 		else
 			echo '{"success":false,"error":"启动失败（服务目录不存在或命令错误）"}'
@@ -148,16 +140,15 @@ api_stop_service() {
 }
 
 api_get_logs() {
-	local first l n
+	local first=1 l n
 	printf '{"logs":['
-	first=1
 	for l in "$LOG_DIR"/*.log; do
 		[ -f "$l" ] || continue
 		n=$(basename "$l" .log)
 		[ "$n" = supervisor ] && continue
 		[ "$first" -eq 0 ] && printf ','
 		first=0
-		printf '"%s"' "$(json_escape "$n")"
+		printf '"%s"' "$(printf '%s' "$n" | enc_js)"
 	done
 	printf ']}\n'
 }
@@ -179,40 +170,29 @@ api_read_log() {
 
 api_get_config() {
 	load_cfg_sh
-	printf '{"sleep_interval":"%s","server_dir":"%s","termux_services":"' "$SLEEP_INTERVAL" "$(json_escape "$SERVER_DIR")"
-	printf '%s' "$(json_escape "$TERMUX_SERVICES")"
-	printf '","services":"'
-	printf '%s' "$(json_escape "$SERVICES")"
-	printf '","boot_commands":"'
-	printf '%s' "$(json_escape "$BOOT_COMMANDS")"
-	printf '","wifi_service_enabled":"%s","wifi_service_names":"' "$WIFI_SERVICE_ENABLED"
-	printf '%s' "$(json_escape "$WIFI_SERVICE_NAMES")"
-	printf '","wifi_service_names_off":"'
-	printf '%s' "$(json_escape "$WIFI_SERVICE_NAMES_OFF")"
-	printf '","wifi_ssids":"'
-	printf '%s' "$(json_escape "$WIFI_SSIDS")"
-	printf '","schedule_enabled":"%s","schedule_stop":"' "$SCHEDULE_ENABLED"
-	printf '%s' "$(json_escape "$SCHEDULE_STOP")"
-	printf '","schedule_start":"'
-	printf '%s' "$(json_escape "$SCHEDULE_START")"
-	printf '"}\n'
+	local key first=1
+	printf '{'
+	for key in $CONFIG_KEYS; do
+		[ "$first" -eq 1 ] || printf ','
+		first=0
+		printf '"%s":"%s"' "$key" "$(printf '%s' "$(cfg_global "$key")" | enc_js)"
+	done
+	printf '}\n'
 }
 
-# 从 stdin 读 key=BASE64VALUE 行；白名单校验后一次性写入 config.json（明文 JSON）
+# 从 stdin 读 key=BASE64VALUE 行；白名单校验后一次性写入 config.json（明文 JSON）。
+# 先 load_cfg_sh 让未提供的键沿用现有配置，解析通过的键直接覆盖全局变量，
+# 最后 write_config_json 从全局变量统一落盘。
 api_save_config() {
-	local line key b64 val
-	local has_si=0 has_sd=0 has_ts=0 has_sv=0 has_bc=0 has_wse=0 has_wsn=0 has_wsn_off=0 has_wss=0
-	local has_sche=0 has_schstop=0 has_schstart=0
-	local si= sd= ts= sv= bc= wse= wsn= wsn_off= wss=
-	local sche= schstop= schstart=
+	local line key b64 val provided= old_ts old_sv invalid_name ssid_lines k
+	load_cfg_sh
+	old_ts=$TERMUX_SERVICES
+	old_sv=$SERVICES
 	while IFS= read -r line; do
 		[ -z "$line" ] && continue
 		key=${line%%=*}
 		b64=${line#*=}
-		case "$key" in
-		sleep_interval|server_dir|termux_services|services|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start) ;;
-		*) echo '{"success":false,"error":"未知配置键"}'; exit 1 ;;
-		esac
+		word_in_set "$key" "$CONFIG_KEYS" || { echo '{"success":false,"error":"未知配置键"}'; exit 1; }
 		case "$b64" in
 		*[!A-Za-z0-9+/=]*) echo '{"success":false,"error":"配置编码错误"}'; exit 1 ;;
 		esac
@@ -225,33 +205,32 @@ api_save_config() {
 			# 保活间隔最小 10 秒，最大 86400 秒
 			[ "$val" -lt 10 ] && val=10
 			[ "$val" -gt 86400 ] && val=86400
-			si=$val; has_si=1
+			SLEEP_INTERVAL=$val
 			;;
 		server_dir)
-			sd=$val; has_sd=1
+			SERVER_DIR=$val
 			;;
 		termux_services|services)
 			printf '%s\n' "$val" | validate_rows "$key" || { echo '{"success":false,"error":"服务配置格式错误"}'; exit 1; }
-			if [ "$key" = termux_services ]; then ts=$val; has_ts=1; else sv=$val; has_sv=1; fi
+			if [ "$key" = termux_services ]; then TERMUX_SERVICES=$val; else SERVICES=$val; fi
 			;;
 		boot_commands)
-			bc=$val; has_bc=1
+			BOOT_COMMANDS=$val
 			;;
 		wifi_service_enabled)
 			case "$val" in
-			0|1) wse=$val; has_wse=1 ;;
+			0|1) WIFI_SERVICE_ENABLED=$val ;;
 			*) echo '{"success":false,"error":"Wi-Fi 功能开关必须为 0 或 1"}'; exit 1 ;;
 			esac
 			;;
 		wifi_service_names|wifi_service_names_off)
 			# 校验多行文本中的服务名是否合法（仅允许字母数字点横线）
-			local invalid_name
 			invalid_name=$(printf '%s\n' "$val" | awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 != "" && $0 !~ /^[A-Za-z0-9._-]+$/) { print $0; exit } }')
 			if [ -n "$invalid_name" ]; then
 				echo "{\"success\":false,\"error\":\"Wi-Fi 服务名不合法: $invalid_name\"}"
 				exit 1
 			fi
-			if [ "$key" = wifi_service_names ]; then wsn=$val; has_wsn=1; else wsn_off=$val; has_wsn_off=1; fi
+			if [ "$key" = wifi_service_names ]; then WIFI_SERVICE_NAMES=$val; else WIFI_SERVICE_NAMES_OFF=$val; fi
 			;;
 		wifi_ssids)
 			# SSID 允许中文/空格/符号/emoji：与存储分隔符冲突的 | 与真实换行
@@ -260,17 +239,16 @@ api_save_config() {
 				echo '{"success":false,"error":"Wi-Fi SSID 列表过长"}'
 				exit 1
 			fi
-			local ssid_lines
-			ssid_lines=$(printf '%s\n' "$val" | grep -c '^' 2>/dev/null || echo 0)
+			ssid_lines=$(printf '%s\n' "$val" | grep -c '^' 2>/dev/null || true)
 			if [ "$ssid_lines" -gt 100 ]; then
 				echo '{"success":false,"error":"Wi-Fi SSID 数量过多(最多100个)"}'
 				exit 1
 			fi
-			wss=$val; has_wss=1
+			WIFI_SSIDS=$val
 			;;
 		schedule_enabled)
 			case "$val" in
-			0|1) sche=$val; has_sche=1 ;;
+			0|1) SCHEDULE_ENABLED=$val ;;
 			*) echo '{"success":false,"error":"定时功能开关必须为 0 或 1"}'; exit 1 ;;
 			esac
 			;;
@@ -283,63 +261,27 @@ api_save_config() {
 				*) echo '{"success":false,"error":"定时时间格式错误(HH:MM)"}'; exit 1 ;;
 				esac
 			fi
-			if [ "$key" = schedule_stop ]; then schstop=$val; has_schstop=1; else schstart=$val; has_schstart=1; fi
+			if [ "$key" = schedule_stop ]; then SCHEDULE_STOP=$val; else SCHEDULE_START=$val; fi
 			;;
 		esac
+		provided="$provided $key"
 	done
-	# 未提供的键沿用现有配置，避免误清空
-	load_cfg_sh
-	old_ts=$TERMUX_SERVICES
-	old_sv=$SERVICES
-	[ "$has_si" -eq 1 ] || si=$SLEEP_INTERVAL
-	[ "$has_sd" -eq 1 ] || sd=$SERVER_DIR
-	[ "$has_ts" -eq 1 ] || ts=$TERMUX_SERVICES
-	[ "$has_sv" -eq 1 ] || sv=$SERVICES
-	[ "$has_bc" -eq 1 ] || bc=$BOOT_COMMANDS
-	[ "$has_wse" -eq 1 ] || wse=$WIFI_SERVICE_ENABLED
-	[ "$has_wsn" -eq 1 ] || wsn=$WIFI_SERVICE_NAMES
-	[ "$has_wsn_off" -eq 1 ] || wsn_off=$WIFI_SERVICE_NAMES_OFF
-	[ "$has_wss" -eq 1 ] || wss=$WIFI_SSIDS
-	[ "$has_sche" -eq 1 ] || sche=$SCHEDULE_ENABLED
-	[ "$has_schstop" -eq 1 ] || schstop=$SCHEDULE_STOP
-	[ "$has_schstart" -eq 1 ] || schstart=$SCHEDULE_START
 	# 停止与启动时间相同无意义：启用状态下拒绝，避免进窗判定恒为窗外却让用户误以为生效
-	if [ "$sche" = "1" ] && [ -n "$schstop" ] && [ "$schstop" = "$schstart" ]; then
+	if [ "$SCHEDULE_ENABLED" = "1" ] && [ -n "$SCHEDULE_STOP" ] && [ "$SCHEDULE_STOP" = "$SCHEDULE_START" ]; then
 		echo '{"success":false,"error":"停止时间与启动时间不能相同"}'
 		exit 1
 	fi
 
-	write_config_json "$si" "$sd" "$ts" "$sv" "$bc" "$wse" "$wsn" "$wss" "$wsn_off" "$sche" "$schstop" "$schstart" || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
+	write_config_json || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
 	# 删除后收尾：被删掉的服务若仍在运行则停止，防止配置已删、进程残留
-	if [ "$has_ts" -eq 1 ] || [ "$has_sv" -eq 1 ]; then
-		stop_removed_services "$old_ts" "$ts" "$old_sv" "$sv"
+	if word_in_set termux_services "$provided" || word_in_set services "$provided"; then
+		stop_removed_services "$old_ts" "$TERMUX_SERVICES" "$old_sv" "$SERVICES"
 	fi
 	# 写入后回读自校验：任一字段不一致即报错，杜绝“字段错位”静默发生
-	if [ "$(cfg_get sleep_interval)" != "$si" ] || [ "$(cfg_get server_dir)" != "$sd" ] \
-	|| [ "$(cfg_get termux_services)" != "$ts" ] || [ "$(cfg_get services)" != "$sv" ] \
-	|| [ "$(cfg_get boot_commands)" != "$bc" ] || [ "$(cfg_get wifi_service_enabled)" != "$wse" ] \
-	|| [ "$(cfg_get wifi_service_names)" != "$wsn" ] || [ "$(cfg_get wifi_service_names_off)" != "$wsn_off" ] \
-	|| [ "$(cfg_get wifi_ssids)" != "$wss" ] || [ "$(cfg_get schedule_enabled)" != "$sche" ] \
-	|| [ "$(cfg_get schedule_stop)" != "$schstop" ] || [ "$(cfg_get schedule_start)" != "$schstart" ]; then
-		echo '{"success":false,"error":"配置写入校验不一致"}'
-		exit 1
-	fi
+	for k in $CONFIG_KEYS; do
+		[ "$(cfg_get "$k")" = "$(cfg_global "$k")" ] || { echo '{"success":false,"error":"配置写入校验不一致"}'; exit 1; }
+	done
 	echo '{"success":true}'
-}
-
-# 测试命令的通用执行体；从 stdin 逐行执行。
-# $1=标记 $2=su 调用基准（正常=su，termux=su $TERMUX_UID） $3=命令前缀（termux 注入 TERMUX_ENV）
-run_test_lines() {
-	local mark=$1 runner=$2 env_prefix=$3 line log="$LOG_DIR/run_test.log"
-	{
-		echo "=== $mark $(date '+%Y-%m-%d %H:%M:%S') ==="
-		while IFS= read -r line; do
-			[ -z "$line" ] && continue
-			echo "> $line"
-			$runner -c "$env_prefix $line"
-			echo "[exit=$?]"
-		done
-	} >> "$log" 2>&1
 }
 
 case "$1" in
@@ -366,17 +308,17 @@ saveconfig)
 	;;
 execboot)
 	load_cfg_sh
-	printf '%s\n' "$BOOT_COMMANDS" | run_command_lines '开机命令(手动)'
+	printf '%s\n' "$BOOT_COMMANDS" | run_lines "$LOG_DIR/boot_commands.log" '开机命令(手动)'
 	echo '{"success":true}'
 	;;
 runcmd)
 	load_cfg_sh
-	run_test_lines '(测试运行)' 'su' ''
+	run_lines "$LOG_DIR/run_test.log" '(测试运行)' 'su' ''
 	echo '{"success":true}'
 	;;
 runcmdtermux)
 	load_cfg_sh
-	run_test_lines '(测试运行-termux)' "su $TERMUX_UID" "$TERMUX_ENV cd $TERMUX_HOME;"
+	run_lines "$LOG_DIR/run_test.log" '(测试运行-termux)' "su $TERMUX_UID" "$TERMUX_ENV cd $TERMUX_HOME;"
 	echo '{"success":true}'
 	;;
 clearlog)
@@ -393,12 +335,7 @@ open)
 *)
 	# Manager Action 入口：输出简短状态摘要
 	load_cfg_sh
-	runset=$(
-		{
-			printf '%s\n' "$TERMUX_SERVICES" | list_names
-			printf '%s\n' "$SERVICES" | list_names
-		} | detect_running
-	)
+	runset=$(compute_runset)
 	echo "SvcHub 状态摘要"
 	echo "保活间隔: ${SLEEP_INTERVAL}s | Termux 服务: $(count_rows "$TERMUX_SERVICES") | 二进制服务: $(count_rows "$SERVICES")"
 	printf 'Termux 服务:\n'

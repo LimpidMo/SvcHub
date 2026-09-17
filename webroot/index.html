@@ -27,8 +27,6 @@
         .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
         .dot-on { background: #22c55e; }
         .dot-off { background: #d4d4d4; }
-        .dot-restarting { background: #eab308; }
-        .dot-error { background: #dc2626; }
         .tag { font-size: 9px; padding: 2px 6px; border-radius: 2px; letter-spacing: 0.5px; }
         .tag-on { background: #f0fdf4; color: #16a34a; }
         .tag-off { background: #fef2f2; color: #dc2626; }
@@ -283,7 +281,7 @@
             </div>
             <div class="modal-ft">
                 <button class="btn" onclick="closeModal('termux')">取消</button>
-                <button class="btn btn-primary" onclick="saveTermuxService()">保存</button>
+                <button class="btn btn-primary" onclick="saveService('termux')">保存</button>
             </div>
         </div>
     </div>
@@ -319,7 +317,7 @@
             </div>
             <div class="modal-ft">
                 <button class="btn" onclick="closeModal('binary')">取消</button>
-                <button class="btn btn-primary" onclick="saveBinaryService()">保存</button>
+                <button class="btn btn-primary" onclick="saveService('binary')">保存</button>
             </div>
         </div>
     </div>
@@ -381,9 +379,17 @@
             return '';
         }
 
+        // 全局状态
         let MODDIR = '';
         let ksuApi = null;
-        let configData = { sleep_interval: 60, server_dir: '', termux_services: [], services: [], boot_commands: '', wifi_service_enabled: false, wifi_service_names: new Set(), wifi_service_names_off: new Set(), wifi_ssids: '', schedule_enabled: false, schedule_stop: '', schedule_start: '' };
+        let configData = {
+            sleep_interval: 60, server_dir: '',
+            termux_services: [], services: [],
+            boot_commands: '',
+            wifi_service_enabled: false, wifi_service_names: new Set(), wifi_service_names_off: new Set(),
+            wifi_ssids: '',
+            schedule_enabled: false, schedule_stop: '', schedule_start: ''
+        };
         let statusData = { termux_services: [], services: [] };
         let testCmdData = '';
         let isTestMode = false;
@@ -392,8 +398,10 @@
         let isConfigLoaded = false;
         let confirmCallback = null;
         const sortMode = { termux: false, binary: false };
-        const pendingNames = new Set();
-        const failedNames = new Set();
+        // 常用时间常量（毫秒）
+        const REFRESH_DELAY_MS = 500;   // 启停操作后延迟刷新状态
+        const LOG_POLL_MS = 3000;       // 日志弹窗自动刷新间隔
+        const TOAST_MS = 2000;          // toast 显示时长
         // 调试面板操作日志：记录每次 root 调用与页面消息，实时刷新
         const OP_LOG_MAX = 100;
         const opLog = [];
@@ -426,25 +434,27 @@
             pre.scrollTop = pre.scrollHeight;
         }
 
-        function copyDebugLog() {
-            const text = renderOpLog();
-            const done = () => toast('已复制调试日志');
+        // 统一剪贴板：优先 async API，降级 execCommand；done 成功回调
+        function copyText(text, done) {
+            const fallback = () => {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); done(); } catch (e) { toast('复制失败', true); }
+                document.body.removeChild(ta);
+            };
             if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+                navigator.clipboard.writeText(text).then(done, fallback);
             } else {
-                fallbackCopy(text, done);
+                fallback();
             }
         }
 
-        function fallbackCopy(text, done) {
-            const ta = document.createElement('textarea');
-            ta.value = text;
-            ta.style.position = 'fixed';
-            ta.style.opacity = '0';
-            document.body.appendChild(ta);
-            ta.select();
-            try { document.execCommand('copy'); done(); } catch (e) { toast('复制失败', true); }
-            document.body.removeChild(ta);
+        function copyDebugLog() {
+            copyText(renderOpLog(), () => toast('已复制调试日志'));
         }
 
         // 状态页本地缓存：先渲染缓存秒开，后台刷新后覆盖
@@ -501,10 +511,10 @@
             const el = document.getElementById('toast');
             el.textContent = msg;
             el.className = 'toast show' + (isError ? ' error' : '');
-            setTimeout(() => el.classList.remove('show'), 2000);
+            setTimeout(() => el.classList.remove('show'), TOAST_MS);
         }
 
-        function escapeHtml(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function escapeHtml(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
         function exec(cmd) {
             return new Promise(resolve => {
@@ -568,10 +578,26 @@
         // shell 单引号安全包裹
         function sq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
 
-        // 统一调用模块内固定 helper
-        async function invoke(sub) {
+        // 统一调用模块内固定 helper：runAction(sub, stdinText) 带 heredoc 输入，invoke 仅传参
+        async function runAction(sub, stdinText) {
             if (!MODDIR) return { errno: -1, stdout: '', stderr: 'MODDIR unavailable' };
-            return await exec('sh ' + sq(MODDIR + '/action.sh') + ' ' + sub);
+            let cmd = 'sh ' + sq(MODDIR + '/action.sh') + ' ' + sub;
+            if (stdinText !== undefined) {
+                const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
+                cmd += ' <<' + sq(tag) + '\n' + stdinText + '\n' + tag;
+            }
+            return await exec(cmd);
+        }
+
+        async function invoke(sub) { return await runAction(sub); }
+
+        // 解析后端 {success:...} JSON 结果：errno 非 0 / 解析失败 / success 假值均返回 null
+        function parseSuccess(r) {
+            if (r.errno !== 0) return null;
+            try {
+                const d = JSON.parse(r.stdout || '{}');
+                return d.success ? d : null;
+            } catch (e) { return null; }
         }
 
         // UTF-8 安全的 base64（发送配置给 shell 端）
@@ -690,28 +716,30 @@
             return n === null ? p : 'port:' + n;
         }
 
+        // 状态页/配置页共用的条目信息片段（名称 + 端口 + auto 标签）
+        function svcItemInfo(s) {
+            return `
+                    <div class="item-info">
+                        <div class="item-name">${escapeHtml(s.name)}</div>
+                        <div class="item-meta" style="display:flex;align-items:center;gap:3px;">
+                            <span class="port">${formatPort(s.port)}</span>
+                            <span class="tag ${s.auto === 'start' ? 'tag-on' : 'tag-off'}">${escapeHtml(s.auto)}</span>
+                        </div>
+                    </div>`;
+        }
+
         function renderStatusList(id, services, isTermux) {
             const el = document.getElementById(id);
             if (!services || !services.length) { el.innerHTML = '<div class="empty">暂无服务</div>'; return; }
             el.innerHTML = services.map((s, i) => {
-                const portText = formatPort(s.port);
                 const running = s.status === 'running';
-                const pending = pendingNames.has(s.name);
-                const failed = failedNames.has(s.name);
-                const dotCls = pending ? 'dot-restarting' : (running ? 'dot-on' : (failed ? 'dot-error' : 'dot-off'));
                 const openBtn = (running && parseValidPort(s.port) !== null)
                     ? `<button class="btn btn-md" style="border-color:#3b82f6;color:#2563eb;background:#eff6ff;" onclick="openSvcPort('${s.port}')">打开</button>`
                     : '';
                 return `
                 <div class="item" onclick="toggleExpand('${id}', ${i}, event)">
-                    <span class="dot ${dotCls}"></span>
-                    <div class="item-info">
-                        <div class="item-name">${escapeHtml(s.name)}</div>
-                        <div class="item-meta" style="display:flex;align-items:center;gap:3px;">
-                            <span class="port">${portText}</span>
-                            <span class="tag ${s.auto === 'start' ? 'tag-on' : 'tag-off'}">${escapeHtml(s.auto)}</span>
-                        </div>
-                    </div>
+                    <span class="dot ${running ? 'dot-on' : 'dot-off'}"></span>
+                    ${svcItemInfo(s)}
                     <div class="actions" onclick="event.stopPropagation()">
                         ${running
                             ? openBtn + `<button class="btn btn-md" style="border-color:#eab308;color:#b45309;background:#fefce8;" onclick="restartSvc('${s.name}')">重启</button><button class="btn btn-md btn-danger" onclick="stopSvc('${s.name}')">停止</button><button class="btn btn-md" onclick="showLog('${s.name}')">日志</button>`
@@ -727,9 +755,7 @@
         async function openSvcPort(port) {
             if (parseValidPort(port) === null) { toast('端口无效', true); return; }
             const r = await invoke('open ' + sq(String(port).trim()));
-            let ok = false;
-            try { ok = r.errno === 0 && !!JSON.parse(r.stdout || '{}').success; } catch (e) { ok = false; }
-            if (!ok) toast('打开失败', true);
+            if (!parseSuccess(r)) toast('打开失败', true);
         }
 
         // 命令显示还原：保存时 " 转义为 \"，读取显示还原为 "
@@ -768,35 +794,20 @@
         }
 
         function copyToClipboard(el) {
-            const text = el.value;
-            if (navigator.clipboard) {
-                navigator.clipboard.writeText(text).then(() => toast('已复制'));
-            } else {
-                el.select();
-                document.execCommand('copy');
-                toast('已复制');
-            }
+            copyText(el.value, () => toast('已复制'));
         }
 
-        async function startSvc(type, name) {
-            const n = sq(name);
-            toast('启动 ' + name);
-            const r = await invoke('start ' + sq(type) + ' ' + n);
-            if (r.errno !== 0) toast('启动失败', true);
-            setTimeout(() => loadStatus(true), 500);
+        // 启停操作公共流程：toast -> 调用 -> 延迟刷新状态
+        async function svcAction(msg, sub) {
+            toast(msg);
+            const r = await invoke(sub);
+            if (!parseSuccess(r)) toast('操作失败，请查看调试信息', true);
+            setTimeout(() => loadStatus(true), REFRESH_DELAY_MS);
         }
 
-        async function stopSvc(name) {
-            toast('停止 ' + name);
-            await invoke('stop ' + sq(name));
-            setTimeout(() => loadStatus(true), 500);
-        }
-
-        async function restartSvc(name) {
-            toast('重启 ' + name);
-            await invoke('start auto ' + sq(name));
-            setTimeout(() => loadStatus(true), 500);
-        }
+        function startSvc(type, name) { svcAction('启动 ' + name, 'start ' + sq(type) + ' ' + sq(name)); }
+        function stopSvc(name) { svcAction('停止 ' + name, 'stop ' + sq(name)); }
+        function restartSvc(name) { svcAction('重启 ' + name, 'start auto ' + sq(name)); }
 
         async function showLog(name) {
             currentLogName = name;
@@ -832,7 +843,7 @@
                 if (logAutoRefresh && currentLogName && document.getElementById('modal-log').classList.contains('show')) {
                     refreshLog(true);
                 }
-            }, 3000);
+            }, LOG_POLL_MS);
         }
 
         function stopLogAutoRefresh() {
@@ -877,12 +888,7 @@
         }
 
         function copyLog() {
-            const content = document.getElementById('log-content').textContent;
-            if (navigator.clipboard) {
-                navigator.clipboard.writeText(content).then(() => toast('已复制'));
-            } else {
-                toast('不支持复制');
-            }
+            copyText(document.getElementById('log-content').textContent, () => toast('已复制'));
         }
 
         // 清空当前日志：复用删除确认弹窗二次确认，调后端 clearlog
@@ -896,9 +902,7 @@
             confirmCallback = async () => {
                 const r = await invoke('clearlog ' + sq(name));
                 closeConfirm();
-                let ok = false;
-                try { ok = r.errno === 0 && !!JSON.parse(r.stdout || '{}').success; } catch (e) { ok = false; }
-                if (ok) {
+                if (parseSuccess(r)) {
                     document.getElementById('log-content').textContent = '无内容';
                     toast('已清空');
                 } else {
@@ -919,28 +923,32 @@
             el.scrollTop = el.scrollHeight;
         }
 
-        function parseTermux(str) {
+        // type='termux' -> configData.termux_services；type='binary' -> configData.services
+        function svcArr(type) { return type === 'termux' ? configData.termux_services : configData.services; }
+
+        // 管道行解析：min 为该类型最少字段数（termux 含 extra 列）；缺 port 的旧格式行向后兼容
+        function parseRows(str, type) {
+            const min = type === 'termux' ? 5 : 4;
             const arr = [];
             (str || '').split('\n').forEach(line => {
                 const p = line.trim().split('|');
-                if (p.length >= 5) arr.push({ name: p[0], port: p[1], extra: p[2], auto: p[3], cmd: p.slice(4).join('|') });
-                else if (p.length >= 4) arr.push({ name: p[0], port: '', extra: p[1], auto: p[2], cmd: p.slice(3).join('|') });
+                if (p.length >= min) {
+                    if (type === 'termux') arr.push({ name: p[0], port: p[1], extra: p[2], auto: p[3], cmd: p.slice(4).join('|') });
+                    else arr.push({ name: p[0], port: p[1], auto: p[2], cmd: p.slice(3).join('|') });
+                } else if (p.length >= min - 1) {
+                    // 旧格式缺 port 列：字段整体前移一位
+                    if (type === 'termux') arr.push({ name: p[0], port: '', extra: p[1], auto: p[2], cmd: p.slice(3).join('|') });
+                    else arr.push({ name: p[0], port: '', auto: p[1], cmd: p.slice(2).join('|') });
+                }
             });
             return arr;
         }
 
-        function parseBinary(str) {
-            const arr = [];
-            (str || '').split('\n').forEach(line => {
-                const p = line.trim().split('|');
-                if (p.length >= 4) arr.push({ name: p[0], port: p[1], auto: p[2], cmd: p.slice(3).join('|') });
-                else if (p.length >= 3) arr.push({ name: p[0], port: '', auto: p[1], cmd: p.slice(2).join('|') });
-            });
-            return arr;
+        function stringifyRows(arr, type) {
+            return arr.map(s => type === 'termux'
+                ? `${s.name}|${s.port || ''}|${s.extra}|${s.auto}|${s.cmd}`
+                : `${s.name}|${s.port || ''}|${s.auto}|${s.cmd}`).join('\n');
         }
-
-        function stringifyTermux(arr) { return arr.map(s => `${s.name}|${s.port || ''}|${s.extra}|${s.auto}|${s.cmd}`).join('\n'); }
-        function stringifyBinary(arr) { return arr.map(s => `${s.name}|${s.port || ''}|${s.auto}|${s.cmd}`).join('\n'); }
 
         async function loadConfig(force = false, silent = false) {
             if (!ksuApi) { toast('请先初始化'); return; }
@@ -954,10 +962,10 @@
             try {
                 const d = JSON.parse(r.stdout);
                 const sv = parseInt(d.sleep_interval, 10);
-                configData.sleep_interval = (isNaN(sv) || sv < 5) ? 60 : sv;
+                configData.sleep_interval = (isNaN(sv) || sv < 10) ? 60 : sv;
                 configData.server_dir = d.server_dir || '';
-                configData.termux_services = parseTermux(d.termux_services || '');
-                configData.services = parseBinary(d.services || '');
+                configData.termux_services = parseRows(d.termux_services || '', 'termux');
+                configData.services = parseRows(d.services || '', 'binary');
                 configData.boot_commands = d.boot_commands || '';
                 configData.wifi_service_enabled = d.wifi_service_enabled === '1';
                 configData.wifi_service_names = new Set(
@@ -1005,34 +1013,28 @@
 
         function renderConfigLists() {
             const renderRow = (type, s, i, isTermux) => {
-                const portText = formatPort(s.port);
                 const sorting = sortMode[type];
+                const len = svcArr(type).length;
                 const actions = sorting
                     ? `<button class="btn btn-md" onclick="moveItem('${type}', ${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
-                       <button class="btn btn-md" onclick="moveItem('${type}', ${i}, 1)" ${i === (isTermux ? configData.termux_services.length - 1 : configData.services.length - 1) ? 'disabled' : ''}>↓</button>`
+                       <button class="btn btn-md" onclick="moveItem('${type}', ${i}, 1)" ${i === len - 1 ? 'disabled' : ''}>↓</button>`
                     : `<button class="btn btn-lg" onclick="openModal('${type}', ${i})">编辑</button>
                        <button class="btn btn-lg btn-danger" onclick="confirmDelete('${type}', ${i})">删除</button>`;
                 return `
                 <div class="item" ${sorting ? '' : `onclick="openModal('${type}', ${i})"`}>
-                    <div class="item-info">
-                        <div class="item-name">${escapeHtml(s.name)}</div>
-                        <div class="item-meta" style="display:flex;align-items:center;gap:3px;">
-                            <span class="port">${portText}</span>
-                            <span class="tag ${s.auto === 'start' ? 'tag-on' : 'tag-off'}">${escapeHtml(s.auto)}</span>
-                        </div>
-                    </div>
+                    ${svcItemInfo(s)}
                     <div class="actions" onclick="event.stopPropagation()">${actions}</div>
                 </div>`;
             };
 
             const tEl = document.getElementById('config-termux-list');
             if (configData.termux_services.length) {
-                tEl.innerHTML = configData.termux_services.map((s, i) => renderRow('termux', s, i, true)).join('');
+                tEl.innerHTML = configData.termux_services.map((s, i) => renderRow('termux', s, i)).join('');
             } else { tEl.innerHTML = '<div class="empty">暂无服务</div>'; }
 
             const bEl = document.getElementById('config-binary-list');
             if (configData.services.length) {
-                bEl.innerHTML = configData.services.map((s, i) => renderRow('binary', s, i, false)).join('');
+                bEl.innerHTML = configData.services.map((s, i) => renderRow('binary', s, i)).join('');
             } else { bEl.innerHTML = '<div class="empty">暂无服务</div>'; }
         }
 
@@ -1047,7 +1049,7 @@
         }
 
         function moveItem(type, idx, dir) {
-            const arr = type === 'termux' ? configData.termux_services : configData.services;
+            const arr = svcArr(type);
             const j = idx + dir;
             if (j < 0 || j >= arr.length) return;
             const t = arr[idx];
@@ -1068,18 +1070,14 @@
         }
 
         function confirmDelete(type, idx) {
-            const name = type === 'termux' ? configData.termux_services[idx].name : configData.services[idx].name;
+            const name = svcArr(type)[idx].name;
             document.getElementById('confirm-message').innerHTML = `确定要删除服务 <strong>${escapeHtml(name)}</strong> 吗？`;
             showAnyModal('modal-confirm');
             confirmCallback = async () => {
                 // 先停后删：运行中则先停止，防止配置已删、进程残留
                 toast('停止 ' + name + '...');
                 await invoke('stop ' + sq(name));
-                if (type === 'termux') {
-                    configData.termux_services.splice(idx, 1);
-                } else {
-                    configData.services.splice(idx, 1);
-                }
+                svcArr(type).splice(idx, 1);
                 // 同步清理 Wi-Fi 启停名单中的残留，避免名单指向不存在的服务
                 configData.wifi_service_names.delete(name);
                 configData.wifi_service_names_off.delete(name);
@@ -1103,66 +1101,42 @@
             if (confirmCallback) confirmCallback();
         };
 
+        // 服务编辑弹窗：type='termux'|'binary' 统一参数化（id 前缀 input-<type>-*）
         function openModal(type, idx) {
             const editing = typeof idx === 'number' && idx >= 0;
+            const s = editing ? svcArr(type)[idx]
+                : (type === 'termux' ? { name: '', port: '', extra: '', auto: 'start', cmd: '' } : { name: '', port: '', auto: 'start', cmd: '' });
+            const label = type === 'termux' ? 'Termux' : '二进制';
             showAnyModal('modal-' + type);
-            if (type === 'termux') {
-                const s = editing ? configData.termux_services[idx] : { name: '', port: '', extra: '', auto: 'start', cmd: '' };
-                document.getElementById('modal-termux-title').textContent = editing ? '编辑 Termux 服务' : '添加 Termux 服务';
-                document.getElementById('edit-termux-idx').value = editing ? idx : -1;
-                document.getElementById('input-termux-name').value = s.name;
-                document.getElementById('input-termux-port').value = s.port || '';
-                document.getElementById('input-termux-extra').value = s.extra || '';
-                document.getElementById('input-termux-auto').checked = s.auto !== 'stop';
-                document.getElementById('input-termux-cmd').value = displayCmd(s.cmd);
-            } else {
-                const s = editing ? configData.services[idx] : { name: '', port: '', auto: 'start', cmd: '' };
-                document.getElementById('modal-binary-title').textContent = editing ? '编辑二进制服务' : '添加二进制服务';
-                document.getElementById('edit-binary-idx').value = editing ? idx : -1;
-                document.getElementById('input-binary-name').value = s.name;
-                document.getElementById('input-binary-port').value = s.port || '';
-                document.getElementById('input-binary-auto').checked = s.auto !== 'stop';
-                document.getElementById('input-binary-cmd').value = displayCmd(s.cmd);
-            }
+            document.getElementById('modal-' + type + '-title').textContent = editing ? `编辑 ${label} 服务` : `添加 ${label} 服务`;
+            document.getElementById('edit-' + type + '-idx').value = editing ? idx : -1;
+            document.getElementById('input-' + type + '-name').value = s.name;
+            document.getElementById('input-' + type + '-port').value = s.port || '';
+            if (type === 'termux') document.getElementById('input-termux-extra').value = s.extra || '';
+            document.getElementById('input-' + type + '-auto').checked = s.auto !== 'stop';
+            document.getElementById('input-' + type + '-cmd').value = displayCmd(s.cmd);
         }
 
         function closeModal(type) { hideAnyModal('modal-' + type); }
 
-        function saveTermuxService() {
-            const idx = parseInt(document.getElementById('edit-termux-idx').value);
+        // 保存服务编辑：读表单 -> 校验 -> 写回数组 -> 全量保存（type='termux'|'binary'）
+        function saveService(type) {
+            const el = id => document.getElementById(id);
+            const idx = parseInt(el('edit-' + type + '-idx').value);
             const s = {
-                name: document.getElementById('input-termux-name').value.trim(),
-                port: document.getElementById('input-termux-port').value.trim(),
-                extra: document.getElementById('input-termux-extra').value.trim(),
-                auto: document.getElementById('input-termux-auto').checked ? 'start' : 'stop',
-                cmd: normalizeCmd(document.getElementById('input-termux-cmd').value)
+                name: el('input-' + type + '-name').value.trim(),
+                port: el('input-' + type + '-port').value.trim(),
+                auto: el('input-' + type + '-auto').checked ? 'start' : 'stop',
+                cmd: normalizeCmd(el('input-' + type + '-cmd').value)
             };
+            if (type === 'termux') s.extra = el('input-termux-extra').value.trim();
             if (!s.name || !s.cmd) { toast('请填写必填项', true); return; }
             const nameErr = checkServiceName(s.name);
             if (nameErr) { toast(nameErr, true); return; }
-            if (!EXTRA_RE.test(s.extra)) { toast('附加参数不合法', true); return; }
-            if (idx === -1) configData.termux_services.push(s);
-            else configData.termux_services[idx] = s;
-            closeModal('termux');
-            renderConfigLists();
-            toast('保存中...');
-            saveConfig();
-        }
-
-        function saveBinaryService() {
-            const idx = parseInt(document.getElementById('edit-binary-idx').value);
-            const s = {
-                name: document.getElementById('input-binary-name').value.trim(),
-                port: document.getElementById('input-binary-port').value.trim(),
-                auto: document.getElementById('input-binary-auto').checked ? 'start' : 'stop',
-                cmd: normalizeCmd(document.getElementById('input-binary-cmd').value)
-            };
-            if (!s.name || !s.cmd) { toast('请填写必填项', true); return; }
-            const nameErr = checkServiceName(s.name);
-            if (nameErr) { toast(nameErr, true); return; }
-            if (idx === -1) configData.services.push(s);
-            else configData.services[idx] = s;
-            closeModal('binary');
+            if (type === 'termux' && !EXTRA_RE.test(s.extra)) { toast('附加参数不合法', true); return; }
+            if (idx === -1) svcArr(type).push(s);
+            else svcArr(type)[idx] = s;
+            closeModal(type);
             renderConfigLists();
             toast('保存中...');
             saveConfig();
@@ -1310,7 +1284,7 @@
                 'schedule_stop=' + toB64(stop),
                 'schedule_start=' + toB64(start)
             ].join('\n');
-            const ok = await saveSchedulePayload(payload);
+            const ok = await saveConfigPayload(payload, document.getElementById('error-schedule'));
             scheduleSaving = false;
             if (ok) {
                 configData.schedule_enabled = (on === '1');
@@ -1322,9 +1296,9 @@
             }
         }
 
-        // 单键保存（开关切换用）：复用 saveWifiKey 的 heredoc 链路
+        // 单键保存（开关切换用）：复用 saveconfig 单键链路
         async function saveScheduleKey(key, value, done) {
-            const ok = await saveSchedulePayload(key + '=' + toB64(value));
+            const ok = await saveConfigPayload(key + '=' + toB64(value), document.getElementById('error-schedule'));
             if (ok) {
                 if (key === 'schedule_enabled') configData.schedule_enabled = (value === '1');
                 else if (key === 'schedule_stop') configData.schedule_stop = value;
@@ -1336,19 +1310,18 @@
             if (done) done(ok);
         }
 
-        async function saveSchedulePayload(payload) {
+        // saveconfig 统一链路：key=base64(value) 行经 heredoc 提交，成功返回 true；
+        // 可选 errEl 用于回显后端校验错误（定时时间）
+        async function saveConfigPayload(payload, errEl) {
             if (!ksuApi || !MODDIR || !isConfigLoaded) {
                 toast('配置未加载完成，已取消保存', true);
                 return false;
             }
-            const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
-            const script = 'sh ' + sq(MODDIR + '/action.sh') + ' saveconfig <<' + sq(tag) + '\n' + payload + '\n' + tag;
-            const r = await exec(script);
+            const r = await runAction('saveconfig', payload);
             if (r.errno === 0) {
                 try {
                     const d = JSON.parse(r.stdout || '{}');
                     if (d.success) return true;
-                    const errEl = document.getElementById('error-schedule');
                     if (errEl && d.error) errEl.textContent = d.error;
                 } catch (e) { /* 落入失败 */ }
             }
@@ -1357,18 +1330,7 @@
 
         // 单键保存：只提交一个 wifi 键，后端缺键继承其余配置；不触发全页重载
         async function saveWifiKey(key, value, done) {
-            if (!ksuApi || !MODDIR || !isConfigLoaded) {
-                toast('配置未加载完成，已取消保存', true);
-                if (done) done(false);
-                return;
-            }
-            const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
-            const script = 'sh ' + sq(MODDIR + '/action.sh') + ' saveconfig <<' + sq(tag) + '\n' + key + '=' + toB64(value) + '\n' + tag;
-            const r = await exec(script);
-            let ok = false;
-            if (r.errno === 0) {
-                try { ok = !!(JSON.parse(r.stdout || '{}').success); } catch (e) { ok = false; }
-            }
+            const ok = await saveConfigPayload(key + '=' + toB64(value));
             if (ok) {
                 if (key === 'wifi_service_enabled') configData.wifi_service_enabled = (value === '1');
                 else if (key === 'wifi_ssids') configData.wifi_ssids = value;
@@ -1484,10 +1446,7 @@
             if (!cmds) { toast('请输入要执行的命令', true); return; }
             const useTermux = mode === 'termux';
             toast(useTermux ? '以 Termux 运行（测试）命令...' : '运行（测试）命令...');
-            const sub = useTermux ? 'runcmdtermux' : 'runcmd';
-            const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
-            const script = 'sh ' + sq(MODDIR + '/action.sh') + ' ' + sub + ' <<' + sq(tag) + '\n' + cmds + '\n' + tag;
-            const r = await exec(script);
+            const r = await runAction(useTermux ? 'runcmdtermux' : 'runcmd', cmds);
             if (r.errno === 0) { toast('已执行，详情可查看日志'); }
             else { toast('执行失败', true); }
         }
@@ -1497,14 +1456,14 @@
             // 配置未成功加载前一律拒绝保存：内存里是空列表，全量提交会把设备配置写空
             if (!isConfigLoaded) { toast('配置未加载完成，已取消保存', true); return; }
             const sleepRaw = (document.getElementById('input-sleep').value || '').trim();
-            // 清空输入框视为恢复默认 60；非法数字也回退 60，小于 5 按最小值钳制
+            // 清空输入框视为恢复默认 60；非法数字也回退 60，小于 10 按最小值钳制（与后端一致）
             let sleepInterval = sleepRaw === '' ? 60 : parseInt(sleepRaw, 10);
             if (isNaN(sleepInterval)) sleepInterval = 60;
-            if (sleepInterval < 5) sleepInterval = 5;
+            if (sleepInterval < 10) sleepInterval = 10;
             if (sleepInterval > 86400) sleepInterval = 86400;
             const serverDir = (document.getElementById('input-server-dir').value || '').trim().replace(/\/storage\/emulated\/0\//g, '/data/media/0/');
-            const termuxStr = stringifyTermux(configData.termux_services);
-            const binaryStr = stringifyBinary(configData.services);
+            const termuxStr = stringifyRows(configData.termux_services, 'termux');
+            const binaryStr = stringifyRows(configData.services, 'binary');
             const bootStr = isTestMode ? configData.boot_commands : (document.getElementById('input-boot-cmds').value || '');
             const wifiEnabled = document.getElementById('wifi-service-switch').checked ? '1' : '0';
             const wifiNames = [...configData.wifi_service_names].join('\n');
@@ -1529,9 +1488,7 @@
                 'schedule_stop=' + toB64(schedStop),
                 'schedule_start=' + toB64(schedStart)
             ].join('\n');
-            const tag = 'SVCHUB_EOF_' + Math.random().toString(36).slice(2, 10);
-            const script = 'sh ' + sq(MODDIR + '/action.sh') + ' saveconfig <<' + sq(tag) + '\n' + payload + '\n' + tag;
-            const r = await exec(script);
+            const r = await runAction('saveconfig', payload);
             if (r.errno === 0) {
                 try {
                     const d = JSON.parse(r.stdout || '{}');
