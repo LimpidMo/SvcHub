@@ -83,13 +83,30 @@ else
 fi
 
 # ==================== 升级时保留配置 ====================
+# config.json（服务配置 + 长期 Token 本体）与 web.conf（监听/会话策略）都保留；
+# Token 长期会话文件（run/session/tsess_*）保留，未过期重装不断登。
 MODID=${MODID:-$(basename "${MODPATH:-}")}
 if [ -n "$MODID" ]; then
-    OLD_CFG="/data/adb/modules/$MODID/config.json"
-    if [ -f "$OLD_CFG" ]; then
-        cp -f "$OLD_CFG" "$MODPATH/config.json" 2>/dev/null \
+    OLD_MOD="/data/adb/modules/$MODID"
+    if [ -f "$OLD_MOD/config.json" ]; then
+        cp -f "$OLD_MOD/config.json" "$MODPATH/config.json" 2>/dev/null \
             && ui_print "- 已保留配置 config.json" \
             || ui_print "! 配置 config.json 保留失败，将使用默认配置"
+    fi
+    if [ -f "$OLD_MOD/web.conf" ]; then
+        cp -f "$OLD_MOD/web.conf" "$MODPATH/web.conf" 2>/dev/null \
+            && ui_print "- 已保留配置 web.conf" \
+            || ui_print "! 配置 web.conf 保留失败，将使用默认配置"
+    fi
+    if [ -d "$OLD_MOD/run/session" ]; then
+        mkdir -p "$MODPATH/run/session" 2>/dev/null
+        for sf in "$OLD_MOD"/run/session/tsess_*; do
+            [ -f "$sf" ] || continue
+            cp -f "$sf" "$MODPATH/run/session/" 2>/dev/null
+        done
+        if ls "$MODPATH"/run/session/tsess_* >/dev/null 2>&1; then
+            ui_print "- 已保留长期登录会话（Token 未过期不断登）"
+        fi
     fi
 fi
 
@@ -143,6 +160,13 @@ if [ "$DNS_MOUNT" = "false" ]; then
     ui_print "- 后期若需挂载DNS配置，手动删除模块文件夹内skip_mount文件或执行:"
     ui_print "  rm /data/adb/modules/${MODID}/skip_mount 后重启即可"
 fi
+
+# 可执行位修复（zip 解压可能丢 exec 位，无位则 CGI 404 / 后端 127）。
+chmod 755 "$MODPATH/action.sh" "$MODPATH/service.sh" "$MODPATH/supervisor.sh" \
+    "$MODPATH/httpd.sh" "$MODPATH/uninstall.sh" "$MODPATH/customize.sh" \
+    "$MODPATH/webroot/cgi-bin/api.cgi" 2>/dev/null \
+    && ui_print "- 已修复脚本可执行权限" \
+    || ui_print "! 可执行权限修复失败，外部访问 CGI 可能 404"
 
 # ==================== Termux 检测 ====================
 if [ ! -d /data/data/com.termux/files/home ]; then

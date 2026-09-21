@@ -64,7 +64,7 @@ patrol_start_rows() {
 	while IFS='|' read -r "$@"; do
 		[ -n "$name" ] || continue
 		if [ "$auto" != start ]; then
-			sup_log "    跳过 $name (auto=$auto)"
+			sup_log "    跳过 $name"
 			continue
 		fi
 		if wifi_should_skip "$name"; then
@@ -185,6 +185,13 @@ sleep_slice() {
 			sync_wifi_service_policy "$WIFI_POLICY" off
 		fi
 
+		# 外部访问保活：启用且有密码、httpd 未运行则拉起（被杀/异常退出 60 秒内恢复）
+		if [ "$WEBUI_ENABLED" = "1" ] && [ -n "$WEBUI_PASSWORD_HASH" ] && ! svc_running httpd; then
+			sh "$MODDIR/httpd.sh" start >/dev/null 2>&1 && \
+				webui_log "httpd 保活拉起（分片巡检）" || \
+				webui_log "httpd 保活拉起失败，见 webui.log"
+		fi
+
 		# 新间隔已到或已过，立即结束本轮休眠进入巡检
 		[ "$elapsed" -ge "$target" ] && break
 	done
@@ -209,6 +216,7 @@ while :; do
 	if [ -f "$DISABLE_FILE" ]; then
 		sup_log "检测到 disable，停止全部受管服务"
 		stop_all
+		sh "$MODDIR/httpd.sh" stop >/dev/null 2>&1
 		rm -f "$SPPID"
 		exit 0
 	fi

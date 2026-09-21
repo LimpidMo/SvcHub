@@ -19,8 +19,13 @@ CONFIG_FILE="$MODDIR/config.json"
 [ -n "$SVCHUB_TERMUX_HOME" ] && TERMUX_HOME="$SVCHUB_TERMUX_HOME" || TERMUX_HOME="/data/data/com.termux/files/home"
 
 # Termux 应用运行 uid
-TERMUX_UID=$(stat -c '%u' "$TERMUX_HOME" 2>/dev/null || stat -c '%u' /data/data/com.termux 2>/dev/null)
-[ -z "$TERMUX_UID" ] && TERMUX_UID=10000
+termux_uid() {
+	if [ -z "$TERMUX_UID" ]; then
+		TERMUX_UID=$(stat -c '%u' "$TERMUX_HOME" 2>/dev/null || stat -c '%u' /data/data/com.termux 2>/dev/null)
+		[ -z "$TERMUX_UID" ] && TERMUX_UID=10000
+	fi
+	printf '%s\n' "$TERMUX_UID"
+}
 
 # Termux 启动命令必须注入的环境
 # 联调覆盖：SVCHUB_MOCK=1 时（电脑沙盒）清空注入，设备 Termux 路径在 PC 上不存在
@@ -41,11 +46,11 @@ WIFI_SSID_CACHE=""
 WIFI_SSID_NOW=""
 WIFI_SSID_CACHE_TIME=0
 
-mkdir -p "$RUNDIR" "$LOG_DIR"
+mkdir -p "$RUNDIR" "$LOG_DIR" "$RUNDIR/session"
 
 # ---------- 配置（模块私有 config.json，明文 JSON） ----------
 # 配置 schema 唯一定义：新增配置键只需在此登记，并同步补全 load_cfg_sh / cfg_global / write_config_json 各一行
-CONFIG_KEYS='sleep_interval server_dir termux_services services boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start'
+CONFIG_KEYS='sleep_interval server_dir termux_services services boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start webui_enabled webui_password_hash webui_token'
 
 # JSON 字符串编码：换行转义为字面 \n 两字符序列，保证写入的 JSON 合法
 enc_js() {
@@ -57,13 +62,68 @@ dec_js() {
 	awk '{ gsub(/\\n/, "\n"); gsub(/\\t/, "\t"); gsub(/\\"/, "\""); gsub(/\\\\/, "\\"); printf "%s", $0 }'
 }
 
-# 读取某个 key 的值（明文）；不存在/空则输出空
+# 读取某个 key 的值（明文）；不存在/空则输出空。
 cfg_get() {
 	local key=$1 val
 	[ -f "$CONFIG_FILE" ] || return 0
 	val=$(sed -n "s/^[[:space:]]*\"${key}\":[[:space:]]*\"\(.*\)\"[,]*$/\1/p" "$CONFIG_FILE")
 	[ -n "$val" ] || return 0
-	printf '%s' "$val" | dec_js
+	case "$val" in
+	*\\*) printf '%s' "$val" | dec_js ;;
+	*) printf '%s' "$val" ;;
+	esac
+}
+
+# 单遍导出 config.json（一次 awk，替代多键多次 cfg_get fork；输出 key<US>原始值 行）。
+# 行尾右引号+可选逗号锚定取值（值内引号已转义，不会误伤）；US 分隔安全。
+cfg_dump_all() {
+	[ -f "$CONFIG_FILE" ] || return 0
+	awk -v sep="$(printf '\037')" '
+	/^[[:space:]]*"[^"]*"[[:space:]]*:/ {
+		line = $0
+		sub(/^[[:space:]]*"/, "", line)
+		key = substr(line, 1, index(line, "\"") - 1)
+		sub(/^[^"]*"[[:space:]]*:[[:space:]]*"/, "", line)
+		sub(/"[[:space:]]*,?[[:space:]]*$/, "", line)
+		printf "%s%s%s\n", key, sep, line
+	}' "$CONFIG_FILE"
+}
+
+# 单遍加载 config.json 到全局变量（一次 awk 落临时文件 + 重定向读；管道会进子 shell 导致赋值丢失，必须用重定向）。
+cfg_load_all() {
+	local line k v us tmp
+	[ -f "$CONFIG_FILE" ] || return 0
+	SLEEP_INTERVAL=""; SERVER_DIR=""; TERMUX_SERVICES=""; SERVICES=""; BOOT_COMMANDS=""
+	WIFI_SERVICE_ENABLED=""; WIFI_SERVICE_NAMES=""; WIFI_SERVICE_NAMES_OFF=""; WIFI_SSIDS=""
+	SCHEDULE_ENABLED=""; SCHEDULE_STOP=""; SCHEDULE_START=""
+	WEBUI_ENABLED=""; WEBUI_PASSWORD_HASH=""; WEBUI_TOKEN=""
+	us=$(printf '\037')
+	tmp="$RUNDIR/.cfgdump.$$.tmp"
+	cfg_dump_all > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+	while IFS= read -r line || [ -n "$line" ]; do
+		k=${line%%"$us"*}
+		[ "$k" = "$line" ] && continue
+		v=${line#*"$us"}
+		case "$v" in *\\*) v=$(printf '%s' "$v" | dec_js) ;; esac
+		case "$k" in
+		sleep_interval) SLEEP_INTERVAL=$v ;;
+		server_dir) SERVER_DIR=$v ;;
+		termux_services) TERMUX_SERVICES=$v ;;
+		services) SERVICES=$v ;;
+		boot_commands) BOOT_COMMANDS=$v ;;
+		wifi_service_enabled) WIFI_SERVICE_ENABLED=$v ;;
+		wifi_service_names) WIFI_SERVICE_NAMES=$v ;;
+		wifi_service_names_off) WIFI_SERVICE_NAMES_OFF=$v ;;
+		wifi_ssids) WIFI_SSIDS=$v ;;
+		schedule_enabled) SCHEDULE_ENABLED=$v ;;
+		schedule_stop) SCHEDULE_STOP=$v ;;
+		schedule_start) SCHEDULE_START=$v ;;
+		webui_enabled) WEBUI_ENABLED=$v ;;
+		webui_password_hash) WEBUI_PASSWORD_HASH=$v ;;
+		webui_token) WEBUI_TOKEN=$v ;;
+		esac
+	done < "$tmp"
+	rm -f "$tmp"
 }
 
 # ---------- 校验 ----------
@@ -100,9 +160,13 @@ write_config_json() {
 		printf '  "wifi_ssids": "%s",\n'              "$(printf '%s' "$WIFI_SSIDS" | enc_js)"
 		printf '  "schedule_enabled": "%s",\n'        "$(printf '%s' "$SCHEDULE_ENABLED" | enc_js)"
 		printf '  "schedule_stop": "%s",\n'           "$(printf '%s' "$SCHEDULE_STOP" | enc_js)"
-		printf '  "schedule_start": "%s"\n'           "$(printf '%s' "$SCHEDULE_START" | enc_js)"
+		printf '  "schedule_start": "%s",\n'          "$(printf '%s' "$SCHEDULE_START" | enc_js)"
+		printf '  "webui_enabled": "%s",\n'           "$(printf '%s' "$WEBUI_ENABLED" | enc_js)"
+		printf '  "webui_password_hash": "%s",\n'     "$(printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js)"
+		printf '  "webui_token": "%s"\n'              "$(printf '%s' "$WEBUI_TOKEN" | enc_js)"
 		echo '}'
 	} > "$tmp" && mv -f "$tmp" "$CONFIG_FILE"
+	LOAD_CFG_DONE=""
 }
 
 # 输出 load_cfg_sh 全局变量中 key 对应的值；供 api_get_config 与保存后回读校验共用
@@ -120,6 +184,9 @@ cfg_global() {
 		schedule_enabled)       printf '%s' "$SCHEDULE_ENABLED" ;;
 		schedule_stop)          printf '%s' "$SCHEDULE_STOP" ;;
 		schedule_start)         printf '%s' "$SCHEDULE_START" ;;
+		webui_enabled)          printf '%s' "$WEBUI_ENABLED" ;;
+		webui_password_hash)    printf '%s' "$WEBUI_PASSWORD_HASH" ;;
+		webui_token)            printf '%s' "$WEBUI_TOKEN" ;;
 	esac
 }
 
@@ -197,14 +264,15 @@ run_lines() {
 	} >> "$log" 2>&1
 }
 
-# ---------- 会话清理 ----------
-# 清空上一会话残留：run 目录删除全部残留 pid 文件；
+# ---------- 运行期清理 ----------
+# 清 run 下残留 pid 文件（session 子目录保留，登录会话跨重启由 webui_clean_stale_sess 处理）；
 # log 目录除开机命令日志全部删除。服务日志会在下次启动时重建。
-clean_session_files() {
+clean_temp_files() {
 	local f base
 	if [ -d "$RUNDIR" ]; then
 		for f in "$RUNDIR"/*; do
 			[ -e "$f" ] || continue
+			[ -d "$f" ] && continue
 			rm -f "$f"
 		done
 	fi
@@ -384,28 +452,24 @@ stop_all() {
 }
 
 # ---------- 配置加载 ----------
-# 旧版 config.json 缺指定键时，只做行级插入补默认值，不触碰已有行（$@=键列表，来自 CONFIG_KEYS 子集）。
-# 默认值规则：*_enabled 键补 "0"，其余补 ""。
-# 注意：绝不能用解码后的变量全量重写——若文件本身已损坏，解码出空值会覆盖掉原有配置。
+# 缺键补键（幂等：无缺键原样重写，cmp 一致跳过；单次 awk 探测缺键与基础键）。
 ensure_config_keys() {
-	local k missing= tmp
+	local tmp
 	[ -f "$CONFIG_FILE" ] || return 0
-	for k in "$@"; do
-		grep -q "^[[:space:]]*\"$k\"[[:space:]]*:" "$CONFIG_FILE" 2>/dev/null || missing="$missing $k"
-	done
-	[ -n "$missing" ] || return 0
-	# 五个基础键缺失说明文件结构异常，此时不碰文件，只用内存默认值运行
-	for k in sleep_interval server_dir termux_services services boot_commands; do
-		grep -q "^[[:space:]]*\"$k\"[[:space:]]*:" "$CONFIG_FILE" 2>/dev/null || return 0
-	done
 	tmp="$CONFIG_FILE.tmp"
 	awk -v keys="$*" '
 		BEGIN { n = split(keys, kl, " ") }
 		{
 			for (i = 1; i <= n; i++)
 				if ($0 ~ "\"" kl[i] "\"[[:space:]]*:") have[i] = 1
+			if ($0 ~ "\"sleep_interval\"[[:space:]]*:") base1 = 1
+			if ($0 ~ "\"server_dir\"[[:space:]]*:") base2 = 1
+			if ($0 ~ "\"termux_services\"[[:space:]]*:") base3 = 1
+			if ($0 ~ "\"services\"[[:space:]]*:") base4 = 1
+			if ($0 ~ "\"boot_commands\"[[:space:]]*:") base5 = 1
+			lines[NR] = $0
 		}
-		/^[[:space:]]*}[[:space:]]*$/ && !done {
+		END {
 			m = 0
 			for (i = 1; i <= n; i++) {
 				if (!have[i]) {
@@ -413,33 +477,31 @@ ensure_config_keys() {
 					def[m++] = "  \"" kl[i] "\": \"" v "\""
 				}
 			}
-			if (prev != "" && prev !~ /,[[:space:]]*$/) prev = prev ","
-			if (prev != "") print prev
-			prev = ""
-			for (i = 0; i < m; i++) print def[i] ((i < m - 1) ? "," : "")
-			print $0
-			done = 1
-			next
+			if (m == 0 || !(base1 && base2 && base3 && base4 && base5)) {
+				for (i = 1; i <= NR; i++) print lines[i]
+				exit 0
+			}
+			for (i = 1; i <= NR; i++) {
+				if (lines[i] ~ /^[[:space:]]*}[[:space:]]*$/) {
+					if (lines[i-1] !~ /,[[:space:]]*$/) lines[i-1] = lines[i-1] ","
+					for (j = 0; j < m - 1; j++) print def[j] ","
+					print def[m - 1]
+				}
+				print lines[i]
+			}
 		}
-		{ if (prev != "") print prev; prev = $0 }
-		END { if (!done && prev != "") print prev }
-	' "$CONFIG_FILE" > "$tmp" && mv -f "$tmp" "$CONFIG_FILE"
+	' "$CONFIG_FILE" > "$tmp" || return 0
+	[ -s "$tmp" ] || { rm -f "$tmp"; return 0; }
+	cmp -s "$CONFIG_FILE" "$tmp" && { rm -f "$tmp"; return 0; }
+	mv -f "$tmp" "$CONFIG_FILE"
 	return 0
 }
 
-load_cfg_sh() {
-	SLEEP_INTERVAL=$(cfg_get sleep_interval)
-	SERVER_DIR=$(cfg_get server_dir)
-	TERMUX_SERVICES=$(cfg_get termux_services)
-	SERVICES=$(cfg_get services)
-	BOOT_COMMANDS=$(cfg_get boot_commands)
-	WIFI_SERVICE_ENABLED=$(cfg_get wifi_service_enabled)
-	WIFI_SERVICE_NAMES=$(cfg_get wifi_service_names)
-	WIFI_SERVICE_NAMES_OFF=$(cfg_get wifi_service_names_off)
-	WIFI_SSIDS=$(cfg_get wifi_ssids)
-	SCHEDULE_ENABLED=$(cfg_get schedule_enabled)
-	SCHEDULE_STOP=$(cfg_get schedule_stop)
-	SCHEDULE_START=$(cfg_get schedule_start)
+	load_cfg_sh() {
+	# 同进程重复 load 免重复读文件（写操作清标记）。
+	[ -n "$LOAD_CFG_DONE" ] && return 0
+	# 单遍读文件解析（一次 awk，含转义值才 fork 解码）。
+	cfg_load_all
 
 	[ -n "$SLEEP_INTERVAL" ] || SLEEP_INTERVAL=60
 	is_int "$SLEEP_INTERVAL" || SLEEP_INTERVAL=60
@@ -457,7 +519,33 @@ load_cfg_sh() {
 
 	[ "$SCHEDULE_ENABLED" = "1" ] || SCHEDULE_ENABLED="0"
 
-	ensure_config_keys wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start
+	# 缺键默认开启，显式 0 保留。
+	if [ -z "$WEBUI_ENABLED" ]; then
+		WEBUI_ENABLED="1"
+	elif [ "$WEBUI_ENABLED" != "0" ] && [ "$WEBUI_ENABLED" != "1" ]; then
+		WEBUI_ENABLED="1"
+	fi
+
+	# 空哈希填默认 admin 哈希并标记落盘。
+	# 盐随机生成（非固定盐），落盘后全设备各异，重启一致。
+	WEBUI_PASSWORD_HASH_NEED_SAVE=""
+	if [ -z "$WEBUI_PASSWORD_HASH" ] && [ -z "$WEBUI_PASSWORD_HASH_DONE" ]; then
+		WEBUI_PASSWORD_HASH_SALT=$(webui_gen_token | head -c 32)
+		if [ "${#WEBUI_PASSWORD_HASH_SALT}" -eq 32 ]; then
+			WEBUI_PASSWORD_HASH=$(printf '%s' admin | webui_hash_password "$WEBUI_PASSWORD_HASH_SALT")
+		fi
+		if [ -n "$WEBUI_PASSWORD_HASH" ]; then
+			WEBUI_PASSWORD_HASH_NEED_SAVE=1
+		else
+			WEBUI_PASSWORD_HASH=""
+		fi
+		WEBUI_PASSWORD_HASH_DONE=1
+	fi
+
+	# 缺键才补键（ensure 内部幂等：齐全只读不写）；webui_enabled 补后纠正为 1。
+	ensure_config_keys wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start webui_enabled webui_password_hash webui_token
+	[ "$WEBUI_ENABLED" = 0 ] || sed -i 's/"webui_enabled": "0"/"webui_enabled": "1"/' "$CONFIG_FILE" 2>/dev/null
+	LOAD_CFG_DONE=1
 }
 
 # 按名称从配置取整行（awk 保留 cmd 中的 |；返回整行 $0）
@@ -802,3 +890,153 @@ EOF
 		fi
 	fi
 }
+
+# 外部访问：监听与安全策略来自 web.conf，缺文件/非法值回默认。
+# web.conf 默认值。
+WEBUI_LISTEN_DEF=127.0.0.1
+WEBUI_PORT_DEF=5555
+SESS_TTL_DEF=3600
+TOKEN_DAYS_DEF=30
+FAIL_MAX_DEF=5
+FAIL_LOCK_DEF=300
+
+# 读 web.conf（单次 awk 白名单提取，非法回默认）。
+load_web_conf() {
+	local f="$MODDIR/web.conf" out
+	WEBUI_LISTEN=$WEBUI_LISTEN_DEF
+	WEBUI_PORT=$WEBUI_PORT_DEF
+	SESS_TTL=$SESS_TTL_DEF
+	TOKEN_DAYS=$TOKEN_DAYS_DEF
+	FAIL_MAX=$FAIL_MAX_DEF
+	FAIL_LOCK=$FAIL_LOCK_DEF
+	[ -f "$f" ] || return 0
+	# 只认 6 个键，其余忽略（防 source 整文件注入）。
+	out=$(awk -F'=' '
+		{ k=$1; v=$2; gsub(/[ \t\r]/, "", k); sub(/#.*/, "", v);
+		  gsub(/^[ \t]+|[ \t\r]+$/, "", v); gsub(/^["'\'']|["'\'']$/, "", v) }
+		k=="WEBUI_LISTEN"||k=="WEBUI_PORT"||k=="SESS_TTL"||k=="TOKEN_DAYS"||k=="FAIL_MAX"||k=="FAIL_LOCK" { print k"="v }
+	' "$f" 2>/dev/null) || return 0
+	[ -n "$out" ] || return 0
+	while IFS='=' read -r k v || [ -n "$k" ]; do
+		case "$k" in
+		WEBUI_LISTEN) WEBUI_LISTEN=$v ;;
+		WEBUI_PORT) WEBUI_PORT=$v ;;
+		SESS_TTL) SESS_TTL=$v ;;
+		TOKEN_DAYS) TOKEN_DAYS=$v ;;
+		FAIL_MAX) FAIL_MAX=$v ;;
+		FAIL_LOCK) FAIL_LOCK=$v ;;
+		esac
+	done <<EOF
+$out
+EOF
+	# 数字键统一钳制：非法回默认。
+	case "$WEBUI_PORT" in ''|*[!0-9]*) WEBUI_PORT=$WEBUI_PORT_DEF ;; esac
+	[ "$WEBUI_PORT" -ge 1 ] 2>/dev/null && [ "$WEBUI_PORT" -le 65535 ] 2>/dev/null || WEBUI_PORT=$WEBUI_PORT_DEF
+	case "$SESS_TTL" in ''|*[!0-9]*) SESS_TTL=$SESS_TTL_DEF ;; esac
+	[ "$SESS_TTL" -ge 60 ] 2>/dev/null && [ "$SESS_TTL" -le 2592000 ] 2>/dev/null || SESS_TTL=$SESS_TTL_DEF
+	case "$TOKEN_DAYS" in ''|*[!0-9]*) TOKEN_DAYS=$TOKEN_DAYS_DEF ;; esac
+	[ "$TOKEN_DAYS" -ge 1 ] 2>/dev/null && [ "$TOKEN_DAYS" -le 365 ] 2>/dev/null || TOKEN_DAYS=$TOKEN_DAYS_DEF
+	case "$FAIL_MAX" in ''|*[!0-9]*) FAIL_MAX=$FAIL_MAX_DEF ;; esac
+	[ "$FAIL_MAX" -ge 1 ] 2>/dev/null && [ "$FAIL_MAX" -le 100 ] 2>/dev/null || FAIL_MAX=$FAIL_MAX_DEF
+	case "$FAIL_LOCK" in ''|*[!0-9]*) FAIL_LOCK=$FAIL_LOCK_DEF ;; esac
+	[ "$FAIL_LOCK" -ge 10 ] 2>/dev/null && [ "$FAIL_LOCK" -le 86400 ] 2>/dev/null || FAIL_LOCK=$FAIL_LOCK_DEF
+	return 0
+}
+
+WEBUI_LOG="$LOG_DIR/webui.log"
+# 登录会话目录（run/ 下，与 pid 文件同级；绝不能放 webroot 文档根下，httpd 会静态外泄）。
+# 密码会话 sess_<token>，Token 会话 tsess_<token>（长期登录，会话按天，Token 本身不变）。
+WEBUI_SESS_DIR="$RUNDIR/session"
+WEBUI_SESS_PREFIX="$WEBUI_SESS_DIR/sess_"
+WEBUI_TSESS_PREFIX="$WEBUI_SESS_DIR/tsess_"
+WEBUI_FAIL_PREFIX="$RUNDIR/webui_fail_"
+# 默认 admin 密码的固定盐。
+WEBUI_DEFAULT_SALT="svchub-admin"
+
+webui_log() {
+	[ -n "$1" ] || return 0
+	echo "[$(date '+%F %T')] $1" >> "$WEBUI_LOG"
+}
+
+# 启动前清遗留密码会话（Token 长期会话保留）：有效删，过期留待CGI惰性删。
+# sess_valid 在 CGI 侧，service/supervisor 共用此函数（同语义：有效删、过期保留）。
+webui_clean_stale_sess() {
+	local sf st exp now
+	for sf in "$WEBUI_SESS_DIR"/sess_*; do
+		[ -f "$sf" ] || continue
+		st=${sf##*sess_}
+		case "$st" in *tsess_*) continue ;; esac
+		exp=$(cat "$sf" 2>/dev/null | tr -dc '0-9')
+		now=$(date +%s)
+		[ -n "$exp" ] && [ "$exp" -gt "$now" ] 2>/dev/null && rm -f "$sf"
+	done
+}
+
+# 轻量读开关（免全量 load）：输出 enabled has_password。
+webui_status_fast() {
+	local e h
+	e=$(sed -n 's/^[[:space:]]*"webui_enabled":[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG_FILE" 2>/dev/null | head -n 1)
+	h=$(sed -n 's/^[[:space:]]*"webui_password_hash":[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG_FILE" 2>/dev/null | head -n 1)
+	[ -z "$e" ] && e=1
+	[ "$e" = 0 ] || e=1
+	[ -n "$h" ] && h=1 || h=0
+	printf '%s %s\n' "$e" "$h"
+}
+
+# 找含 httpd 的 busybox，输出路径。
+# 顺序：沙盒覆盖（仅 PC 联调）→ PATH → 各 root 方案自带。
+webui_find_busybox() {
+	local b
+	for b in "$SVCHUB_BUSYBOX" "$(command -v busybox 2>/dev/null)" \
+		/data/adb/ksu/bin/busybox /data/adb/magisk/busybox /data/adb/ap/bin/busybox; do
+		[ -n "$b" ] && [ -x "$b" ] && "$b" httpd --help 2>&1 | grep -q '\-p' && {
+			printf '%s\n' "$b"
+			return 0
+		}
+	done
+	return 1
+}
+
+# 生成 64 位随机 hex（会话 Token / 密码盐）。
+webui_gen_token() {
+	local t
+	t=$(od -An -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' | head -c 64)
+	if [ "${#t}" -lt 64 ]; then
+		t=$(printf '%s%s%s' "$(date +%s%N)" "$$" "$RANDOM" | sha256sum 2>/dev/null | head -c 64)
+	fi
+	if [ "${#t}" -lt 64 ]; then
+		t=$(printf '%s%s%s' "$(date +%s)" "$$" "$RANDOM" | busybox sha256sum 2>/dev/null | head -c 64)
+	fi
+	[ "${#t}" -eq 64 ] || return 1
+	printf '%s\n' "$t"
+}
+
+# 密码哈希：$1=盐，stdin 读明文，输出 盐$hex。
+webui_hash_password() {
+	local salt=$1 pw hex bb
+	[ -n "$salt" ] || return 1
+	# 无尾随换行时 read 非零但变量有效，必须保留，否则登录无校验。
+	IFS= read -r pw || [ -n "$pw" ] || pw=""
+	hex=$(printf '%s' "$salt$pw" | sha256sum 2>/dev/null | head -c 64)
+	if [ "${#hex}" -lt 64 ]; then
+		bb=$(webui_find_busybox 2>/dev/null) || return 1
+		hex=$(printf '%s' "$salt$pw" | "$bb" sha256sum 2>/dev/null | head -c 64)
+	fi
+	[ "${#hex}" -eq 64 ] || return 1
+	printf '%s$%s\n' "$salt" "$hex"
+}
+
+# 校验明文密码：$1=明文 $2=存量哈希，匹配返回 0。
+webui_check_password() {
+	local pw=$1 stored=$2 salt expect got
+	case "$stored" in *'$'*) ;; *) return 1 ;; esac
+	salt=${stored%%\$*}
+	expect=${stored#*\$}
+	[ -n "$salt" ] && [ -n "$expect" ] || return 1
+	got=$(printf '%s' "$pw" | webui_hash_password "$salt" | head -n 1)
+	[ -n "$got" ] || return 1
+	[ "$got" = "$stored" ]
+}
+
+# source 落点：加载 web.conf。
+load_web_conf

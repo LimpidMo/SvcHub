@@ -10,6 +10,8 @@ fi
 rm -f "$SPPID"
 
 stop_all
+# 外部访问收尾：停 httpd
+sh "$MODDIR/httpd.sh" stop >/dev/null 2>&1
 rm -rf "$RUNDIR"
 
 exit 0

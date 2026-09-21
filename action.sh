@@ -154,6 +154,7 @@ api_get_logs() {
 }
 
 api_read_log() {
+	# $1=日志名 $2=行数（默认 500，上限 2000；0=全文）。
 	local name=$1 lines=${2:-500} f
 	valid_name "$name" || { echo '{"content":"","error":"名称不合法"}'; exit 0; }
 	is_int "$lines" || lines=500
@@ -170,125 +171,285 @@ api_read_log() {
 
 api_get_config() {
 	load_cfg_sh
-	local key first=1
-	printf '{'
-	for key in $CONFIG_KEYS; do
-		[ "$first" -eq 1 ] || printf ','
-		first=0
-		printf '"%s":"%s"' "$key" "$(printf '%s' "$(cfg_global "$key")" | enc_js)"
-	done
-	printf '}\n'
+	{
+		printf '{"sleep_interval":"'
+		printf '%s' "$SLEEP_INTERVAL" | enc_js
+		printf '","server_dir":"'
+		printf '%s' "$SERVER_DIR" | enc_js
+		printf '","termux_services":"'
+		printf '%s' "$TERMUX_SERVICES" | enc_js
+		printf '","services":"'
+		printf '%s' "$SERVICES" | enc_js
+		printf '","boot_commands":"'
+		printf '%s' "$BOOT_COMMANDS" | enc_js
+		printf '","wifi_service_enabled":"'
+		printf '%s' "$WIFI_SERVICE_ENABLED" | enc_js
+		printf '","wifi_service_names":"'
+		printf '%s' "$WIFI_SERVICE_NAMES" | enc_js
+		printf '","wifi_service_names_off":"'
+		printf '%s' "$WIFI_SERVICE_NAMES_OFF" | enc_js
+		printf '","wifi_ssids":"'
+		printf '%s' "$WIFI_SSIDS" | enc_js
+		printf '","schedule_enabled":"'
+		printf '%s' "$SCHEDULE_ENABLED" | enc_js
+		printf '","schedule_stop":"'
+		printf '%s' "$SCHEDULE_STOP" | enc_js
+		printf '","schedule_start":"'
+		printf '%s' "$SCHEDULE_START" | enc_js
+		printf '","webui_enabled":"'
+		printf '%s' "$WEBUI_ENABLED" | enc_js
+		printf '","webui_password_hash":"'
+		printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js
+		printf '","webui_token":"'
+		printf '%s' "$WEBUI_TOKEN" | enc_js
+		printf '"}\n'
+	}
 }
 
-# 从 stdin 读 key=BASE64VALUE 行；白名单校验后一次性写入 config.json（明文 JSON）。
-# 先 load_cfg_sh 让未提供的键沿用现有配置，解析通过的键直接覆盖全局变量，
-# 最后 write_config_json 从全局变量统一落盘。
-api_save_config() {
-	local line key b64 val provided= old_ts old_sv invalid_name ssid_lines k
+# 测试运行命令：stdin 读 shell 文本逐行执行记日志（$1=termux 时注入 Termux 环境）。
+api_run_cmd() {
+	local mode=$1 runner=su env_prefix=
 	load_cfg_sh
-	old_ts=$TERMUX_SERVICES
-	old_sv=$SERVICES
-	while IFS= read -r line; do
+	if [ "$mode" = termux ]; then
+		runner="su $(termux_uid)"
+		env_prefix="$TERMUX_ENV cd $TERMUX_HOME;"
+	fi
+	run_lines "$LOG_DIR/run_test.log" '(测试运行)' "$runner" "$env_prefix"
+	echo '{"success":true}'
+}
+
+# 手动执行开机命令（复用开机同一 runner 记账）。
+api_exec_boot() {
+	load_cfg_sh
+	printf '%s\n' "$BOOT_COMMANDS" | run_lines "$LOG_DIR/boot_commands.log" '开机命令(手动)'
+	echo '{"success":true}'
+}
+
+# 外部访问：开关启停 httpd，密码/Token 走专用子命令。
+api_webui_enable() {
+	load_cfg_sh
+	if [ -f "$DISABLE_FILE" ]; then
+		echo '{"success":false,"error":"模块已禁用，无法开启外部访问"}'
+		exit 1
+	fi
+	# 默认哈希落盘（内存值首次调用时写回）
+	if [ "$WEBUI_PASSWORD_HASH_NEED_SAVE" = "1" ]; then
+		write_config_json 2>/dev/null
+		load_cfg_sh
+	fi
+	if [ -z "$WEBUI_PASSWORD_HASH" ]; then
+		echo '{"success":false,"error":"请先设置密码"}'
+		exit 1
+	fi
+	WEBUI_ENABLED=1
+	write_config_json || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
+	sh "$MODDIR/httpd.sh" start
+	rc=$?
+	if [ "$rc" -eq 0 ]; then
+		echo '{"success":true}'
+	else
+		case "$rc" in
+		2) echo '{"success":false,"error":"未找到可用 busybox（含 httpd）"}' ;;
+		3) echo "{\"success\":false,\"error\":\"端口 $WEBUI_PORT 被占用\"}" ;;
+		5) echo '{"success":false,"error":"api.cgi 无可执行权限，请重装模块"}' ;;
+		*) echo '{"success":false,"error":"httpd 启动失败，请查看 webui 日志"}' ;;
+		esac
+		exit 1
+	fi
+}
+
+api_webui_disable() {
+	load_cfg_sh
+	WEBUI_ENABLED=0
+	write_config_json || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
+	if sh "$MODDIR/httpd.sh" stop >/dev/null 2>&1; then
+		echo '{"success":true}'
+	else
+		echo '{"success":false,"error":"httpd 停止失败，进程仍存活，请查看 webui 日志"}'
+		exit 1
+	fi
+}
+
+# 设置密码：stdin 读 password/old（BASE64），已有哈希须验旧密码。
+api_webui_set_password() {
+	local line key b64 password="" old="" salt
+	load_cfg_sh
+	# 末行无尾随换行仍要处理（fetch body 无尾随换行，read 会返回非零）。
+	while IFS= read -r line || [ -n "$line" ]; do
 		[ -z "$line" ] && continue
 		key=${line%%=*}
 		b64=${line#*=}
+		case "$key" in password|old) ;; *) echo '{"success":false,"error":"未知参数"}'; exit 1 ;; esac
+		case "$b64" in
+		*[!A-Za-z0-9+/=]*) echo '{"success":false,"error":"编码错误"}'; exit 1 ;;
+		esac
+		if [ "$key" = password ]; then
+			password=$(printf '%s' "$b64" | base64 -d 2>/dev/null) || { echo '{"success":false,"error":"解码失败"}'; exit 1; }
+		else
+			old=$(printf '%s' "$b64" | base64 -d 2>/dev/null) || { echo '{"success":false,"error":"解码失败"}'; exit 1; }
+		fi
+	done
+	[ "${#password}" -ge 6 ] || { echo '{"success":false,"error":"密码至少 6 位"}'; exit 1; }
+	[ "${#password}" -le 256 ] || { echo '{"success":false,"error":"密码过长"}'; exit 1; }
+	if [ -n "$WEBUI_PASSWORD_HASH" ]; then
+		webui_check_password "$old" "$WEBUI_PASSWORD_HASH" || { echo '{"success":false,"error":"旧密码错误"}'; exit 1; }
+	fi
+	salt=$(webui_gen_token | head -c 32)
+	[ "${#salt}" -eq 32 ] || { echo '{"success":false,"error":"随机数生成失败"}'; exit 1; }
+	WEBUI_PASSWORD_HASH=$(printf '%s' "$password" | webui_hash_password "$salt") || { echo '{"success":false,"error":"密码哈希失败"}'; exit 1; }
+	[ -n "$WEBUI_TOKEN" ] || WEBUI_TOKEN=$(webui_gen_token) || { echo '{"success":false,"error":"Token 生成失败"}'; exit 1; }
+	write_config_json || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
+	[ "$(cfg_get webui_password_hash)" = "$WEBUI_PASSWORD_HASH" ] || { echo '{"success":false,"error":"配置写入校验不一致"}'; exit 1; }
+	# 改密清全部会话，强制重登。
+	rm -f "$WEBUI_SESS_DIR"/sess_* 2>/dev/null
+	echo '{"success":true}'
+}
+
+# 轮换长期 Token（旧 Token 登录态全部失效）。
+api_webui_regen_token() {
+	load_cfg_sh
+	WEBUI_TOKEN=$(webui_gen_token) || { echo '{"success":false,"error":"Token 生成失败"}'; exit 1; }
+	[ "${#WEBUI_TOKEN}" -eq 64 ] || { echo '{"success":false,"error":"Token 生成失败"}'; exit 1; }
+	write_config_json || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
+	[ "$(cfg_get webui_token)" = "$WEBUI_TOKEN" ] || { echo '{"success":false,"error":"配置写入校验不一致"}'; exit 1; }
+	# Token 轮换同样清会话。
+	rm -f "$WEBUI_SESS_DIR"/tsess_* 2>/dev/null
+	printf '{"success":true,"token":"%s"}\n' "$WEBUI_TOKEN"
+}
+
+# 查询长期 Token 明文。
+api_webui_token_show() {
+	load_cfg_sh
+	printf '{"success":true,"token":"%s"}\n' "$WEBUI_TOKEN"
+}
+
+# 外部访问状态（轻量读取，不跑全量 load）。
+api_webui_status() {
+	local running=stopped enabled haspw
+	svc_running httpd && running=running
+	read -r enabled haspw <<EOF
+$(webui_status_fast)
+EOF
+	printf '{"success":true,"enabled":"%s","running":"%s","has_password":%s,"listen":"%s","port":%s}\n' \
+		"$enabled" "$running" "$haspw" "$WEBUI_LISTEN" "$WEBUI_PORT"
+}
+
+# 单键校验落盘：$1=key $2=解码值（非法直接 exit 1）。
+cfg_apply_one() {
+	local key=$1 val=$2 invalid_name ssid_lines
+	case "$key" in
+	sleep_interval)
+		[ -n "$val" ] || val=60
+		is_int "$val" || { echo '{"success":false,"error":"间隔必须为数字"}'; exit 1; }
+		[ "$val" -lt 10 ] && val=10
+		[ "$val" -gt 86400 ] && val=86400
+		SLEEP_INTERVAL=$val
+		;;
+	server_dir) SERVER_DIR=$val ;;
+	termux_services|services)
+		printf '%s\n' "$val" | validate_rows "$key" || { echo '{"success":false,"error":"服务配置格式错误"}'; exit 1; }
+		if [ "$key" = termux_services ]; then TERMUX_SERVICES=$val; else SERVICES=$val; fi
+		;;
+	boot_commands) BOOT_COMMANDS=$val ;;
+	wifi_service_enabled)
+		case "$val" in
+		0|1) WIFI_SERVICE_ENABLED=$val ;;
+		*) echo '{"success":false,"error":"Wi-Fi 功能开关必须为 0 或 1"}'; exit 1 ;;
+		esac
+		;;
+	wifi_service_names|wifi_service_names_off)
+		invalid_name=$(printf '%s\n' "$val" | awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 != "" && $0 !~ /^[A-Za-z0-9._-]+$/) { print $0; exit } }')
+		if [ -n "$invalid_name" ]; then
+			echo "{\"success\":false,\"error\":\"Wi-Fi 服务名不合法: $invalid_name\"}"
+			exit 1
+		fi
+		if [ "$key" = wifi_service_names ]; then WIFI_SERVICE_NAMES=$val; else WIFI_SERVICE_NAMES_OFF=$val; fi
+		;;
+	wifi_ssids)
+		# SSID 允中文/符号/emoji（| 与真换行由前端剔除），只限长度行数。
+		if [ "${#val}" -gt 10000 ]; then
+			echo '{"success":false,"error":"Wi-Fi SSID 列表过长"}'
+			exit 1
+		fi
+		ssid_lines=$(printf '%s\n' "$val" | grep -c '^' 2>/dev/null || true)
+		if [ "$ssid_lines" -gt 100 ]; then
+			echo '{"success":false,"error":"Wi-Fi SSID 数量过多(最多100个)"}'
+			exit 1
+		fi
+		WIFI_SSIDS=$val
+		;;
+	schedule_enabled)
+		case "$val" in
+		0|1) SCHEDULE_ENABLED=$val ;;
+		*) echo '{"success":false,"error":"定时功能开关必须为 0 或 1"}'; exit 1 ;;
+		esac
+		;;
+	schedule_stop|schedule_start)
+		if [ -n "$val" ]; then
+			case "$val" in
+			[0-2][0-9]:[0-5][0-9])
+				[ "${val%%:*}" -le 23 ] 2>/dev/null || { echo '{"success":false,"error":"定时时间格式错误(HH:MM)"}'; exit 1; }
+				;;
+			*) echo '{"success":false,"error":"定时时间格式错误(HH:MM)"}'; exit 1 ;;
+			esac
+		fi
+		if [ "$key" = schedule_stop ]; then SCHEDULE_STOP=$val; else SCHEDULE_START=$val; fi
+		;;
+	esac
+}
+
+# 写后自校验：回读 sleep_interval 一键探活（写盘失败/错位时该键必不一致）。
+cfg_verify_written() {
+	[ "$(cfg_get sleep_interval)" = "$SLEEP_INTERVAL" ] || { echo '{"success":false,"error":"配置写入校验不一致"}'; exit 1; }
+}
+
+# stdin 读 key=BASE64 行，白名单校验后落盘（未提供的键沿用现值）。
+api_save_config() {
+	local line key b64 val provided= old_ts old_sv
+	load_cfg_sh
+	old_ts=$TERMUX_SERVICES
+	old_sv=$SERVICES
+	# 末行无尾随换行仍处理（fetch body 无尾换行时 read 返回非零）。
+	while IFS= read -r line || [ -n "$line" ]; do
+		[ -z "$line" ] && continue
+		key=${line%%=*}
+		b64=${line#*=}
+		# webui_* 走专用子命令，禁止经 saveconfig 覆盖。
+		case "$key" in
+		webui_*) echo '{"success":false,"error":"外部访问配置请用专用接口修改"}'; exit 1 ;;
+		esac
 		word_in_set "$key" "$CONFIG_KEYS" || { echo '{"success":false,"error":"未知配置键"}'; exit 1; }
 		case "$b64" in
 		*[!A-Za-z0-9+/=]*) echo '{"success":false,"error":"配置编码错误"}'; exit 1 ;;
 		esac
 		val=$(printf '%s' "$b64" | base64 -d 2>/dev/null) || { echo '{"success":false,"error":"配置解码失败"}'; exit 1; }
 		[ "${#val}" -le 1048576 ] || { echo '{"success":false,"error":"配置内容过大"}'; exit 1; }
-		case "$key" in
-		sleep_interval)
-			[ -n "$val" ] || val=60
-			is_int "$val" || { echo '{"success":false,"error":"间隔必须为数字"}'; exit 1; }
-			# 保活间隔最小 10 秒，最大 86400 秒
-			[ "$val" -lt 10 ] && val=10
-			[ "$val" -gt 86400 ] && val=86400
-			SLEEP_INTERVAL=$val
-			;;
-		server_dir)
-			SERVER_DIR=$val
-			;;
-		termux_services|services)
-			printf '%s\n' "$val" | validate_rows "$key" || { echo '{"success":false,"error":"服务配置格式错误"}'; exit 1; }
-			if [ "$key" = termux_services ]; then TERMUX_SERVICES=$val; else SERVICES=$val; fi
-			;;
-		boot_commands)
-			BOOT_COMMANDS=$val
-			;;
-		wifi_service_enabled)
-			case "$val" in
-			0|1) WIFI_SERVICE_ENABLED=$val ;;
-			*) echo '{"success":false,"error":"Wi-Fi 功能开关必须为 0 或 1"}'; exit 1 ;;
-			esac
-			;;
-		wifi_service_names|wifi_service_names_off)
-			# 校验多行文本中的服务名是否合法（仅允许字母数字点横线）
-			invalid_name=$(printf '%s\n' "$val" | awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 != "" && $0 !~ /^[A-Za-z0-9._-]+$/) { print $0; exit } }')
-			if [ -n "$invalid_name" ]; then
-				echo "{\"success\":false,\"error\":\"Wi-Fi 服务名不合法: $invalid_name\"}"
-				exit 1
-			fi
-			if [ "$key" = wifi_service_names ]; then WIFI_SERVICE_NAMES=$val; else WIFI_SERVICE_NAMES_OFF=$val; fi
-			;;
-		wifi_ssids)
-			# SSID 允许中文/空格/符号/emoji：与存储分隔符冲突的 | 与真实换行
-			# 由前端剔除，这里只做长度与行数上限 + 拒绝注入配置解析的异常字符
-			if [ "${#val}" -gt 10000 ]; then
-				echo '{"success":false,"error":"Wi-Fi SSID 列表过长"}'
-				exit 1
-			fi
-			ssid_lines=$(printf '%s\n' "$val" | grep -c '^' 2>/dev/null || true)
-			if [ "$ssid_lines" -gt 100 ]; then
-				echo '{"success":false,"error":"Wi-Fi SSID 数量过多(最多100个)"}'
-				exit 1
-			fi
-			WIFI_SSIDS=$val
-			;;
-		schedule_enabled)
-			case "$val" in
-			0|1) SCHEDULE_ENABLED=$val ;;
-			*) echo '{"success":false,"error":"定时功能开关必须为 0 或 1"}'; exit 1 ;;
-			esac
-			;;
-		schedule_stop|schedule_start)
-			if [ -n "$val" ]; then
-				case "$val" in
-				[0-2][0-9]:[0-5][0-9])
-					[ "${val%%:*}" -le 23 ] 2>/dev/null || { echo '{"success":false,"error":"定时时间格式错误(HH:MM)"}'; exit 1; }
-					;;
-				*) echo '{"success":false,"error":"定时时间格式错误(HH:MM)"}'; exit 1 ;;
-				esac
-			fi
-			if [ "$key" = schedule_stop ]; then SCHEDULE_STOP=$val; else SCHEDULE_START=$val; fi
-			;;
-		esac
+		cfg_apply_one "$key" "$val"
 		provided="$provided $key"
 	done
-	# 停止与启动时间相同无意义：启用状态下拒绝，避免进窗判定恒为窗外却让用户误以为生效
+	# 空 body 不能当成功写回旧值（否则前端误报“已保存”）。
+	[ -n "$provided" ] || { echo '{"success":false,"error":"配置内容为空"}'; exit 1; }
+	# 启用时起止相同无意义（进窗判定恒窗外），直接拒绝。
 	if [ "$SCHEDULE_ENABLED" = "1" ] && [ -n "$SCHEDULE_STOP" ] && [ "$SCHEDULE_STOP" = "$SCHEDULE_START" ]; then
 		echo '{"success":false,"error":"停止时间与启动时间不能相同"}'
 		exit 1
 	fi
 
 	write_config_json || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
-	# 删除后收尾：被删掉的服务若仍在运行则停止，防止配置已删、进程残留
+	# 被删服务仍在运行则停，防止配置已删进程残留。
 	if word_in_set termux_services "$provided" || word_in_set services "$provided"; then
 		stop_removed_services "$old_ts" "$TERMUX_SERVICES" "$old_sv" "$SERVICES"
 	fi
-	# 写入后回读自校验：任一字段不一致即报错，杜绝“字段错位”静默发生
-	for k in $CONFIG_KEYS; do
-		[ "$(cfg_get "$k")" = "$(cfg_global "$k")" ] || { echo '{"success":false,"error":"配置写入校验不一致"}'; exit 1; }
-	done
+	cfg_verify_written
 	echo '{"success":true}'
 }
 
+# 被 source 时只定义函数，不执行分发（api.cgi 同进程透传用）。
+if [ -z "$ACTION_SOURCED" ]; then
 case "$1" in
 status)
 	api_get_status
-	;;
-start)
+	;;start)
 	api_start_service "$2" "$3"
 	;;
 stop)
@@ -306,20 +467,32 @@ getconfig)
 saveconfig)
 	api_save_config
 	;;
+webuistart)
+	api_webui_enable
+	;;
+webuistop)
+	api_webui_disable
+	;;
+webuistatus)
+	api_webui_status
+	;;
+webuipasswd)
+	api_webui_set_password
+	;;
+webuiregen)
+	api_webui_regen_token
+	;;
+webuitoken)
+	api_webui_token_show
+	;;
 execboot)
-	load_cfg_sh
-	printf '%s\n' "$BOOT_COMMANDS" | run_lines "$LOG_DIR/boot_commands.log" '开机命令(手动)'
-	echo '{"success":true}'
+	api_exec_boot
 	;;
 runcmd)
-	load_cfg_sh
-	run_lines "$LOG_DIR/run_test.log" '(测试运行)' 'su' ''
-	echo '{"success":true}'
+	api_run_cmd
 	;;
 runcmdtermux)
-	load_cfg_sh
-	run_lines "$LOG_DIR/run_test.log" '(测试运行-termux)' "su $TERMUX_UID" "$TERMUX_ENV cd $TERMUX_HOME;"
-	echo '{"success":true}'
+	api_run_cmd termux
 	;;
 clearlog)
 	if clear_log "$2"; then echo '{"success":true}'; else echo '{"success":false,"error":"名称不合法"}'; fi
@@ -353,3 +526,4 @@ open)
 	exit 0
 	;;
 esac
+fi

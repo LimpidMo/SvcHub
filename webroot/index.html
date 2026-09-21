@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'self'; form-action 'none'">
     <title>服务管理</title>
     <style>
         :root { --line: rgba(0,0,0,0.08); --text: #1a1a1a; --muted: #888; --accent: #2d2d2d; --bg: #fafafa; }
@@ -109,6 +109,7 @@
     <div class="nav">
         <button class="nav-item active" data-page="status">服务状态</button>
         <button class="nav-item" data-page="config">配置管理</button>
+        <button class="nav-item" id="nav-logout" data-page="__logout" style="display:none;flex:0 0 auto;padding:14px 18px;">退出</button>
     </div>
 
     <div class="container">
@@ -148,7 +149,7 @@
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                             <label class="form-label-strong" style="margin:0;">定时启停服务</label>
                             <label class="switch">
-                                <input type="checkbox" id="schedule-switch" onchange="toggleSchedule()">
+                                <input type="checkbox" id="schedule-switch" onclick="toggleSchedule(this)">
                                 <span class="switch-slider"></span>
                             </label>
                         </div>
@@ -172,7 +173,7 @@
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                             <label class="form-label-strong" style="margin:0;">Wi-Fi 启停服务</label>
                             <label class="switch">
-                                <input type="checkbox" id="wifi-service-switch" onchange="toggleWifiService()">
+                                <input type="checkbox" id="wifi-service-switch" onclick="toggleWifiService(this)">
                                 <span class="switch-slider"></span>
                             </label>
                         </div>
@@ -186,6 +187,42 @@
                             <label class="form-label">Wi-Fi SSID（每行一个，留空 = 任意 WiFi）</label>
                             <textarea class="form-input form-textarea" id="input-wifi-ssids" onblur="saveWifiSsids()" placeholder="每行一个 SSID，留空表示任意 WiFi 连接均可"></textarea>
                             <div class="form-hint">两组共用；编辑完成后点击框外自动保存</div>
+                        </div>
+                    </div>
+                    <div class="form">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label class="form-label-strong" style="margin:0;">外部访问</label>
+                            <label class="switch">
+                                <input type="checkbox" id="webui-switch" onclick="toggleWebui(this)">
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                        <div id="webui-panel" style="display:none;">
+                            <div class="form-hint" id="webui-status" style="margin-bottom:10px;">状态：加载中...</div>
+                            <div id="webui-manage" style="display:none;">
+                                <div style="display:flex;gap:6px;margin-bottom:10px;">
+                                    <button class="btn btn-lg" style="flex:1;" onclick="showWebuiPasswd()">修改密码</button>
+                                    <button class="btn btn-lg" style="flex:1;" onclick="showWebuiToken()">长期 Token</button>
+                                    <button class="btn btn-lg" onclick="showLog('webui')">日志</button>
+                                </div>
+                                <div id="webui-passwd-box" style="display:none;margin-bottom:10px;">
+                                    <input type="password" class="form-input" id="input-webui-old" placeholder="旧密码" autocomplete="current-password" style="margin-bottom:8px;">
+                                    <div style="display:flex;gap:8px;">
+                                        <input type="password" class="form-input" id="input-webui-new1" placeholder="新密码" autocomplete="new-password">
+                                        <input type="password" class="form-input" id="input-webui-new2" placeholder="再次输入" autocomplete="new-password">
+                                    </div>
+                                    <button class="btn btn-lg btn-primary" style="width:100%;margin-top:8px;" onclick="setWebuiPassword()">确认修改</button>
+                                </div>
+                                <div id="webui-token-box" style="display:none;margin-bottom:10px;">
+                                    <div class="form-row">
+                                        <input type="text" class="form-input" id="input-webui-token" readonly placeholder="点击长期 Token 按钮获取">
+                                        <button class="btn btn-lg" onclick="copyWebuiToken()">复制</button>
+                                    </div>
+                                    <button class="btn btn-lg" style="width:100%;margin-top:8px;" onclick="regenWebuiToken()">重新生成（旧值立即失效）</button>
+                                </div>
+                                <div class="form-hint">若监听地址为 0.0.0.0 局域网内可访问，请设强密码</div>
+                            </div>
+                            <div class="form-error" id="error-webui"></div>
                         </div>
                     </div>
 
@@ -365,6 +402,38 @@
 
     <div class="toast" id="toast"></div>
 
+    <div class="modal" id="modal-login">
+        <div class="modal-box">
+            <div class="modal-hd" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>外部访问登录</span>
+                <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);font-weight:normal;">
+                    长期 Token 登录
+                    <span class="switch"><input type="checkbox" id="login-use-token" onchange="toggleLoginMode()"><span class="switch-slider"></span></span>
+                </label>
+            </div>
+            <div class="modal-bd">
+                <div class="form" id="login-pw-box" style="padding:0;border:none;">
+                    <label class="form-label">密码</label>
+                    <div class="form-row">
+                        <input type="password" class="form-input" id="input-login-pw" placeholder="外部访问密码" autocomplete="current-password">
+                        <button class="btn btn-lg" id="login-pw-eye" onclick="togglePwEye('input-login-pw','login-pw-eye')">显示</button>
+                    </div>
+                </div>
+                <div class="form" id="login-token-box" style="padding:0;border:none;display:none;">
+                    <label class="form-label">长期 Token</label>
+                    <div class="form-row">
+                        <input type="password" class="form-input" id="input-login-token" placeholder="长期 Token" autocomplete="off">
+                        <button class="btn btn-lg" id="login-token-eye" onclick="togglePwEye('input-login-token','login-token-eye')">显示</button>
+                    </div>
+                </div>
+                <div class="form-error" id="error-login"></div>
+            </div>
+            <div class="modal-ft">
+                <button class="btn btn-primary" style="width:100%;" onclick="httpLogin()">登录</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
         const EXTRA_RE = /^[A-Za-z0-9 ._-]*$/;
@@ -382,13 +451,17 @@
         // 全局状态
         let MODDIR = '';
         let ksuApi = null;
+        // 浏览器直连状态（httpd，无管理器 API 时走 fetch）。
+        let httpMode = false;
+        let httpToken = '';
         let configData = {
             sleep_interval: 60, server_dir: '',
             termux_services: [], services: [],
             boot_commands: '',
             wifi_service_enabled: false, wifi_service_names: new Set(), wifi_service_names_off: new Set(),
             wifi_ssids: '',
-            schedule_enabled: false, schedule_stop: '', schedule_start: ''
+            schedule_enabled: false, schedule_stop: '', schedule_start: '',
+            webui_enabled: false, webui_port: 5555
         };
         let statusData = { termux_services: [], services: [] };
         let testCmdData = '';
@@ -545,13 +618,14 @@
             });
         }
 
-        // 检测 root 管理器 JS API（KernelSU / Magisk / APatch）
+        // 检测 root 管理器 JS API（http 直连时无 API 属正常，不报错）。
         function initRootApi() {
             if (typeof window.ksu !== 'undefined' && window.ksu.exec) { ksuApi = window.ksu; hideDebug(); return true; }
             if (typeof window.kernel !== 'undefined' && window.kernel.exec) { ksuApi = window.kernel; hideDebug(); return true; }
             if (typeof window.kmi !== 'undefined' && window.kmi.exec) { ksuApi = window.kmi; hideDebug(); return true; }
             if (typeof window.ap !== 'undefined' && window.ap.exec) { ksuApi = window.ap; hideDebug(); return true; }
             if (typeof window.mgi !== 'undefined' && window.mgi.exec) { ksuApi = window.mgi; hideDebug(); return true; }
+            if (/^https?:/.test(location.protocol)) return false;
             showDebug('未检测到可用的 root 管理器 API\n\n请在 KernelSU / APatch 管理器中打开此页面\nMagisk 可能不支持模块 WebUI，请使用KsuWebUI软件管理');
             return false;
         }
@@ -578,8 +652,9 @@
         // shell 单引号安全包裹
         function sq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
 
-        // 统一调用模块内固定 helper：runAction(sub, stdinText) 带 heredoc 输入，invoke 仅传参
+        // 后端调用：管理器走 exec，直连走 fetch（httpAction）。
         async function runAction(sub, stdinText) {
+            if (httpMode) return await httpAction(sub, stdinText);
             if (!MODDIR) return { errno: -1, stdout: '', stderr: 'MODDIR unavailable' };
             let cmd = 'sh ' + sq(MODDIR + '/action.sh') + ' ' + sub;
             if (stdinText !== undefined) {
@@ -589,7 +664,151 @@
             return await exec(cmd);
         }
 
+        // CGI 路由走 a= 参数，Token 走 Authorization 头（防 URL 泄露）。
+        function cgiUrl(sub, stdinText) {
+            const parts = String(sub).split(' ');
+            const route = parts[0] === 'status' ? 'svcstatus' : parts[0];
+            const q = ['a=' + encodeURIComponent(route)];
+            if (parts.length > 1) q.push('p1=' + encodeURIComponent(parts[1].replace(/^'|'$/g, '')));
+            if (parts.length > 2) q.push('p2=' + encodeURIComponent(parts[2].replace(/^'|'$/g, '')));
+            return { url: 'cgi-bin/api.cgi?' + q.join('&'), body: stdinText };
+        }
+
+        // 锁屏唤醒后 CPU 限频，单次往返可能超 8 秒；GET 无副作用可重试，POST 不重试。
+        const HTTP_TIMEOUT_MS = 30000;
+        function fetchTimeout(url, init, ms = HTTP_TIMEOUT_MS) {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), ms);
+            return fetch(url, Object.assign({}, init, { signal: ctrl.signal })).finally(() => clearTimeout(timer));
+        }
+
+        // 取回 response：GET 超时自动重试一次，POST 直接抛。
+        async function fetchWithGetRetry(url, init) {
+            try {
+                return await fetchTimeout(url, init);
+            } catch (e) {
+                if (e.name !== 'AbortError' || init.method !== 'GET') throw e;
+                return await fetchTimeout(url, init);
+            }
+        }
+
+        async function httpAction(sub, stdinText) {
+            const { url, body } = cgiUrl(sub, stdinText);
+            // 无体必须发 GET，误发无体 POST 会被 CGI 判 400。
+            const method = (body === undefined || body === null || body === '') ? 'GET' : 'POST';
+            const init = { method, headers: {} };
+            if (httpToken) init.headers['Authorization'] = 'Bearer ' + httpToken;
+            if (method === 'POST') init.body = body;
+            try {
+                const r = await fetchWithGetRetry(url, init);
+                if (r.status === 401 || r.status === 404) { showLogin(); return { errno: r.status, stdout: '', stderr: '未登录' }; }
+                return { errno: 0, stdout: await r.text(), stderr: '' };
+            } catch (e) {
+                return { errno: -1, stdout: '', stderr: e.name === 'AbortError' ? '请求超时（后端无响应）' : e.message };
+            }
+        }
+
+        // 密码显隐（密码/Token 两框复用）。
+        function togglePwEye(inputId, btnId) {
+            const input = document.getElementById(inputId);
+            const btn = document.getElementById(btnId);
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            btn.textContent = show ? '隐藏' : '显示';
+        }
+
+        // 密码/Token 登录框切换。
+        function toggleLoginMode() {
+            const useToken = document.getElementById('login-use-token').checked;
+            document.getElementById('login-pw-box').style.display = useToken ? 'none' : 'block';
+            document.getElementById('login-token-box').style.display = useToken ? 'block' : 'none';
+            document.getElementById('error-login').textContent = '';
+        }
+
+        // 登录成功收尾：关弹窗露页面刷状态。
+        function afterLogin() {
+            hideAnyModal('modal-login');
+            document.querySelector('.container').style.display = '';
+            document.getElementById('nav-logout').style.display = '';
+            document.getElementById('input-login-pw').value = '';
+            document.getElementById('input-login-token').value = '';
+        }
+
+        // 静默自检：Cookie 有效直接进页面。
+        async function httpCheckAuth() {
+            try {
+                const r = await fetch('cgi-bin/api.cgi?a=whoami');
+                if (r.status !== 200) { showLogin(); return; }
+                const d = JSON.parse(await r.text());
+                if (d.authed) {
+                    httpToken = '';
+                    afterLogin();
+                    // 状态与配置并行拉取（串行要等两次后端 fork，局域网翻倍）。
+                    loadStatus(true);
+                    loadConfig(true, true);
+                } else {
+                    showLogin();
+                }
+            } catch (e) { showLogin(); }
+        }
+
+        async function httpLogin() {
+            const useToken = document.getElementById('login-use-token').checked;
+            const pw = useToken ? '' : document.getElementById('input-login-pw').value;
+            const tk = useToken ? document.getElementById('input-login-token').value.trim() : '';
+            const errEl = document.getElementById('error-login');
+            errEl.textContent = '';
+            if (!pw && !tk) { errEl.textContent = useToken ? '请输入长期 Token' : '请输入密码'; return; }
+            toast('登录中...');
+            try {
+                const body = 'password=' + encodeURIComponent(pw) + '&token=' + encodeURIComponent(tk);
+                const r = await fetch('cgi-bin/api.cgi?a=login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body
+                });
+                if (r.status === 429) {
+                    try { errEl.textContent = (JSON.parse(await r.text()).error) || '尝试过多，请稍后再试'; }
+                    catch (e) { errEl.textContent = '尝试过多，请稍后再试'; }
+                    return;
+                }
+                const text = await r.text();
+                // 非 JSON 直接展示原文片段。
+                let d;
+                try { d = JSON.parse(text); }
+                catch (e) { errEl.textContent = '登录失败（HTTP ' + r.status + '）：' + text.slice(0, 120); return; }
+                if (d.success) {
+                    // Token 登录走请求头，密码登录靠 Cookie。
+                    httpToken = (useToken && tk) ? tk : '';
+                    afterLogin();
+                    toast('登录成功');
+                    loadStatus(true);
+                    loadConfig(true, true);
+                } else {
+                    errEl.textContent = d.error || '登录失败';
+                }
+            } catch (e) { errEl.textContent = '登录请求失败：' + e.message; }
+        }
+
+        function showLogin() {
+            if (ksuApi) return; // 管理器内免登录
+            document.querySelector('.container').style.display = 'none';
+            showAnyModal('modal-login');
+        }
+
         async function invoke(sub) { return await runAction(sub); }
+
+        // 直连表单 POST（改密用），返回与 runAction 同形结果。
+        async function postForm(url, body) {
+            try {
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body
+                });
+                return { errno: 0, stdout: await r.text(), stderr: '' };
+            } catch (e) { return { errno: -1, stdout: '', stderr: e.message }; }
+        }
 
         // 解析后端 {success:...} JSON 结果：errno 非 0 / 解析失败 / success 假值均返回 null
         function parseSuccess(r) {
@@ -608,8 +827,9 @@
             return btoa(bin);
         }
 
-        // 切换到指定页面（导航点击与滑动共用）
+        // 切页（__logout 拦截为退出）。
         function switchPage(name) {
+            if (name === '__logout') { httpLogout(); return; }
             if (anyModalOpen()) return; // 弹窗打开时不允许切页
             document.querySelectorAll('.nav-item').forEach(e => e.classList.toggle('active', e.dataset.page === name));
             document.querySelectorAll('.page').forEach(e => e.classList.remove('active'));
@@ -618,9 +838,27 @@
                 loadStatus(true);
             }
             if (name === 'config') {
-                if (!isConfigLoaded) loadConfig();
+                // 先摆好面板姿态再异步回填，防旧态闪现。
+                if (httpMode) {
+                    document.getElementById('webui-switch').disabled = true;
+                }
+                if (!isConfigLoaded) {
+                    // 先按内存默认值即时渲染骨架，开关可点；配置回来再覆盖刷新
+                    renderConfigFromCache();
+                    loadConfig();
+                }
                 else renderConfigFromCache();
             }
+        }
+
+        // 退出登录。
+        async function httpLogout() {
+            httpToken = '';
+            try { await fetch('cgi-bin/api.cgi?a=logout'); } catch (e) { /* 离线也照常回登录页 */ }
+            isStatusLoaded = false;
+            isConfigLoaded = false;
+            document.getElementById('nav-logout').style.display = 'none';
+            showLogin();
         }
 
         document.querySelectorAll('.nav-item').forEach(el => {
@@ -659,18 +897,25 @@
             if (e.target === this) closeLogModal();
         });
 
+        // 状态失败页：清空内存与缓存，防止重启前的旧数据常驻。
+        function renderStatusFailure(msg) {
+            clearStatusCache();
+            statusData = { termux_services: [], services: [] };
+            isStatusLoaded = false;
+            document.getElementById('termux-list').innerHTML = '<div class="empty">' + msg + '</div>';
+            document.getElementById('binary-list').innerHTML = '<div class="empty">' + msg + '</div>';
+        }
+
         async function loadStatus(force = false) {
-            if (!ksuApi) { document.getElementById('termux-list').innerHTML = '<div class="empty">请先初始化</div>'; return; }
+            if (!ksuApi && !httpMode) { document.getElementById('termux-list').innerHTML = '<div class="empty">请先初始化</div>'; return; }
             if (!force && isStatusLoaded) return;
             if (force) toast('刷新中...');
             const r = await invoke('status');
+            if (r.errno === 401 || r.errno === 404) return; // 已弹登录页
             if (r.errno !== 0 || !r.stdout) {
-                // 刷新失败清旧数据：缓存 + 内存，避免一直呈现重启前的旧状态
-                clearStatusCache();
-                statusData = { termux_services: [], services: [] };
-                isStatusLoaded = false;
-                document.getElementById('termux-list').innerHTML = '<div class="empty">刷新失败，请重试</div>';
-                document.getElementById('binary-list').innerHTML = '<div class="empty">刷新失败，请重试</div>';
+                // 超时不断臂：保留旧列表仅提示，用户点刷新重试。
+                if (r.errno === -1) { if (force) toast('请求超时，已保留上次数据，请重试', true); return; }
+                renderStatusFailure('刷新失败，请重试');
                 if (force) toast('刷新失败', true);
                 return;
             }
@@ -688,11 +933,7 @@
                 renderStatusList('binary-list', d.services, false);
                 if (force) toast('已刷新');
             } catch (e) {
-                clearStatusCache();
-                statusData = { termux_services: [], services: [] };
-                isStatusLoaded = false;
-                document.getElementById('termux-list').innerHTML = '<div class="empty">解析失败，请重试</div>';
-                document.getElementById('binary-list').innerHTML = '<div class="empty">解析失败，请重试</div>';
+                renderStatusFailure('解析失败，请重试');
             }
         }
 
@@ -733,8 +974,12 @@
             if (!services || !services.length) { el.innerHTML = '<div class="empty">暂无服务</div>'; return; }
             el.innerHTML = services.map((s, i) => {
                 const running = s.status === 'running';
-                const openBtn = (running && parseValidPort(s.port) !== null)
-                    ? `<button class="btn btn-md" style="border-color:#3b82f6;color:#2563eb;background:#eff6ff;" onclick="openSvcPort('${s.port}')">打开</button>`
+                const port = parseValidPort(s.port);
+                // 打开按钮：运行中且端口合法即显示；直连跳本机链接，管理器走 am 跳转。
+                const openBtn = (running && port !== null)
+                    ? (httpMode
+                        ? `<a class="btn btn-md" style="border-color:#3b82f6;color:#2563eb;background:#eff6ff;text-decoration:none;" href="http://127.0.0.1:${port}" target="_blank" rel="noopener" onclick="event.stopPropagation()">打开</a>`
+                        : `<button class="btn btn-md" style="border-color:#3b82f6;color:#2563eb;background:#eff6ff;" onclick="openSvcPort('${s.port}')">打开</button>`)
                     : '';
                 return `
                 <div class="item" onclick="toggleExpand('${id}', ${i}, event)">
@@ -951,11 +1196,12 @@
         }
 
         async function loadConfig(force = false, silent = false) {
-            if (!ksuApi) { toast('请先初始化'); return; }
+            if (!ksuApi && !httpMode) { toast('请先初始化'); return; }
             if (!force && isConfigLoaded) return;
             if (force && !silent) toast('刷新中...');
             const r = await invoke('getconfig');
             if (r.errno !== 0 || !r.stdout) {
+                if (r.errno === 401) return; // 已弹登录页
                 if (force && !silent) toast('刷新失败', true);
                 return;
             }
@@ -978,8 +1224,22 @@
                 configData.schedule_enabled = d.schedule_enabled === '1';
                 configData.schedule_stop = d.schedule_stop || '';
                 configData.schedule_start = d.schedule_start || '';
+                configData.webui_enabled = d.webui_enabled === '1';
                 isConfigLoaded = true;
                 renderConfigFromCache();
+                // 保存中的开关不回填：以用户拨动为准，否则关了又弹出来
+                if (typeof wifiToggling !== 'undefined' && wifiToggling) {
+                    document.getElementById('wifi-service-switch').checked = configData.wifi_service_enabled;
+                    document.getElementById('wifi-service-panel').style.display = configData.wifi_service_enabled ? 'block' : 'none';
+                }
+                if (typeof schedToggling !== 'undefined' && schedToggling) {
+                    document.getElementById('schedule-switch').checked = configData.schedule_enabled;
+                    document.getElementById('schedule-panel').style.display = configData.schedule_enabled ? 'block' : 'none';
+                }
+                if (typeof webuiToggling !== 'undefined' && webuiToggling) {
+                    document.getElementById('webui-switch').checked = configData.webui_enabled;
+                }
+                refreshWebuiPanel();
                 if (force && !silent) toast('已刷新');
             } catch (e) { toast('解析失败: ' + e.message); }
         }
@@ -999,12 +1259,16 @@
             const hint = document.getElementById('input-boot-cmds').parentNode.querySelector('.form-hint');
             hint.textContent = '模块启动时执行；编辑完成后点击其他位置自动保存';
             hint.style.color = '';
-            document.getElementById('wifi-service-switch').checked = configData.wifi_service_enabled;
-            document.getElementById('wifi-service-panel').style.display = configData.wifi_service_enabled ? 'block' : 'none';
+            if (typeof wifiToggling === 'undefined' || !wifiToggling) {
+                document.getElementById('wifi-service-switch').checked = configData.wifi_service_enabled;
+                document.getElementById('wifi-service-panel').style.display = configData.wifi_service_enabled ? 'block' : 'none';
+            }
             document.getElementById('input-wifi-ssids').value = configData.wifi_ssids;
             updateWifiPickBtn();
-            document.getElementById('schedule-switch').checked = configData.schedule_enabled;
-            document.getElementById('schedule-panel').style.display = configData.schedule_enabled ? 'block' : 'none';
+            if (typeof schedToggling === 'undefined' || !schedToggling) {
+                document.getElementById('schedule-switch').checked = configData.schedule_enabled;
+                document.getElementById('schedule-panel').style.display = configData.schedule_enabled ? 'block' : 'none';
+            }
             document.getElementById('input-schedule-stop').value = configData.schedule_stop;
             document.getElementById('input-schedule-start').value = configData.schedule_start;
             document.getElementById('error-schedule').textContent = '';
@@ -1178,6 +1442,155 @@
             saveConfig();
         }
 
+        // 外部访问：开关/密码/Token 仅管理器可操作，直连侧只读状态。
+        async function webuistatus() {
+            const r = await invoke('webuistatus');
+            if (r.errno !== 0) return null;
+            try { return JSON.parse(r.stdout || '{}'); } catch (e) { return null; }
+        }
+
+        // 面板状态 10 秒缓存（webuistatus 轻量但仍走一次 sh，后台操作完强制刷新即时）。
+        let webuiPanelCache = null;
+        let webuiPanelCacheTime = 0;
+        const WEBUI_PANEL_TTL = 10 * 1000;
+
+        // 面板渲染（纯展示，数据由调用方传入）。
+        function renderWebuiPanel(sw, panel, stEl, manage, enabled, running, port) {
+            configData.webui_port = port;
+            document.querySelectorAll('.webui-port').forEach(el => { el.textContent = port; });
+            sw.checked = enabled;
+            panel.style.display = enabled ? 'block' : 'none';
+            if (!enabled) {
+                stEl.textContent = '';
+                manage.style.display = 'none';
+                document.getElementById('error-webui').textContent = '';
+                return;
+            }
+            stEl.textContent = running === 'running'
+                ? '状态：运行中（http://本机IP:' + port + '），默认密码admin'
+                : '状态：已开启但 httpd 未运行（请关闭重开，或查看 webui 日志）';
+            manage.style.display = 'block';
+            document.getElementById('error-webui').textContent = '';
+        }
+
+        async function refreshWebuiPanel(force = false) {
+            const sw = document.getElementById('webui-switch');
+            const panel = document.getElementById('webui-panel');
+            const stEl = document.getElementById('webui-status');
+            const manage = document.getElementById('webui-manage');
+            // 直连：开关禁用，改密/Token 可用；状态由登录时 getconfig 附带，免一次 webuistatus。
+            if (httpMode) {
+                sw.disabled = true;
+                manage.querySelectorAll('input,button').forEach(el => { el.disabled = false; });
+                panel.style.display = 'block';
+                renderWebuiPanel(sw, panel, stEl, manage, configData.webui_enabled, 'running', configData.webui_port);
+                return;
+            }
+            manage.querySelectorAll('input,button').forEach(el => { el.disabled = false; });
+            sw.disabled = false;
+            // 10 秒缓存复用，强制刷新跳过。
+            let st = (!force && webuiPanelCache && Date.now() - webuiPanelCacheTime < WEBUI_PANEL_TTL)
+                ? webuiPanelCache : await webuistatus();
+            if (st) { webuiPanelCache = st; webuiPanelCacheTime = Date.now(); }
+            else st = webuiPanelCache;
+            const enabled = st ? st.enabled === '1' : configData.webui_enabled;
+            configData.webui_enabled = enabled;
+            const port = parseInt(st && st.port, 10) || configData.webui_port;
+            renderWebuiPanel(sw, panel, stEl, manage, enabled, st ? st.running : 'stopped', port);
+        }
+
+        let webuiToggling = false;
+        async function toggleWebui(el) {
+            if (webuiToggling) return;
+            const sw = el || document.getElementById('webui-switch');
+            const on = sw.checked;
+            sw.disabled = true;
+            document.getElementById('webui-panel').style.display = on ? 'block' : 'none';
+            webuiToggling = true;
+            const r = await invoke(on ? 'webuistart' : 'webuistop');
+            webuiToggling = false;
+            sw.disabled = httpMode;
+            const d = parseSuccess(r);
+            const errEl = document.getElementById('error-webui');
+            if (d) {
+                errEl.textContent = '';
+                document.getElementById('webui-panel').style.display = on ? 'block' : 'none';
+                toast('已保存');
+            } else {
+                try { errEl.textContent = (JSON.parse(r.stdout || '{}').error) || '操作失败'; } catch (e) { errEl.textContent = '操作失败'; }
+                sw.checked = !on;
+                document.getElementById('webui-panel').style.display = !on ? 'block' : 'none';
+                toast('操作失败', true);
+            }
+            refreshWebuiPanel(true);
+        }
+
+        async function setWebuiPassword() {
+            const errEl = document.getElementById('error-webui');
+            errEl.textContent = '';
+            const old = document.getElementById('input-webui-old').value;
+            const pw1 = document.getElementById('input-webui-new1').value;
+            const pw2 = document.getElementById('input-webui-new2').value;
+            if (!old) { errEl.textContent = '请输入旧密码'; return; }
+            if (!pw1 || pw1.length < 6) { errEl.textContent = '密码至少 6 位'; return; }
+            if (pw1 !== pw2) { errEl.textContent = '两次输入不一致'; return; }
+            toast('保存中...');
+            // 直连发明文表单，管理器发 key=base64 行。
+            const r = httpMode
+                ? await postForm('cgi-bin/api.cgi?a=webuipasswd', 'password=' + encodeURIComponent(pw1) + '&old=' + encodeURIComponent(old))
+                : await runAction('webuipasswd', 'password=' + toB64(pw1) + '\nold=' + toB64(old));
+            const d = parseSuccess(r);
+            if (d) {
+                document.getElementById('input-webui-old').value = '';
+                document.getElementById('input-webui-new1').value = '';
+                document.getElementById('input-webui-new2').value = '';
+                document.getElementById('webui-passwd-box').style.display = 'none';
+                toast('已保存');
+                refreshWebuiPanel(true);
+            } else {
+                try { errEl.textContent = (JSON.parse(r.stdout || '{}').error) || '保存失败'; } catch (e) { errEl.textContent = '保存失败'; }
+                toast('保存失败', true);
+            }
+        }
+
+        function showWebuiPasswd() {
+            const box = document.getElementById('webui-passwd-box');
+            box.style.display = box.style.display === 'none' ? 'block' : 'none';
+            document.getElementById('webui-token-box').style.display = 'none';
+        }
+
+        async function showWebuiToken() {
+            const box = document.getElementById('webui-token-box');
+            const input = document.getElementById('input-webui-token');
+            if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+            box.style.display = 'block';
+            document.getElementById('webui-passwd-box').style.display = 'none';
+            const r = await invoke('webuitoken');
+            try {
+                const d = JSON.parse(r.stdout || '{}');
+                if (d.success) input.value = d.token || '';
+                else toast(d.error || '获取失败', true);
+            } catch (e) { toast('获取失败', true); }
+        }
+
+        function copyWebuiToken() {
+            const v = document.getElementById('input-webui-token').value;
+            if (!v) { toast('暂无 Token', true); return; }
+            copyText(v, () => toast('已复制'));
+        }
+
+        async function regenWebuiToken() {
+            toast('生成中...');
+            const r = await invoke('webuiregen');
+            try {
+                const d = JSON.parse(r.stdout || '{}');
+                if (d.success) {
+                    document.getElementById('input-webui-token').value = d.token || '';
+                    toast('已重新生成');
+                } else toast(d.error || '生成失败', true);
+            } catch (e) { toast('生成失败', true); }
+        }
+
         // —— Wi-Fi 启停服务 ——
 
         // SSID 仅做行级整理（去首尾空白、去空行、去重），不限制字符集：
@@ -1211,28 +1624,31 @@
             });
         }
 
-        function toggleWifiService() {
-            if (!isConfigLoaded) {
-                // 配置未加载完成：回弹开关并阻止保存，避免把内存中的空列表写空设备配置
-                document.getElementById('wifi-service-switch').checked = false;
-                toast('配置未加载完成，请稍后再试', true);
-                return;
-            }
-            const on = document.getElementById('wifi-service-switch').checked;
+        // 开关只读内存值即时渲染，加载中也允许拨动（保存失败自动回弹）。
+        let wifiToggling = false;
+        function toggleWifiService(el) {
+            if (wifiToggling) return;
+            const sw = el || document.getElementById('wifi-service-switch');
+            const on = sw.checked;
+            // 待定态：禁用防连点,面板按本次拨动即时显隐
+            wifiToggling = true;
+            sw.disabled = true;
             document.getElementById('wifi-service-panel').style.display = on ? 'block' : 'none';
             if (on) {
                 const ssidEl = document.getElementById('input-wifi-ssids');
                 ssidEl.value = normalizeSsidText(ssidEl.value);
             }
-            // 轻量保存：只发开关单键（saveconfig 缺键继承其余），不做全量重载；
-            // 面板展开是同步的，体感即时。失败时回弹开关。
+            // 轻量保存：只发开关单键（saveconfig 缺键继承其余），不做全量重载；失败按快照回弹
             configData.wifi_service_enabled = on;
-            toast('保存中...');
             saveWifiKey('wifi_service_enabled', on ? '1' : '0', (ok) => {
-                if (!ok) {
+                wifiToggling = false;
+                sw.disabled = false;
+                if (ok) toast('已保存');
+                else {
                     configData.wifi_service_enabled = !on;
-                    document.getElementById('wifi-service-switch').checked = !on;
+                    sw.checked = !on;
                     document.getElementById('wifi-service-panel').style.display = !on ? 'block' : 'none';
+                    toast('保存失败', true);
                 }
             });
         }
@@ -1241,43 +1657,47 @@
 
         const SCHEDULE_TIME_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 
-        function toggleSchedule() {
-            if (!isConfigLoaded) {
-                // 配置未加载完成：回弹开关并阻止保存，避免把内存中的空列表写空设备配置
-                document.getElementById('schedule-switch').checked = false;
-                toast('配置未加载完成，请稍后再试', true);
-                return;
-            }
-            const on = document.getElementById('schedule-switch').checked;
+        let schedToggling = false;
+        function toggleSchedule(el) {
+            if (schedToggling) return;
+            const sw = el || document.getElementById('schedule-switch');
+            const on = sw.checked;
+            // 待定态：禁用防连点,面板按本次拨动即时显隐
+            schedToggling = true;
+            sw.disabled = true;
             document.getElementById('schedule-panel').style.display = on ? 'block' : 'none';
             // 关闭只停功能，时间保留；开启且时间都填了则随开关一起落盘
             configData.schedule_enabled = on;
-            toast('保存中...');
             saveScheduleKey('schedule_enabled', on ? '1' : '0', (ok) => {
-                if (!ok) {
+                schedToggling = false;
+                sw.disabled = false;
+                if (ok) toast('已保存');
+                else {
                     configData.schedule_enabled = !on;
-                    document.getElementById('schedule-switch').checked = !on;
+                    sw.checked = !on;
                     document.getElementById('schedule-panel').style.display = !on ? 'block' : 'none';
+                    toast('保存失败', true);
                 }
             });
         }
 
-        // 时间选择器变更自动保存：两边都填且合法才提交；只填一边时静默等待另一边
+        // 时间选择器变更自动保存：单边即存（后端缺键继承另一边），不等两边齐；
+        // 保存中再次拨动直接返回，防并发互踩；失败回滚输入框
         let scheduleSaving = false;
         async function autoSaveSchedule() {
             if (!isConfigLoaded || scheduleSaving) return;
             const errEl = document.getElementById('error-schedule');
-            const stop = document.getElementById('input-schedule-stop').value.trim();
-            const start = document.getElementById('input-schedule-start').value.trim();
+            const stopEl = document.getElementById('input-schedule-stop');
+            const startEl = document.getElementById('input-schedule-start');
+            const stop = stopEl.value.trim();
+            const start = startEl.value.trim();
             errEl.textContent = '';
             if (stop && !SCHEDULE_TIME_RE.test(stop)) { errEl.textContent = '停止时间格式错误'; return; }
             if (start && !SCHEDULE_TIME_RE.test(start)) { errEl.textContent = '启动时间格式错误'; return; }
-            if (!stop || !start) return; // 只改了一边，等另一边选好再存
-            if (stop === start) { errEl.textContent = '停止时间与启动时间不能相同'; return; }
+            if (stop && start && stop === start) { errEl.textContent = '停止时间与启动时间不能相同'; return; }
             // 与内存一致则不打扰后端
             if (stop === configData.schedule_stop && start === configData.schedule_start) return;
             scheduleSaving = true;
-            toast('保存中...');
             const on = document.getElementById('schedule-switch').checked ? '1' : '0';
             const payload = [
                 'schedule_enabled=' + toB64(on),
@@ -1292,6 +1712,9 @@
                 configData.schedule_start = start;
                 toast('已保存');
             } else {
+                // 失败回滚两框到内存值，避免显示与实际不一致
+                stopEl.value = configData.schedule_stop;
+                startEl.value = configData.schedule_start;
                 toast('保存失败', true);
             }
         }
@@ -1310,20 +1733,28 @@
             if (done) done(ok);
         }
 
-        // saveconfig 统一链路：key=base64(value) 行经 heredoc 提交，成功返回 true；
-        // 可选 errEl 用于回显后端校验错误（定时时间）
+        // saveconfig 统一链路：成功返回 true。
+        function backendReady() { return httpMode || (!!ksuApi && !!MODDIR); }
         async function saveConfigPayload(payload, errEl) {
-            if (!ksuApi || !MODDIR || !isConfigLoaded) {
+            if (!backendReady() || !isConfigLoaded) {
                 toast('配置未加载完成，已取消保存', true);
                 return false;
             }
+            if (!payload) { toast('保存内容为空，已取消', true); return false; }
             const r = await runAction('saveconfig', payload);
             if (r.errno === 0) {
+                const text = (r.stdout || '').trim();
+                // 空回包（CGI 400 被吞等异常）直接失败，不当成功
+                if (!text) { toast('保存失败（空响应）', true); return false; }
                 try {
-                    const d = JSON.parse(r.stdout || '{}');
+                    const d = JSON.parse(text);
                     if (d.success) return true;
-                    if (errEl && d.error) errEl.textContent = d.error;
-                } catch (e) { /* 落入失败 */ }
+                    const msg = d.error || '保存失败';
+                    if (errEl) errEl.textContent = msg;
+                    toast(msg, true);
+                } catch (e) { toast('保存失败', true); }
+            } else if (r.errno !== 401 && r.errno !== 404) {
+                toast('保存失败', true);
             }
             return false;
         }
@@ -1452,7 +1883,7 @@
         }
 
         async function saveConfig() {
-            if (!ksuApi || !MODDIR) { toast('请先初始化', true); return; }
+            if (!backendReady()) { toast('请先初始化', true); return; }
             // 配置未成功加载前一律拒绝保存：内存里是空列表，全量提交会把设备配置写空
             if (!isConfigLoaded) { toast('配置未加载完成，已取消保存', true); return; }
             const sleepRaw = (document.getElementById('input-sleep').value || '').trim();
@@ -1510,7 +1941,17 @@
         }
 
         async function init() {
-            if (!initRootApi()) return;
+            if (!initRootApi()) {
+                // 无 API 且经 http(s) 加载即直连模式，走登录页。
+                if (/^https?:/.test(location.protocol)) {
+                    httpMode = true;
+                    hideDebug();
+                    document.querySelector('.container').style.display = 'none';
+                    httpCheckAuth();
+                    return;
+                }
+                return;
+            }
             // 先用上次缓存立即渲染列表（页面秒开），随后后台刷新真实状态
             const cached = loadStatusCache();
             if (cached) {
