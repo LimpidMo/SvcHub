@@ -59,31 +59,31 @@ wait_boot_stages() {
 # （定时停止窗已在轮首整轮跳过，此处不再重复判断）。
 patrol_start_rows() {
 	local kind=$1 rows=$2 runset=$3 name port extra auto cmd
-	# 两种行的字段数不同（termux 含 extra），read 变量名列表按 kind 注入
-	if [ "$kind" = termux ]; then set -- name port extra auto cmd; else set -- name port auto cmd; fi
+	# 两类行统一 5 段 name|port|extra|auto|cmd（含 binary 空 extra），read 变量名列表一致
+	set -- name port extra auto cmd
 	while IFS='|' read -r "$@"; do
 		[ -n "$name" ] || continue
 		if [ "$auto" != start ]; then
-			sup_log "    跳过 $name"
+			sup_log_bare "    跳过 $name"
 			continue
 		fi
 		if wifi_should_skip "$name"; then
 			if [ "$WIFI_POLICY" = "block" ]; then
-				sup_log "    跳过 $name (WiFi/SSID 条件不满足)"
+				sup_log_bare "    跳过 $name (WIFI 已断开，连接组不启动)"
 			else
-				sup_log "    跳过 $name (WiFi 已连接，断开组停止)"
+				sup_log_bare "    跳过 $name (WIFI 已连接，断开组不启动)"
 			fi
 			continue
 		fi
 		if name_in_set "$name" "$runset"; then
-			sup_log "    已运行 $name"
+			sup_log_bare "    已运行 $name"
 			continue
 		fi
 		if launch_svc "$kind" "$name" "${extra:-}" "$cmd"; then
 			sleep 0.3
-			svc_running "$name" && sup_log "    已启动 $name" || sup_log "    启动未生效 $name（请检查该服务日志/命令）"
+			svc_running "$name" && sup_log_bare "    已启动 $name" || sup_log_bare "    启动未生效 $name（请检查该服务日志/命令）"
 		else
-			sup_log "    启动失败 $name (服务目录不存在或命令错误)"
+			sup_log_bare "    启动失败 $name (服务目录不存在或命令错误)"
 		fi
 	done <<EOF
 $rows
@@ -95,8 +95,10 @@ EOF
 # 再按配置巡检启动 auto=start 且未运行的服务。
 patrol_once() {
 	local runset
+	LOAD_CFG_DONE=""
+	load_cfg_sh
 	if [ "$SCHED_IN_WINDOW" = "1" ]; then
-		sup_log "    跳过巡检（定时停止窗内 ${SCHEDULE_STOP}~${SCHEDULE_START}）"
+		sup_log_bare "    跳过巡检（定时停止窗内 ${SCHEDULE_STOP}~${SCHEDULE_START}）"
 		calc_wifi_policy
 		sync_wifi_service_policy "$WIFI_POLICY" on
 		sync_wifi_service_policy "$WIFI_POLICY" off
@@ -106,8 +108,10 @@ patrol_once() {
 	sync_wifi_service_policy "$WIFI_POLICY" on
 	sync_wifi_service_policy "$WIFI_POLICY" off
 	runset=$(compute_runset)
+	sup_log_bare " ------- Termux 服务 ------- "
 	patrol_start_rows termux "$TERMUX_SERVICES" "$runset"
-	patrol_start_rows binary "$SERVICES" "$runset"
+	sup_log_bare " ------- 二进制服务 ------- "
+	patrol_start_rows binary "$BINARY_SERVICES" "$runset"
 }
 
 # 巡检后的分片休眠：长间隔拆成 <=60s 的分片，每片后重读配置，实现间隔热更新；
@@ -125,8 +129,9 @@ sleep_slice() {
 		sleep "$chunk" || break
 		elapsed=$((elapsed + chunk))
 
-		# 每片后重读配置，检查间隔是否被修改
+		# 每片后重读设置，检查间隔是否被修改（服务行只在轮首读，分片不碰）
 		old_target=$target
+		LOAD_CFG_DONE=""
 		load_cfg_sh
 		target=$SLEEP_INTERVAL
 		if [ "$target" != "$old_target" ]; then

@@ -21,7 +21,7 @@ fi
 
 # 外部访问默认值落盘（首次启动生成默认 admin 哈希）。
 if [ "$WEBUI_PASSWORD_HASH_NEED_SAVE" = "1" ]; then
-	write_config_json 2>/dev/null
+	write_settings 2>/dev/null
 	load_cfg_sh
 fi
 

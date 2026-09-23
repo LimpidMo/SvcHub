@@ -14,7 +14,7 @@ AGENTS.md
 *.pid
 run/
 log/
-config.json
+config/
 
 
 # 本地联调沙盒

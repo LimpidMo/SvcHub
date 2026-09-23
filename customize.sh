@@ -79,23 +79,34 @@ elif [ "${MAGISK:-}" = "true" ] || [ -d /data/adb/magisk ]; then
     ui_print "- 检测到 Magisk"
     ui_print "! Magisk 可能不支持模块 WebUI，请使用 KsuWebUI 管理"
 else
-    ui_print "! 无法识别 root 方案，继续安装"
+    ui_print "! 未识别当前 root 方案，继续安装"
 fi
 
 # ==================== 升级时保留配置 ====================
-# config.json（服务配置 + 长期 Token 本体）与 web.conf（监听/会话策略）都保留；
+# config/ 三文件（新）优先保留；旧 config.json / 根 web.conf 兜底拷贝，开机迁移；
 # Token 长期会话文件（run/session/tsess_*）保留，未过期重装不断登。
 MODID=${MODID:-$(basename "${MODPATH:-}")}
 if [ -n "$MODID" ]; then
     OLD_MOD="/data/adb/modules/$MODID"
-    if [ -f "$OLD_MOD/config.json" ]; then
-        cp -f "$OLD_MOD/config.json" "$MODPATH/config.json" 2>/dev/null \
-            && ui_print "- 已保留配置 config.json" \
-            || ui_print "! 配置 config.json 保留失败，将使用默认配置"
+    if [ -f "$OLD_MOD/config/setting.conf" ] || [ -f "$OLD_MOD/config/services.conf" ]; then
+        mkdir -p "$MODPATH/config" 2>/dev/null
+        for cf in setting.conf services.conf web.conf; do
+            [ -f "$OLD_MOD/config/$cf" ] || continue
+            cp -f "$OLD_MOD/config/$cf" "$MODPATH/config/$cf" 2>/dev/null \
+                && ui_print "- 已保留配置 config/$cf" \
+                || ui_print "! 配置 config/$cf 保留失败，将使用默认配置"
+        done
+    else
+        if [ -f "$OLD_MOD/config.json" ]; then
+            cp -f "$OLD_MOD/config.json" "$MODPATH/config.json" 2>/dev/null \
+                && ui_print "- 已保留旧配置 config.json（开机自动迁移）" \
+                || ui_print "! 配置 config.json 保留失败，将使用默认配置"
+        fi
     fi
-    if [ -f "$OLD_MOD/web.conf" ]; then
-        cp -f "$OLD_MOD/web.conf" "$MODPATH/web.conf" 2>/dev/null \
-            && ui_print "- 已保留配置 web.conf" \
+    if [ ! -f "$MODPATH/config/web.conf" ] && [ -f "$OLD_MOD/web.conf" ]; then
+        mkdir -p "$MODPATH/config" 2>/dev/null
+        cp -f "$OLD_MOD/web.conf" "$MODPATH/config/web.conf" 2>/dev/null \
+            && ui_print "- 已保留旧配置 web.conf（已迁入 config/）" \
             || ui_print "! 配置 web.conf 保留失败，将使用默认配置"
     fi
     if [ -d "$OLD_MOD/run/session" ]; then

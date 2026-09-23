@@ -39,9 +39,15 @@
         .btn-lg { padding: 6px 12px; font-size: 13px; }
         .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
         .btn-primary:hover { background: #404040; }
-        .btn-danger { color: #dc2626; border-color: #fecaca; }
-        .btn-danger:hover { background: #fef2f2; }
+        .btn-danger { color: #dc2626; border-color: #fecaca; background: #fef2f2; }
+        .btn-danger:hover { background: #fee2e2; }
+        .btn-open { border-color: #3b82f6; color: #2563eb; background: #eff6ff; }
+        .btn-open:hover { background: #dbeafe; }
+        .btn-restart { border-color: #eab308; color: #b45309; background: #fefce8; }
+        .btn-restart:hover { background: #fef3c7; }
         .actions { display: flex; gap: 6px; flex-shrink: 0; }
+        #status-filter option { background: #fff; color: var(--text); font-size: 12px; padding: 5px 10px; }
+        #status-filter option:checked { background: var(--bg); font-weight: 600; }
         .empty { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 12px; }
         .form { padding: 16px; border-bottom: 1px solid var(--line); }
         .form:last-child { border-bottom: none; }
@@ -117,7 +123,16 @@
             <div class="section">
                 <div class="section-hd">
                     <span class="section-title">Termux 服务</span>
-                    <button class="btn btn-md" onclick="loadStatus(true)">刷新</button>
+                    <div class="actions">
+                        <select class="btn btn-md" id="status-filter" onchange="setStatusFilter(this.value)">
+                            <option value="all">全显示</option>
+                            <option value="running">已运行</option>
+                            <option value="stopped">已停止</option>
+                            <option value="auto-start">自启动</option>
+                            <option value="auto-stop">非自启动</option>
+                        </select>
+                        <button class="btn btn-md" onclick="loadStatus(true)">刷新</button>
+                    </div>
                 </div>
                 <div class="section-body" id="termux-list"><div class="empty">加载中...</div></div>
             </div>
@@ -183,10 +198,9 @@
                                 <button class="btn btn-lg" id="wifi-pick-off-btn" style="flex:1;" onclick="openWifiModal('off')">断开启停组 (0)</button>
                                 <button class="btn btn-lg" onclick="showLog('wifi')">日志</button>
                             </div>
-                            <div class="form-hint" style="margin-bottom:10px;">两组选择的服务互斥，防止冲突循环启动</div>
-                            <label class="form-label">Wi-Fi SSID（每行一个，留空 = 任意 WiFi）</label>
-                            <textarea class="form-input form-textarea" id="input-wifi-ssids" onblur="saveWifiSsids()" placeholder="每行一个 SSID，留空表示任意 WiFi 连接均可"></textarea>
-                            <div class="form-hint">两组共用；编辑完成后点击框外自动保存</div>
+                            <!-- <div class="form-hint" style="margin-bottom:10px;">两组选择的服务互斥，防止冲突循环启动</div> -->
+                            <label class="form-label">Wi-Fi SSID / 名称</label>
+                            <textarea class="form-input form-textarea" id="input-wifi-ssids" onblur="saveWifiSsids()" placeholder="两组共用，每行一个，留空 = 任意 Wi-Fi"></textarea>
                         </div>
                     </div>
                     <div class="form">
@@ -215,12 +229,12 @@
                                 </div>
                                 <div id="webui-token-box" style="display:none;margin-bottom:10px;">
                                     <div class="form-row">
-                                        <input type="text" class="form-input" id="input-webui-token" readonly placeholder="点击长期 Token 按钮获取">
+                                        <input type="text" class="form-input" id="input-webui-token" readonly placeholder="若无token呈现，点击重新生成">
                                         <button class="btn btn-lg" onclick="copyWebuiToken()">复制</button>
                                     </div>
                                     <button class="btn btn-lg" style="width:100%;margin-top:8px;" onclick="regenWebuiToken()">重新生成（旧值立即失效）</button>
                                 </div>
-                                <div class="form-hint">若监听地址为 0.0.0.0 局域网内可访问，请设强密码</div>
+                                <!-- <div class="form-hint">若监听地址为 0.0.0.0 局域网内可访问，请设强密码</div> -->
                             </div>
                             <div class="form-error" id="error-webui"></div>
                         </div>
@@ -283,78 +297,45 @@
         </div>
     </div>
 
-    <div class="modal" id="modal-termux">
+    <div class="modal" id="modal-svc">
         <div class="modal-box">
             <div class="modal-hd" style="display:flex;justify-content:space-between;align-items:center;">
-                <span id="modal-termux-title">添加 Termux 服务</span>
-                <div style="display:flex;align-items:center;gap:6px;">
-                    <span style="font-size:11px;color:var(--muted);">自动启动 &保活</span>
-                    <label class="switch">
-                        <input type="checkbox" id="input-termux-auto" checked>
-                        <span class="switch-slider"></span>
-                    </label>
-                </div>
-            </div>
-            <div class="modal-bd">
-                <input type="hidden" id="edit-termux-idx" value="-1">
-                <div class="form" style="padding:0 0 10px 0;border:none;display:flex;gap:10px;">
-                    <div style="flex:1;min-width:0;">
-                        <label class="form-label">服务名称 *（必须）</label>
-                        <input type="text" class="form-input" id="input-termux-name">
-                    </div>
-                    <div style="flex:1;min-width:0;">
-                        <label class="form-label">端口（仅标识，非执行参数）</label>
-                        <input type="text" class="form-input" id="input-termux-port" placeholder="用于打开 Web 页">
-                    </div>
-                </div>
-                <div class="form" style="padding:0 0 10px 0;border:none;">
-                    <label class="form-label">附加参数 <span class="form-hint" style="display:inline;margin-left:6px;">（一般不须填写，仅对用户、权限敏感的程序使用）</span></label>
-                    <input type="text" class="form-input" id="input-termux-extra" placeholder="-g 3003 网络权限、-u 10123 指定用户运行">
-                </div>
-                <div class="form" style="padding:0;border:none;">
-                    <label class="form-label">启动命令 *（必须）</label>
-                    <textarea class="form-input form-textarea" id="input-termux-cmd" placeholder="多行自动以“;”分隔符按顺序拼接；并行多服务用 & 分隔，如 a & b；nginx 等守护进程需前台运行：nginx -g 'daemon off;'"></textarea>
-                </div>
-            </div>
-            <div class="modal-ft">
-                <button class="btn" onclick="closeModal('termux')">取消</button>
-                <button class="btn btn-primary" onclick="saveService('termux')">保存</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal" id="modal-binary">
-        <div class="modal-box">
-            <div class="modal-hd" style="display:flex;justify-content:space-between;align-items:center;">
-                <span id="modal-binary-title">添加二进制服务</span>
+                <span id="modal-svc-title">添加服务</span>
                 <div style="display:flex;align-items:center;gap:6px;">
                     <span style="font-size:11px;color:var(--muted);">自动启动 & 保活</span>
                     <label class="switch">
-                        <input type="checkbox" id="input-binary-auto" checked>
+                        <input type="checkbox" id="input-svc-auto" checked>
                         <span class="switch-slider"></span>
                     </label>
                 </div>
             </div>
             <div class="modal-bd">
-                <input type="hidden" id="edit-binary-idx" value="-1">
+                <input type="hidden" id="edit-svc-type" value="termux">
+                <input type="hidden" id="edit-svc-idx" value="-1">
                 <div class="form" style="padding:0 0 10px 0;border:none;display:flex;gap:10px;">
                     <div style="flex:1;min-width:0;">
                         <label class="form-label">服务名称 *（必须）</label>
-                        <input type="text" class="form-input" id="input-binary-name">
+                        <input type="text" class="form-input" id="input-svc-name">
                     </div>
                     <div style="flex:1;min-width:0;">
                         <label class="form-label">端口（仅标识，非执行参数）</label>
-                        <input type="text" class="form-input" id="input-binary-port" placeholder="可用于打开 Web 页">
+                        <input type="text" class="form-input" id="input-svc-port" placeholder="用于打开 Web 页">
                     </div>
+                </div>
+                <div class="form" id="extra-wrap" style="padding:0 0 10px 0;border:none;display:none;">
+                    <label class="form-label">附加参数 <span class="form-hint" style="display:inline;margin-left:6px;">（一般不须填写，仅对用户、权限敏感的程序使用）</span></label>
+                    <input type="text" class="form-input" id="input-svc-extra" placeholder="-g 3003 网络权限、-u 10123 指定用户运行">
                 </div>
                 <div class="form" style="padding:0;border:none;">
                     <label class="form-label">启动命令 *（必须）</label>
-                    <textarea class="form-input form-textarea" id="input-binary-cmd" placeholder="多行以 ; 顺序拼接；并行多服务用 & 分隔，如 a & b；nginx 等守护进程需前台运行：nginx -g 'daemon off;'"></textarea>
+                    <textarea class="form-input form-textarea" id="input-svc-cmd" placeholder="并行多服务用 & 分隔，如 a & b ，nginx 等守护进程需前台运行：nginx -g 'daemon off;'"></textarea>
                 </div>
             </div>
             <div class="modal-ft">
-                <button class="btn" onclick="closeModal('binary')">取消</button>
-                <button class="btn btn-primary" onclick="saveService('binary')">保存</button>
+                <button class="btn" id="extra-toggle-btn" onclick="toggleExtra()">附加参数</button>
+                <span style="flex:1;"></span>
+                <button class="btn" onclick="closeModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveService()">保存</button>
             </div>
         </div>
     </div>
@@ -381,6 +362,7 @@
             <div class="modal-hd" id="wifi-pick-title">选择参与 Wi-Fi 启停的服务</div>
             <div class="modal-bd" id="wifi-pick-body"></div>
             <div class="modal-ft">
+                <button class="btn" style="margin-right:auto;" onclick="clearWifiPick()">清空选择</button>
                 <button class="btn" onclick="closeWifiModal()">取消</button>
                 <button class="btn btn-primary" id="wifi-pick-ok" onclick="confirmWifiPick()">确定</button>
             </div>
@@ -415,14 +397,14 @@
                 <div class="form" id="login-pw-box" style="padding:0;border:none;">
                     <label class="form-label">密码</label>
                     <div class="form-row">
-                        <input type="password" class="form-input" id="input-login-pw" placeholder="外部访问密码" autocomplete="current-password">
+                        <input type="password" class="form-input" id="input-login-pw" placeholder="外部访问密码" autocomplete="current-password" onkeydown="if(event.key==='Enter')httpLogin()">
                         <button class="btn btn-lg" id="login-pw-eye" onclick="togglePwEye('input-login-pw','login-pw-eye')">显示</button>
                     </div>
                 </div>
                 <div class="form" id="login-token-box" style="padding:0;border:none;display:none;">
                     <label class="form-label">长期 Token</label>
                     <div class="form-row">
-                        <input type="password" class="form-input" id="input-login-token" placeholder="长期 Token" autocomplete="off">
+                        <input type="password" class="form-input" id="input-login-token" placeholder="长期 Token" autocomplete="off" onkeydown="if(event.key==='Enter')httpLogin()">
                         <button class="btn btn-lg" id="login-token-eye" onclick="togglePwEye('input-login-token','login-token-eye')">显示</button>
                     </div>
                 </div>
@@ -456,14 +438,14 @@
         let httpToken = '';
         let configData = {
             sleep_interval: 60, server_dir: '',
-            termux_services: [], services: [],
+            termux_services: [], binary_services: [],
             boot_commands: '',
             wifi_service_enabled: false, wifi_service_names: new Set(), wifi_service_names_off: new Set(),
             wifi_ssids: '',
             schedule_enabled: false, schedule_stop: '', schedule_start: '',
             webui_enabled: false, webui_port: 5555
         };
-        let statusData = { termux_services: [], services: [] };
+        let statusData = { termux_services: [], binary_services: [] };
         let testCmdData = '';
         let isTestMode = false;
         let currentLogName = '';
@@ -554,7 +536,7 @@
                 const raw = localStorage.getItem(STATUS_CACHE_KEY);
                 if (!raw) return null;
                 const o = JSON.parse(raw);
-                if (!o || !o.d || !Array.isArray(o.d.termux_services)) return null;
+                if (!o || !o.d || !Array.isArray(o.d.termux_services) || !Array.isArray(o.d.binary_services)) return null;
                 // 过期缓存直接丢弃，下次打开不再呈现旧数据
                 if (!o.t || Date.now() - o.t > STATUS_CACHE_TTL) { clearStatusCache(); return null; }
                 return o.d;
@@ -842,12 +824,9 @@
                 if (httpMode) {
                     document.getElementById('webui-switch').disabled = true;
                 }
-                if (!isConfigLoaded) {
-                    // 先按内存默认值即时渲染骨架，开关可点；配置回来再覆盖刷新
-                    renderConfigFromCache();
-                    loadConfig();
-                }
-                else renderConfigFromCache();
+                // 未加载/加载失败都重拉（失败时先渲染骨架+错误态，loadConfig 内回填）。
+                renderConfigFromCache();
+                loadConfig();
             }
         }
 
@@ -900,7 +879,7 @@
         // 状态失败页：清空内存与缓存，防止重启前的旧数据常驻。
         function renderStatusFailure(msg) {
             clearStatusCache();
-            statusData = { termux_services: [], services: [] };
+            statusData = { termux_services: [], binary_services: [] };
             isStatusLoaded = false;
             document.getElementById('termux-list').innerHTML = '<div class="empty">' + msg + '</div>';
             document.getElementById('binary-list').innerHTML = '<div class="empty">' + msg + '</div>';
@@ -930,7 +909,7 @@
                 isStatusLoaded = true;
                 saveStatusCache(d);
                 renderStatusList('termux-list', d.termux_services, true);
-                renderStatusList('binary-list', d.services, false);
+                renderStatusList('binary-list', d.binary_services, false);
                 if (force) toast('已刷新');
             } catch (e) {
                 renderStatusFailure('解析失败，请重试');
@@ -939,7 +918,7 @@
 
         function renderStatusFromCache() {
             renderStatusList('termux-list', statusData.termux_services, true);
-            renderStatusList('binary-list', statusData.services, false);
+            renderStatusList('binary-list', statusData.binary_services, false);
         }
 
         // 端口标签：纯数字且 1~65535 显示 port:数字；其他文本直显当标签；空显示 port:未知
@@ -957,7 +936,7 @@
             return n === null ? p : 'port:' + n;
         }
 
-        // 状态页/配置页共用的条目信息片段（名称 + 端口 + auto 标签）
+        // 状态页/配置页共用条目信息（名称 + 端口 + extra + auto 标签，extra 为空不占位）
         function svcItemInfo(s) {
             return `
                     <div class="item-info">
@@ -969,17 +948,30 @@
                     </div>`;
         }
 
+        // 状态页筛选（作用于 termux/binary 两组）：改选只重渲染缓存，不发请求
+        let statusFilter = 'all';
+        function setStatusFilter(v) {
+            statusFilter = v;
+            if (statusData) renderStatusFromCache();
+        }
+
         function renderStatusList(id, services, isTermux) {
             const el = document.getElementById(id);
-            if (!services || !services.length) { el.innerHTML = '<div class="empty">暂无服务</div>'; return; }
-            el.innerHTML = services.map((s, i) => {
+            const hasAny = !!(services && services.length);
+            const list = hasAny ? services.filter(s => statusFilter === 'all'
+                || (statusFilter === 'running' && s.status === 'running')
+                || (statusFilter === 'stopped' && s.status !== 'running')
+                || (statusFilter === 'auto-start' && s.auto === 'start')
+                || (statusFilter === 'auto-stop' && s.auto === 'stop')) : [];
+            if (!list.length) { el.innerHTML = `<div class="empty">${hasAny ? '无匹配服务' : '暂无服务'}</div>`; return; }
+            el.innerHTML = list.map((s, i) => {
                 const running = s.status === 'running';
                 const port = parseValidPort(s.port);
                 // 打开按钮：运行中且端口合法即显示；直连跳本机链接，管理器走 am 跳转。
                 const openBtn = (running && port !== null)
                     ? (httpMode
-                        ? `<a class="btn btn-md" style="border-color:#3b82f6;color:#2563eb;background:#eff6ff;text-decoration:none;" href="http://127.0.0.1:${port}" target="_blank" rel="noopener" onclick="event.stopPropagation()">打开</a>`
-                        : `<button class="btn btn-md" style="border-color:#3b82f6;color:#2563eb;background:#eff6ff;" onclick="openSvcPort('${s.port}')">打开</button>`)
+                        ? `<a class="btn btn-md btn-open" style="text-decoration:none;" href="http://${location.hostname}:${port}" target="_blank" rel="noopener" onclick="event.stopPropagation()">打开</a>`
+                        : `<button class="btn btn-md btn-open" onclick="openSvcPort('${s.port}')">打开</button>`)
                     : '';
                 return `
                 <div class="item" onclick="toggleExpand('${id}', ${i}, event)">
@@ -987,11 +979,12 @@
                     ${svcItemInfo(s)}
                     <div class="actions" onclick="event.stopPropagation()">
                         ${running
-                            ? openBtn + `<button class="btn btn-md" style="border-color:#eab308;color:#b45309;background:#fefce8;" onclick="restartSvc('${s.name}')">重启</button><button class="btn btn-md btn-danger" onclick="stopSvc('${s.name}')">停止</button><button class="btn btn-md" onclick="showLog('${s.name}')">日志</button>`
+                            ? openBtn + `<button class="btn btn-md btn-restart" onclick="restartSvc('${s.name}')">重启</button><button class="btn btn-md btn-danger" onclick="stopSvc('${s.name}')">停止</button><button class="btn btn-md" onclick="showLog('${s.name}')">日志</button>`
                             : `<button class="btn btn-md btn-primary" onclick="startSvc('${isTermux ? 'termux' : 'binary'}','${s.name}')">启动</button><button class="btn btn-md" onclick="showLog('${s.name}')">日志</button>`}
                     </div>
                 </div>
                 <div class="expand" id="expand-${id}-${i}" style="display:none;">
+                    ${(s.extra || '') !== '' ? `<div class="expand-row"><span class="expand-label">附加参数</span><span style="font-family:monospace;font-size:11px;">${escapeHtml(s.extra)}</span></div>` : ''}
                     <textarea class="expand-textarea" readonly ondblclick="copyToClipboard(this)" oninput="autoResize(this)">${escapeHtml(displayCmd(s.cmd))}</textarea>
                 </div>`;
             }).join('');
@@ -1003,22 +996,22 @@
             if (!parseSuccess(r)) toast('打开失败', true);
         }
 
-        // 命令显示还原：保存时 " 转义为 \"，读取显示还原为 "
-        function displayCmd(s) { return String(s || '').replace(/\\"/g, '"'); }
+        // 命令解转义：字面 \n \t \" \\ → 明文；单遍替换防 \\n 被二次解码
+        function displayCmd(s) {
+            return String(s || '').replace(/\\(\\|n|t|")/g, (m, g) => g === 'n' ? '\n' : g === 't' ? '\t' : g);
+        }
 
-        // 命令保存归一：多行每行补 ; 后拼接为一行；" 转义为 \" 保存
+        // 命令保存归一：每行补 ; 保留换行，转义为字面 \n 单行存储；三个 replace 顺序敏感（先双写 \ 再产新转义，调换会二次转义）
         function normalizeCmd(raw) {
             const lines = String(raw || '').split('\n');
             const parts = [];
             lines.forEach(line => {
-                line = line.trim();
-                if (!line) return;
-                if (!line.endsWith(';')) line += ';';
-                parts.push(line);
+                // 行首缩进原样保留（执行按真换行多行跑，缩进合法），只去行尾空白
+                parts.push(line.replace(/\s+$/, ''));
             });
-            let joined = parts.join('').replace(/;+$/, '');
-            joined = joined.replace(/\\"/g, '"').replace(/"/g, '\\"');
-            return joined;
+            // 去末尾空白与分号：空行防拼 "; wait" 出空语句，分号防叠成 ";;"
+            let joined = parts.join('\n').replace(/[\s;]+$/, '');
+            return joined.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
         }
 
         function toggleExpand(id, idx, e) {
@@ -1168,50 +1161,58 @@
             el.scrollTop = el.scrollHeight;
         }
 
-        // type='termux' -> configData.termux_services；type='binary' -> configData.services
-        function svcArr(type) { return type === 'termux' ? configData.termux_services : configData.services; }
+        // type='termux' -> configData.termux_services；type='binary' -> configData.binary_services
+        function svcArr(type) { return type === 'termux' ? configData.termux_services : configData.binary_services; }
 
-        // 管道行解析：min 为该类型最少字段数（termux 含 extra 列）；缺 port 的旧格式行向后兼容
+        // 管道行解析：两类内存统一 5 段 name|port|extra|auto|cmd（binary extra 恒空）；旧 4 段 binary 行兼容。
         function parseRows(str, type) {
-            const min = type === 'termux' ? 5 : 4;
             const arr = [];
             (str || '').split('\n').forEach(line => {
                 const p = line.trim().split('|');
-                if (p.length >= min) {
-                    if (type === 'termux') arr.push({ name: p[0], port: p[1], extra: p[2], auto: p[3], cmd: p.slice(4).join('|') });
-                    else arr.push({ name: p[0], port: p[1], auto: p[2], cmd: p.slice(3).join('|') });
-                } else if (p.length >= min - 1) {
-                    // 旧格式缺 port 列：字段整体前移一位
-                    if (type === 'termux') arr.push({ name: p[0], port: '', extra: p[1], auto: p[2], cmd: p.slice(3).join('|') });
-                    else arr.push({ name: p[0], port: '', auto: p[1], cmd: p.slice(2).join('|') });
+                if (p.length >= 5) {
+                    arr.push({ name: p[0], port: p[1], extra: p[2], auto: p[3], cmd: p.slice(4).join('|') });
+                } else if (p.length === 4) {
+                    // 旧 binary 4 段 name|port|auto|cmd：extra 补空
+                    arr.push({ name: p[0], port: p[1], extra: '', auto: p[2], cmd: p.slice(3).join('|') });
                 }
             });
             return arr;
         }
 
         function stringifyRows(arr, type) {
-            return arr.map(s => type === 'termux'
-                ? `${s.name}|${s.port || ''}|${s.extra}|${s.auto}|${s.cmd}`
-                : `${s.name}|${s.port || ''}|${s.auto}|${s.cmd}`).join('\n');
+            return arr.map(s => `${s.name}|${s.port || ''}|${s.extra || ''}|${s.auto}|${s.cmd}`).join('\n');
         }
 
+        // 配置加载中：切页/刷新并发复用同一 promise，防串行双读拖慢实机。
+        let configLoading = null;
         async function loadConfig(force = false, silent = false) {
             if (!ksuApi && !httpMode) { toast('请先初始化'); return; }
             if (!force && isConfigLoaded) return;
+            if (configLoading) { try { await configLoading; } catch (e) { /* 忽略 */ } return; }
+            configLoading = (async () => {
             if (force && !silent) toast('刷新中...');
-            const r = await invoke('getconfig');
-            if (r.errno !== 0 || !r.stdout) {
-                if (r.errno === 401) return; // 已弹登录页
+            // 按需分片读：设置与服务并行取（串行在实机翻倍耗时），任一失败整体重试一次。
+            let rs = await invoke('getsettings');
+            let rv = await invoke('getservices');
+            if ((rs.errno !== 0 || !rs.stdout) || (rv.errno !== 0 || !rv.stdout)) {
+                rs = await invoke('getsettings');
+                rv = await invoke('getservices');
+            }
+            if ((rs.errno !== 0 || !rs.stdout) || (rv.errno !== 0 || !rv.stdout)) {
+                if (rs.errno === 401 || rv.errno === 401) return; // 已弹登录页
+                isConfigLoaded = false;
+                renderConfigFromCache();
                 if (force && !silent) toast('刷新失败', true);
                 return;
             }
             try {
-                const d = JSON.parse(r.stdout);
+                const d = JSON.parse(rs.stdout);
+                const v = JSON.parse(rv.stdout);
                 const sv = parseInt(d.sleep_interval, 10);
                 configData.sleep_interval = (isNaN(sv) || sv < 10) ? 60 : sv;
                 configData.server_dir = d.server_dir || '';
-                configData.termux_services = parseRows(d.termux_services || '', 'termux');
-                configData.services = parseRows(d.services || '', 'binary');
+                configData.termux_services = parseRows(v.termux_services || '', 'termux');
+                configData.binary_services = parseRows(v.binary_services || '', 'binary');
                 configData.boot_commands = d.boot_commands || '';
                 configData.wifi_service_enabled = d.wifi_service_enabled === '1';
                 configData.wifi_service_names = new Set(
@@ -1241,7 +1242,13 @@
                 }
                 refreshWebuiPanel();
                 if (force && !silent) toast('已刷新');
-            } catch (e) { toast('解析失败: ' + e.message); }
+            } catch (e) {
+                isConfigLoaded = false;
+                renderConfigFromCache();
+                toast('解析失败: ' + e.message);
+            }
+            })().finally(() => { configLoading = null; });
+            try { await configLoading; } catch (e) { /* 忽略 */ }
         }
 
         function renderConfigFromCache() {
@@ -1297,8 +1304,8 @@
             } else { tEl.innerHTML = '<div class="empty">暂无服务</div>'; }
 
             const bEl = document.getElementById('config-binary-list');
-            if (configData.services.length) {
-                bEl.innerHTML = configData.services.map((s, i) => renderRow('binary', s, i)).join('');
+            if (configData.binary_services.length) {
+                bEl.innerHTML = configData.binary_services.map((s, i) => renderRow('binary', s, i)).join('');
             } else { bEl.innerHTML = '<div class="empty">暂无服务</div>'; }
         }
 
@@ -1306,10 +1313,8 @@
             sortMode[type] = !sortMode[type];
             document.getElementById('sort-' + type + '-btn').textContent = sortMode[type] ? '确认' : '排序';
             renderConfigLists();
-            if (!sortMode[type]) {
-                toast('保存排序...');
-                saveConfig();
-            }
+            // 确认排序只发本类（moveItem 已即时单步落盘，此处兜底整类一次）
+            if (!sortMode[type]) saveServicesOnly(type);
         }
 
         function moveItem(type, idx, dir) {
@@ -1348,7 +1353,7 @@
                 renderConfigLists();
                 updateWifiPickBtn();
                 toast('保存中...');
-                saveConfig();
+                saveServicesOnly(type);
                 closeConfirm();
             };
         }
@@ -1365,45 +1370,87 @@
             if (confirmCallback) confirmCallback();
         };
 
-        // 服务编辑弹窗：type='termux'|'binary' 统一参数化（id 前缀 input-<type>-*）
+        // 服务编辑弹窗（单弹窗复用，type 经隐藏域携带；extra 默认隐藏，有值或点按钮才显示）
         function openModal(type, idx) {
             const editing = typeof idx === 'number' && idx >= 0;
             const s = editing ? svcArr(type)[idx]
-                : (type === 'termux' ? { name: '', port: '', extra: '', auto: 'start', cmd: '' } : { name: '', port: '', auto: 'start', cmd: '' });
+                : { name: '', port: '', extra: '', auto: 'start', cmd: '' };
             const label = type === 'termux' ? 'Termux' : '二进制';
-            showAnyModal('modal-' + type);
-            document.getElementById('modal-' + type + '-title').textContent = editing ? `编辑 ${label} 服务` : `添加 ${label} 服务`;
-            document.getElementById('edit-' + type + '-idx').value = editing ? idx : -1;
-            document.getElementById('input-' + type + '-name').value = s.name;
-            document.getElementById('input-' + type + '-port').value = s.port || '';
-            if (type === 'termux') document.getElementById('input-termux-extra').value = s.extra || '';
-            document.getElementById('input-' + type + '-auto').checked = s.auto !== 'stop';
-            document.getElementById('input-' + type + '-cmd').value = displayCmd(s.cmd);
+            document.getElementById('edit-svc-type').value = type;
+            document.getElementById('modal-svc-title').textContent = editing ? `编辑 ${label} 服务` : `添加 ${label} 服务`;
+            document.getElementById('edit-svc-idx').value = editing ? idx : -1;
+            document.getElementById('input-svc-name').value = s.name;
+            document.getElementById('input-svc-port').value = s.port || '';
+            document.getElementById('input-svc-extra').value = s.extra || '';
+            // extra 有值则展开，无值默认收起（binary 老数据无 extra 字段即 ''，同样收起）
+            document.getElementById('extra-wrap').style.display = (s.extra || '') !== '' ? '' : 'none';
+            document.getElementById('input-svc-auto').checked = s.auto !== 'stop';
+            document.getElementById('input-svc-cmd').value = displayCmd(s.cmd);
+            showAnyModal('modal-svc');
         }
 
-        function closeModal(type) { hideAnyModal('modal-' + type); }
+        function toggleExtra() {
+            const w = document.getElementById('extra-wrap');
+            w.style.display = w.style.display === 'none' ? '' : 'none';
+        }
 
-        // 保存服务编辑：读表单 -> 校验 -> 写回数组 -> 全量保存（type='termux'|'binary'）
-        function saveService(type) {
+        function closeModal() { hideAnyModal('modal-svc'); }
+
+        // 保存服务编辑：读表单 -> 校验 -> 写回数组 -> 只发本类键（saveservices，不碰设置与另一类）
+        let svcSaving = false;
+        function saveService() {
+            if (svcSaving) return;
             const el = id => document.getElementById(id);
-            const idx = parseInt(el('edit-' + type + '-idx').value);
+            const type = el('edit-svc-type').value === 'binary' ? 'binary' : 'termux';
+            const idx = parseInt(el('edit-svc-idx').value);
             const s = {
-                name: el('input-' + type + '-name').value.trim(),
-                port: el('input-' + type + '-port').value.trim(),
-                auto: el('input-' + type + '-auto').checked ? 'start' : 'stop',
-                cmd: normalizeCmd(el('input-' + type + '-cmd').value)
+                name: el('input-svc-name').value.trim(),
+                port: el('input-svc-port').value.trim(),
+                auto: el('input-svc-auto').checked ? 'start' : 'stop',
+                cmd: normalizeCmd(el('input-svc-cmd').value)
             };
-            if (type === 'termux') s.extra = el('input-termux-extra').value.trim();
+            const extra = el('input-svc-extra').value.trim();
+            if (type === 'termux') s.extra = extra;
             if (!s.name || !s.cmd) { toast('请填写必填项', true); return; }
             const nameErr = checkServiceName(s.name);
             if (nameErr) { toast(nameErr, true); return; }
-            if (type === 'termux' && !EXTRA_RE.test(s.extra)) { toast('附加参数不合法', true); return; }
+            // 全服务项查重：pid/日志/Wi-Fi 选择均按 name 索引，跨类同名必冲突（编辑排除自身）
+            const self = idx >= 0 ? svcArr(type)[idx] : null;
+            if (svcArr('termux').concat(svcArr('binary')).some(x => x !== self && x.name === s.name)) { toast('已存在同名配置项', true); return; }
+            if (type === 'termux' && extra !== '' && !EXTRA_RE.test(extra)) { toast('附加参数不合法', true); return; }
             if (idx === -1) svcArr(type).push(s);
             else svcArr(type)[idx] = s;
-            closeModal(type);
+            svcSaving = true;
+            closeModal();
             renderConfigLists();
             toast('保存中...');
-            saveConfig();
+            saveServicesOnly(type).finally(() => { svcSaving = false; });
+        }
+
+        // 只存本类服务：saveservices 单键（另一类不动，设置不动）；失败回读刷新。
+        async function saveServicesOnly(type) {
+            if (!backendReady()) { toast('请先初始化', true); return; }
+            if (!isConfigLoaded) { toast('配置未加载完成，已取消保存', true); return; }
+            const key = type === 'binary' ? 'binary_services' : 'termux_services';
+            const payload = key + '=' + toB64(stringifyRows(svcArr(type), type));
+            const r = await runAction('saveservices', payload);
+            if (r.errno === 0) {
+                try {
+                    const d = JSON.parse(r.stdout || '{}');
+                    if (d.success) { toast('已保存'); return; }
+                    toast(d.error || '保存失败', true);
+                } catch (e) { toast('保存失败', true); }
+            } else {
+                toast('保存失败', true);
+            }
+            // 失败回读本类，丢弃本地脏数据，防“显示有、刷新无”。
+            try {
+                const rv = await invoke('getservices');
+                const v = JSON.parse(rv.stdout || '{}');
+                if (type === 'binary') configData.binary_services = parseRows(v.binary_services || '', 'binary');
+                else configData.termux_services = parseRows(v.termux_services || '', 'termux');
+                renderConfigLists();
+            } catch (e) { /* 保持本地显示，下次刷新纠正 */ }
         }
 
         function validateBasic() {
@@ -1478,7 +1525,7 @@
             const panel = document.getElementById('webui-panel');
             const stEl = document.getElementById('webui-status');
             const manage = document.getElementById('webui-manage');
-            // 直连：开关禁用，改密/Token 可用；状态由登录时 getconfig 附带，免一次 webuistatus。
+            // 直连：开关禁用，改密/Token 可用；状态由登录时 getsettings 附带，免一次 webuistatus。
             if (httpMode) {
                 sw.disabled = true;
                 manage.querySelectorAll('input,button').forEach(el => { el.disabled = false; });
@@ -1704,7 +1751,7 @@
                 'schedule_stop=' + toB64(stop),
                 'schedule_start=' + toB64(start)
             ].join('\n');
-            const ok = await saveConfigPayload(payload, document.getElementById('error-schedule'));
+            const ok = await saveConfigPayload(payload, document.getElementById('error-schedule'), 'savesettings');
             scheduleSaving = false;
             if (ok) {
                 configData.schedule_enabled = (on === '1');
@@ -1719,9 +1766,9 @@
             }
         }
 
-        // 单键保存（开关切换用）：复用 saveconfig 单键链路
+        // 单键保存（开关切换用）：走 savesettings 单键链路
         async function saveScheduleKey(key, value, done) {
-            const ok = await saveConfigPayload(key + '=' + toB64(value), document.getElementById('error-schedule'));
+            const ok = await saveConfigPayload(key + '=' + toB64(value), document.getElementById('error-schedule'), 'savesettings');
             if (ok) {
                 if (key === 'schedule_enabled') configData.schedule_enabled = (value === '1');
                 else if (key === 'schedule_stop') configData.schedule_stop = value;
@@ -1733,15 +1780,15 @@
             if (done) done(ok);
         }
 
-        // saveconfig 统一链路：成功返回 true。
+        // 保存统一链路：成功返回 true。sub 默认 savesettings（设置类），服务类走 saveservices。
         function backendReady() { return httpMode || (!!ksuApi && !!MODDIR); }
-        async function saveConfigPayload(payload, errEl) {
+        async function saveConfigPayload(payload, errEl, sub) {
             if (!backendReady() || !isConfigLoaded) {
                 toast('配置未加载完成，已取消保存', true);
                 return false;
             }
             if (!payload) { toast('保存内容为空，已取消', true); return false; }
-            const r = await runAction('saveconfig', payload);
+            const r = await runAction(sub || 'savesettings', payload);
             if (r.errno === 0) {
                 const text = (r.stdout || '').trim();
                 // 空回包（CGI 400 被吞等异常）直接失败，不当成功
@@ -1759,9 +1806,9 @@
             return false;
         }
 
-        // 单键保存：只提交一个 wifi 键，后端缺键继承其余配置；不触发全页重载
+        // 单键保存：只提交一个 wifi 键，走 savesettings；不触发全页重载
         async function saveWifiKey(key, value, done) {
-            const ok = await saveConfigPayload(key + '=' + toB64(value));
+            const ok = await saveConfigPayload(key + '=' + toB64(value), null, 'savesettings');
             if (ok) {
                 if (key === 'wifi_service_enabled') configData.wifi_service_enabled = (value === '1');
                 else if (key === 'wifi_ssids') configData.wifi_ssids = value;
@@ -1781,7 +1828,7 @@
         function renderWifiPickBody(picked, excluded) {
             const groups = [
                 { title: 'Termux 服务', list: configData.termux_services },
-                { title: '二进制服务', list: configData.services }
+                { title: '二进制服务', list: configData.binary_services }
             ].filter(g => g.list.length);
             if (!groups.length) return '<div class="empty">暂无服务</div>';
             return groups.map(g => `
@@ -1800,6 +1847,10 @@
         // wifi 弹窗按 mode 复用：on=连接启停组名单，off=断开启停组名单
         let wifiPickMode = 'on';
         let wifiPickBackup = null;
+        // 清空当前弹窗已勾选项（另一组锁定项不动）
+        function clearWifiPick() {
+            document.querySelectorAll('#wifi-pick-body input[type="checkbox"]:not(:disabled)').forEach(c => { c.checked = false; });
+        }
 
         function wifiPickTarget() {
             return wifiPickMode === 'off' ? configData.wifi_service_names_off : configData.wifi_service_names;
@@ -1814,7 +1865,7 @@
             document.getElementById('wifi-pick-title').textContent =
                 wifiPickMode === 'off' ? '选择断开组服务（断开则运行，连上则停止）' : '选择连接组服务（连上时运行,断开则停止）';
             document.getElementById('wifi-pick-body').innerHTML = renderWifiPickBody(picked, excluded);
-            document.getElementById('wifi-pick-ok').disabled = !configData.termux_services.length && !configData.services.length;
+            document.getElementById('wifi-pick-ok').disabled = !configData.termux_services.length && !configData.binary_services.length;
             showAnyModal('modal-wifi-pick');
         }
 
@@ -1893,8 +1944,6 @@
             if (sleepInterval < 10) sleepInterval = 10;
             if (sleepInterval > 86400) sleepInterval = 86400;
             const serverDir = (document.getElementById('input-server-dir').value || '').trim().replace(/\/storage\/emulated\/0\//g, '/data/media/0/');
-            const termuxStr = stringifyRows(configData.termux_services, 'termux');
-            const binaryStr = stringifyRows(configData.services, 'binary');
             const bootStr = isTestMode ? configData.boot_commands : (document.getElementById('input-boot-cmds').value || '');
             const wifiEnabled = document.getElementById('wifi-service-switch').checked ? '1' : '0';
             const wifiNames = [...configData.wifi_service_names].join('\n');
@@ -1904,12 +1953,10 @@
             const schedStop = (document.getElementById('input-schedule-stop').value || '').trim();
             const schedStart = (document.getElementById('input-schedule-start').value || '').trim();
 
-            // 通过固定 helper 传输 key=base64(value)，shell 端白名单校验，不做命令拼接执行
-            const payload = [
+            // 设置与服务分开落盘：设置走 savesettings（不含服务行），服务走 saveservices。
+            const settingsPayload = [
                 'sleep_interval=' + toB64(String(sleepInterval)),
                 'server_dir=' + toB64(serverDir),
-                'termux_services=' + toB64(termuxStr),
-                'services=' + toB64(binaryStr),
                 'boot_commands=' + toB64(bootStr),
                 'wifi_service_enabled=' + toB64(wifiEnabled),
                 'wifi_service_names=' + toB64(wifiNames),
@@ -1919,13 +1966,31 @@
                 'schedule_stop=' + toB64(schedStop),
                 'schedule_start=' + toB64(schedStart)
             ].join('\n');
-            const r = await runAction('saveconfig', payload);
+            const termuxStr = stringifyRows(configData.termux_services, 'termux');
+            const binaryStr = stringifyRows(configData.binary_services, 'binary');
+            const servicesPayload = [
+                'termux_services=' + toB64(termuxStr),
+                'services=' + toB64(binaryStr)
+            ].join('\n');
+            const r = await runAction('savesettings', settingsPayload);
             if (r.errno === 0) {
                 try {
                     const d = JSON.parse(r.stdout || '{}');
                     if (d.success) {
-                        await loadConfig(true, true);
-                        toast('已保存');
+                        const r2 = await runAction('saveservices', servicesPayload);
+                        try {
+                            const d2 = JSON.parse(r2.stdout || '{}');
+                            if (d2.success) {
+                                await loadConfig(true, true);
+                                toast('已保存');
+                                return;
+                            }
+                            showDebug('保存服务返回失败：\n\nstdout:\n' + (r2.stdout || '') + '\n\nstderr:\n' + (r2.stderr || ''));
+                            toast(d2.error || '保存失败', true);
+                        } catch (e) {
+                            showDebug('保存服务返回无法解析：\n\nstdout:\n' + (r2.stdout || '') + '\n\n解析错误：' + e.message);
+                            toast('保存失败', true);
+                        }
                         return;
                     }
                     showDebug('保存配置返回失败：\n\nstdout:\n' + (r.stdout || '') + '\n\nstderr:\n' + (r.stderr || ''));
@@ -1962,6 +2027,8 @@
             const ok = await initModuleDir();
             if (!ok || !MODDIR) return;
             loadStatus(true);
+            // 管理器内同样预加载配置：切配置页秒开，失败切页时再重试。
+            loadConfig(true, true);
         }
         init();
     </script>

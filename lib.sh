@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# SvcHub 公共库：配置读写（模块私有 config.json 明文）、进程 pid 管理、日志轮转与校验、Wi-Fi 策略控制。
+# SvcHub 公共库：配置读写（config/setting.conf 设置项 + config/services.conf 服务项）、进程 pid 管理、日志轮转与校验、Wi-Fi 策略控制。
 # 注意：调用方必须先设置 MODDIR=${0%/*} 再 source 本文件。
 
 if [ -z "$MODDIR" ] || [ ! -d "$MODDIR" ]; then
@@ -14,6 +14,12 @@ SPPID="$RUNDIR/supervisor.pid"
 BOOTID_FILE="$RUNDIR/boot_id"
 DISABLE_FILE="$MODDIR/disable"
 CONFIG_FILE="$MODDIR/config.json"
+# 新配置目录（三文件）；CONFIG_FILE 仅作旧版迁移源保留。
+CONFIG_DIR="$MODDIR/config"
+SETTING_FILE="$CONFIG_DIR/setting.conf"
+SERVICES_FILE="$CONFIG_DIR/services.conf"
+WEB_CONF_NEW="$CONFIG_DIR/web.conf"
+WEB_CONF_OLD="$MODDIR/web.conf"
 
 # 设备上为空走默认路径，零影响
 [ -n "$SVCHUB_TERMUX_HOME" ] && TERMUX_HOME="$SVCHUB_TERMUX_HOME" || TERMUX_HOME="/data/data/com.termux/files/home"
@@ -48,18 +54,21 @@ WIFI_SSID_CACHE_TIME=0
 
 mkdir -p "$RUNDIR" "$LOG_DIR" "$RUNDIR/session"
 
-# ---------- 配置（模块私有 config.json，明文 JSON） ----------
-# 配置 schema 唯一定义：新增配置键只需在此登记，并同步补全 load_cfg_sh / cfg_global / write_config_json 各一行
+# ---------- 配置（config/setting.conf 设置项 + config/services.conf 服务项） ----------
+# 配置 schema 唯一定义：新增设置键在此登记，并同步补全 load_settings / cfg_global / write_settings 各一行；
+# 新增服务类型只需在 load_services / write_services 加一个 type 分支。
 CONFIG_KEYS='sleep_interval server_dir termux_services services boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start webui_enabled webui_password_hash webui_token'
+# 设置文件键（13 键：CONFIG_KEYS 去掉两类服务行）。
+SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start webui_enabled webui_password_hash webui_token'
 
-# JSON 字符串编码：换行转义为字面 \n 两字符序列，保证写入的 JSON 合法
+# JSON 字符串编码：\ " tab 转义、换行转字面 \n；逐字符拼接（gsub 替换串反斜杠 busybox/gawk 语义不一致，禁用）
 enc_js() {
-	awk '{ gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); if (NR > 1) printf "\\n"; printf "%s", $0 }'
+	awk 'function esc(s,   o, i, n, c) { o = ""; n = length(s); for (i = 1; i <= n; i++) { c = substr(s, i, 1); if (c == "\\") o = o "\\\\"; else if (c == "\"") o = o "\\\""; else if (c == "\t") o = o "\\t"; else o = o c } return o } { if (NR > 1) printf "\\n"; printf "%s", esc($0) }'
 }
 
-# JSON 字符串解码：\n \t \" \\ 还原为明文
+# JSON 字符串解码：左到右单遍，\n \t \" \\ 还原明文，孤立 \ 原样保留
 dec_js() {
-	awk '{ gsub(/\\n/, "\n"); gsub(/\\t/, "\t"); gsub(/\\"/, "\""); gsub(/\\\\/, "\\"); printf "%s", $0 }'
+	awk 'function unesc(s,   o, i, n, c) { o = ""; n = length(s); for (i = 1; i <= n; i++) { c = substr(s, i, 1); if (c != "\\") { o = o c; continue } i++; c = substr(s, i, 1); if (c == "n") o = o "\n"; else if (c == "t") o = o "\t"; else if (c == "\"") o = o "\""; else if (c == "\\") o = o "\\"; else o = o "\\" c } return o } { printf "%s", unesc($0) }'
 }
 
 # 读取某个 key 的值（明文）；不存在/空则输出空。
@@ -89,42 +98,6 @@ cfg_dump_all() {
 	}' "$CONFIG_FILE"
 }
 
-# 单遍加载 config.json 到全局变量（一次 awk 落临时文件 + 重定向读；管道会进子 shell 导致赋值丢失，必须用重定向）。
-cfg_load_all() {
-	local line k v us tmp
-	[ -f "$CONFIG_FILE" ] || return 0
-	SLEEP_INTERVAL=""; SERVER_DIR=""; TERMUX_SERVICES=""; SERVICES=""; BOOT_COMMANDS=""
-	WIFI_SERVICE_ENABLED=""; WIFI_SERVICE_NAMES=""; WIFI_SERVICE_NAMES_OFF=""; WIFI_SSIDS=""
-	SCHEDULE_ENABLED=""; SCHEDULE_STOP=""; SCHEDULE_START=""
-	WEBUI_ENABLED=""; WEBUI_PASSWORD_HASH=""; WEBUI_TOKEN=""
-	us=$(printf '\037')
-	tmp="$RUNDIR/.cfgdump.$$.tmp"
-	cfg_dump_all > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
-	while IFS= read -r line || [ -n "$line" ]; do
-		k=${line%%"$us"*}
-		[ "$k" = "$line" ] && continue
-		v=${line#*"$us"}
-		case "$v" in *\\*) v=$(printf '%s' "$v" | dec_js) ;; esac
-		case "$k" in
-		sleep_interval) SLEEP_INTERVAL=$v ;;
-		server_dir) SERVER_DIR=$v ;;
-		termux_services) TERMUX_SERVICES=$v ;;
-		services) SERVICES=$v ;;
-		boot_commands) BOOT_COMMANDS=$v ;;
-		wifi_service_enabled) WIFI_SERVICE_ENABLED=$v ;;
-		wifi_service_names) WIFI_SERVICE_NAMES=$v ;;
-		wifi_service_names_off) WIFI_SERVICE_NAMES_OFF=$v ;;
-		wifi_ssids) WIFI_SSIDS=$v ;;
-		schedule_enabled) SCHEDULE_ENABLED=$v ;;
-		schedule_stop) SCHEDULE_STOP=$v ;;
-		schedule_start) SCHEDULE_START=$v ;;
-		webui_enabled) WEBUI_ENABLED=$v ;;
-		webui_password_hash) WEBUI_PASSWORD_HASH=$v ;;
-		webui_token) WEBUI_TOKEN=$v ;;
-		esac
-	done < "$tmp"
-	rm -f "$tmp"
-}
 
 # ---------- 校验 ----------
 
@@ -142,32 +115,60 @@ valid_name() {
 	return 0
 }
 
-# 配置一次性写成 config.json（原子替换）。
-# 无参：直接从 load_cfg_sh 的同名全局变量读取；调用前必须已 load_cfg_sh 或完整设置 12 个变量，
-# 键序在此集中维护，与 CONFIG_KEYS 一致。
-write_config_json() {
-	local tmp="$CONFIG_FILE.tmp"
+# 设置项写成 setting.conf（KEY=value 行格式，多行值经 enc_js 转义存单行；原子替换，600 权限）。
+# 无参：直接从 load_cfg_sh 的同名全局变量读取。
+write_settings() {
+	local tmp="$SETTING_FILE.tmp"
+	mkdir -p "$CONFIG_DIR" 2>/dev/null
 	{
-		echo '{'
-		printf '  "sleep_interval": "%s",\n'          "$(printf '%s' "$SLEEP_INTERVAL" | enc_js)"
-		printf '  "server_dir": "%s",\n'              "$(printf '%s' "$SERVER_DIR" | enc_js)"
-		printf '  "termux_services": "%s",\n'         "$(printf '%s' "$TERMUX_SERVICES" | enc_js)"
-		printf '  "services": "%s",\n'                "$(printf '%s' "$SERVICES" | enc_js)"
-		printf '  "boot_commands": "%s",\n'           "$(printf '%s' "$BOOT_COMMANDS" | enc_js)"
-		printf '  "wifi_service_enabled": "%s",\n'    "$(printf '%s' "$WIFI_SERVICE_ENABLED" | enc_js)"
-		printf '  "wifi_service_names": "%s",\n'      "$(printf '%s' "$WIFI_SERVICE_NAMES" | enc_js)"
-		printf '  "wifi_service_names_off": "%s",\n'  "$(printf '%s' "$WIFI_SERVICE_NAMES_OFF" | enc_js)"
-		printf '  "wifi_ssids": "%s",\n'              "$(printf '%s' "$WIFI_SSIDS" | enc_js)"
-		printf '  "schedule_enabled": "%s",\n'        "$(printf '%s' "$SCHEDULE_ENABLED" | enc_js)"
-		printf '  "schedule_stop": "%s",\n'           "$(printf '%s' "$SCHEDULE_STOP" | enc_js)"
-		printf '  "schedule_start": "%s",\n'          "$(printf '%s' "$SCHEDULE_START" | enc_js)"
-		printf '  "webui_enabled": "%s",\n'           "$(printf '%s' "$WEBUI_ENABLED" | enc_js)"
-		printf '  "webui_password_hash": "%s",\n'     "$(printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js)"
-		printf '  "webui_token": "%s"\n'              "$(printf '%s' "$WEBUI_TOKEN" | enc_js)"
-		echo '}'
-	} > "$tmp" && mv -f "$tmp" "$CONFIG_FILE"
+		printf 'sleep_interval=%s\n'          "$(printf '%s' "$SLEEP_INTERVAL" | enc_js)"
+		printf 'server_dir=%s\n'              "$(printf '%s' "$SERVER_DIR" | enc_js)"
+		printf 'boot_commands=%s\n'           "$(printf '%s' "$BOOT_COMMANDS" | enc_js)"
+		printf 'wifi_service_enabled=%s\n'    "$(printf '%s' "$WIFI_SERVICE_ENABLED" | enc_js)"
+		printf 'wifi_service_names=%s\n'      "$(printf '%s' "$WIFI_SERVICE_NAMES" | enc_js)"
+		printf 'wifi_service_names_off=%s\n'  "$(printf '%s' "$WIFI_SERVICE_NAMES_OFF" | enc_js)"
+		printf 'wifi_ssids=%s\n'              "$(printf '%s' "$WIFI_SSIDS" | enc_js)"
+		printf 'schedule_enabled=%s\n'        "$(printf '%s' "$SCHEDULE_ENABLED" | enc_js)"
+		printf 'schedule_stop=%s\n'           "$(printf '%s' "$SCHEDULE_STOP" | enc_js)"
+		printf 'schedule_start=%s\n'          "$(printf '%s' "$SCHEDULE_START" | enc_js)"
+		printf 'webui_enabled=%s\n'           "$(printf '%s' "$WEBUI_ENABLED" | enc_js)"
+		printf 'webui_password_hash=%s\n'     "$(printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js)"
+		printf 'webui_token=%s\n'             "$(printf '%s' "$WEBUI_TOKEN" | enc_js)"
+	} > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$SETTING_FILE"
 	LOAD_CFG_DONE=""
 }
+
+# 服务项写成 services.conf（统一 6 段 type|name|port|extra|auto|cmd，先全部 termux 再 # binary + 全部 binary；原子替换）。
+# 无参：直接从 load_cfg_sh 的 TERMUX_SERVICES（5 段 name|port|extra|auto|cmd）/ BINARY_SERVICES（6 段 name|port|extra|auto|cmd，extra 为空）读取。
+write_services() {
+	local tmp="$SERVICES_FILE.tmp" line _bn _bp _ba _bc
+	mkdir -p "$CONFIG_DIR" 2>/dev/null
+	{
+		printf '%s\n' "$TERMUX_SERVICES" | while IFS= read -r line || [ -n "$line" ]; do
+			[ -n "$line" ] || continue
+			printf 'termux|%s\n' "$line"
+		done
+		echo '# binary'
+		printf '%s\n' "$BINARY_SERVICES" | while IFS= read -r line || [ -n "$line" ]; do
+			[ -n "$line" ] || continue
+			case "$line" in
+			*\|*\|*\|*\|*)
+				# 内存 6 段 name|port|extra|auto|cmd 原样加前缀（extra 为空即 ||）。
+				printf 'binary|%s\n' "$line" ;;
+			*\|*\|*\|*)
+				# 旧 4 段 name|port|auto|cmd → 补空 extra（heredoc 切段，避开裸竖线 ${} 模式）。
+				IFS='|' read -r _bn _bp _ba _bc <<SVCEOF
+$line
+SVCEOF
+				printf 'binary|%s|%s||%s|%s\n' "$_bn" "$_bp" "$_ba" "$_bc" ;;
+			*)
+				printf 'binary|%s\n' "$line" ;;
+			esac
+		done
+	} > "$tmp" && mv -f "$tmp" "$SERVICES_FILE"
+	LOAD_CFG_DONE=""
+}
+
 
 # 输出 load_cfg_sh 全局变量中 key 对应的值；供 api_get_config 与保存后回读校验共用
 cfg_global() {
@@ -175,7 +176,7 @@ cfg_global() {
 		sleep_interval)         printf '%s' "$SLEEP_INTERVAL" ;;
 		server_dir)             printf '%s' "$SERVER_DIR" ;;
 		termux_services)        printf '%s' "$TERMUX_SERVICES" ;;
-		services)               printf '%s' "$SERVICES" ;;
+		services)               printf '%s' "$BINARY_SERVICES" ;;
 		boot_commands)          printf '%s' "$BOOT_COMMANDS" ;;
 		wifi_service_enabled)   printf '%s' "$WIFI_SERVICE_ENABLED" ;;
 		wifi_service_names)     printf '%s' "$WIFI_SERVICE_NAMES" ;;
@@ -225,6 +226,12 @@ get_su_bin() {
 sup_log() {
 	[ -n "$1" ] || return 0
 	echo "[$(date '+%F %T')] $1" >> "$SUPERLOG"
+}
+
+# 巡检明细行：不带时间戳，轮次开始/结束仍由 sup_log 标注
+sup_log_bare() {
+	[ -n "$1" ] || return 0
+	echo "$1" >> "$SUPERLOG"
 }
 
 # 日志超过上限时保留最近1/4，避免无限增长
@@ -343,20 +350,22 @@ detect_running() {
 	done
 }
 
-# 批量检测全部配置内运行中的服务名（换行分隔输出）；依赖 load_cfg_sh 后的 TERMUX_SERVICES/SERVICES
+# 批量检测全部配置内运行中的服务名（换行分隔输出）；依赖 load_cfg_sh 后的 TERMUX_SERVICES/BINARY_SERVICES
 compute_runset() {
 	{
 		printf '%s\n' "$TERMUX_SERVICES" | list_names
-		printf '%s\n' "$SERVICES" | list_names
+		printf '%s\n' "$BINARY_SERVICES" | list_names
 	} | detect_running
 }
 
 # 按服务类型启动：$1=kind(termux|binary) $2=名称 $3=extra $4=命令文本。
-# 统一收口 supervisor 巡检 / Wi-Fi 同步 / WebUI 手动启动的 kind 分支。
+# 统一启动收口（巡检/Wi-Fi/WebUI）：binary extra 忽略；cmd 库存字面 \n，执行前还原为真换行。
 launch_svc() {
+	local cmdtext=$4
+	case "$cmdtext" in *\\*) cmdtext=$(printf '%s' "$cmdtext" | dec_js) ;; esac
 	case "$1" in
-		termux) start_svc "$2" "$TERMUX_HOME" "$3" "$TERMUX_ENV $4" ;;
-		binary) start_svc "$2" "$SERVER_DIR" "" "$4" ;;
+		termux) start_svc "$2" "$TERMUX_HOME" "$3" "$TERMUX_ENV $cmdtext" ;;
+		binary) start_svc "$2" "$SERVER_DIR" "" "$cmdtext" ;;
 	esac
 }
 
@@ -441,18 +450,20 @@ stop_removed_services() {
 	done
 }
 
-# 停止全部已配置服务
+# 停止全部已配置服务（读已加载全局变量；未加载则先 load_services）
 stop_all() {
-	printf '%s\n' "$(cfg_get termux_services)" | while IFS='|' read -r name port extra auto cmd; do
+	[ -n "$LOAD_CFG_DONE" ] || load_services
+	printf '%s\n' "$TERMUX_SERVICES" | while IFS='|' read -r name port extra auto cmd; do
 		[ -n "$name" ] && stop_svc "$name"
 	done
-	printf '%s\n' "$(cfg_get services)" | while IFS='|' read -r name port auto cmd; do
+	printf '%s\n' "$BINARY_SERVICES" | while IFS='|' read -r name port extra auto cmd; do
 		[ -n "$name" ] && stop_svc "$name"
 	done
 }
 
 # ---------- 配置加载 ----------
-# 缺键补键（幂等：无缺键原样重写，cmp 一致跳过；单次 awk 探测缺键与基础键）。
+# 缺键补键（幂等：无缺键原样重写，cmp 一致跳过；单次 awk 探测缺键）。
+# 仅供旧 config.json 迁移前兜底；新 setting.conf 缺键由 load_settings 默认值覆盖。
 ensure_config_keys() {
 	local tmp
 	[ -f "$CONFIG_FILE" ] || return 0
@@ -497,11 +508,199 @@ ensure_config_keys() {
 	return 0
 }
 
+# 读 setting.conf 到设置类全局变量（不碰服务行；# 注释与空行忽略，值经 dec_js 还原）。
+load_settings() {
+	local f="$SETTING_FILE" line k v CR
+	CR=$(printf '\r')
+	SLEEP_INTERVAL=""; SERVER_DIR=""; BOOT_COMMANDS=""
+	WIFI_SERVICE_ENABLED=""; WIFI_SERVICE_NAMES=""; WIFI_SERVICE_NAMES_OFF=""; WIFI_SSIDS=""
+	SCHEDULE_ENABLED=""; SCHEDULE_STOP=""; SCHEDULE_START=""
+	WEBUI_ENABLED=""; WEBUI_PASSWORD_HASH=""; WEBUI_TOKEN=""
+	[ -f "$f" ] || return 0
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in *"$CR") line=${line%"$CR"} ;; esac
+		case "$line" in ''|'#'*) continue ;; esac
+		k=${line%%=*}
+		case "$k" in
+		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|webui_enabled|webui_password_hash|webui_token) ;;
+		*) continue ;;
+		esac
+		v=${line#*=}
+		[ "$line" = "$k" ] && v=""
+		case "$v" in *\\*) v=$(printf '%s' "$v" | dec_js) ;; esac
+		case "$k" in
+		sleep_interval) SLEEP_INTERVAL=$v ;;
+		server_dir) SERVER_DIR=$v ;;
+		boot_commands) BOOT_COMMANDS=$v ;;
+		wifi_service_enabled) WIFI_SERVICE_ENABLED=$v ;;
+		wifi_service_names) WIFI_SERVICE_NAMES=$v ;;
+		wifi_service_names_off) WIFI_SERVICE_NAMES_OFF=$v ;;
+		wifi_ssids) WIFI_SSIDS=$v ;;
+		schedule_enabled) SCHEDULE_ENABLED=$v ;;
+		schedule_stop) SCHEDULE_STOP=$v ;;
+		schedule_start) SCHEDULE_START=$v ;;
+		webui_enabled) WEBUI_ENABLED=$v ;;
+		webui_password_hash) WEBUI_PASSWORD_HASH=$v ;;
+		webui_token) WEBUI_TOKEN=$v ;;
+		esac
+	done < "$f"
+}
+
+# 单键读 setting.conf（明文；新文件缺失回退旧 cfg_get，仅供迁移前兜底）。
+setting_get() {
+	local key=$1 f="$SETTING_FILE" line k v CR
+	CR=$(printf '\r')
+	if [ ! -f "$f" ]; then cfg_get "$key"; return 0; fi
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in *"$CR") line=${line%"$CR"} ;; esac
+		case "$line" in ''|'#'*) continue ;; esac
+		k=${line%%=*}
+		[ "$k" = "$key" ] || continue
+		v=${line#*=}
+		[ "$line" = "$k" ] && v=""
+		case "$v" in *\\*) v=$(printf '%s' "$v" | dec_js) ;; esac
+		printf '%s' "$v"
+		return 0
+	done < "$f"
+}
+
+# 校验后的行追加到对应内存变量；binary 旧 4 段经 heredoc 切段补空 extra 升 6 段（避开裸竖线 ${} 模式）
+append_row() {
+	local rest=$2 _bn _bp _ba _bc
+	case "$1" in
+	termux)
+		if [ -n "$TERMUX_SERVICES" ]; then TERMUX_SERVICES="$TERMUX_SERVICES
+$rest"; else TERMUX_SERVICES=$rest; fi
+		;;
+	binary)
+		case "$rest" in
+		*\|*\|*\|*\|*) : ;;
+		*\|*\|*\|*)
+			IFS='|' read -r _bn _bp _ba _bc <<SVCEOF
+$rest
+SVCEOF
+			rest="$_bn|$_bp||$_ba|$_bc"
+			;;
+		*)
+			sup_log "services.conf 非法行(binary段数不足)：$rest"; return 1 ;;
+		esac
+		if [ -n "$BINARY_SERVICES" ]; then BINARY_SERVICES="$BINARY_SERVICES
+$rest"; else BINARY_SERVICES=$rest; fi
+		;;
+	esac
+}
+
+# 读 services.conf 到 TERMUX_SERVICES / BINARY_SERVICES（去首段 type，还原旧 5 段/4 段行；非法行跳过记日志）。
+load_services() {
+	local f="$SERVICES_FILE" line type rest name _r1 CR BOM TAB
+	CR=$(printf '\r')
+	BOM=$(printf '\357\273\277')
+	TAB=$(printf '\t')
+	TERMUX_SERVICES=""; BINARY_SERVICES=""
+	[ -f "$f" ] || return 0
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in *"$CR") line=${line%"$CR"} ;; esac
+		# 清行首 BOM/空格/Tab，否则 type 带前缀全量判非法
+		case "$line" in "$BOM"*) line=${line#"$BOM"} ;; esac
+		while :; do
+			case "$line" in
+			' '*|"$TAB"*) line=${line#?} ;;
+			*) break ;;
+			esac
+		done
+		case "$line" in ''|'#'*) continue ;; esac
+		case "$line" in
+		*'|'*) : ;;
+		*) sup_log "services.conf 非法行(无|分隔)：$line"; continue ;;
+		esac
+		# heredoc read 切段（末变量保留原始分隔符）：裸竖线 ${var%%|*} 模式在设备 shell 返回空，会全量判非法
+		IFS='|' read -r type rest <<SVCEOF
+$line
+SVCEOF
+		IFS='|' read -r name _r1 <<SVCEOF
+$rest
+SVCEOF
+		valid_name "$name" || { sup_log "services.conf 非法行(名称[$name]字节=$(printf '%s' "$name" | od -An -tx1 2>/dev/null | tr -d ' \n'))：$line"; continue; }
+		case "$type" in
+		termux|binary) append_row "$type" "$rest" || continue ;;
+		*) sup_log "services.conf 非法行(类型[$type])非termux/binary：$line" ;;
+		esac
+	done < "$f"
+	# 自愈：services.conf 为空但 .bak 还有数据（迁移写空/页面空存误覆），恢复一次。
+	[ -z "$TERMUX_SERVICES" ] && [ -z "$BINARY_SERVICES" ] && restore_services_from_bak
+}
+
+# services.conf 空但 config.json.bak 还有服务行时恢复（用户主动清空后 .bak 已删，不会误恢复）。
+restore_services_from_bak() {
+	local bak="$CONFIG_FILE.bak" raw t_raw
+	[ -f "$bak" ] || return 1
+	raw=$(sed -n 's/^[[:space:]]*"services":[[:space:]]*"\(.*\)"[,]*$/\1/p' "$bak" 2>/dev/null | head -n 1)
+	[ -n "$raw" ] || return 1
+	case "$raw" in *\\*) raw=$(printf '%s' "$raw" | dec_js) ;; esac
+	t_raw=$(sed -n 's/^[[:space:]]*"termux_services":[[:space:]]*"\(.*\)"[,]*$/\1/p' "$bak" 2>/dev/null | head -n 1)
+	case "$t_raw" in *\\*) t_raw=$(printf '%s' "$t_raw" | dec_js) ;; esac
+	[ -n "$raw" ] || [ -n "$t_raw" ] || return 1
+	BINARY_SERVICES=$raw
+	TERMUX_SERVICES=$t_raw
+	write_services 2>/dev/null || return 1
+	sup_log "services.conf 为空，已从 config.json.bak 恢复服务"
+	load_services
+}
+
+# 旧 config.json 一次性迁移到 config/ 三文件（两新文件都不存在且旧文件存在时才跑；成功后旧文件改名 .bak）。
+migrate_config_json_once() {
+	local us tmp line k v t_row b_row old_web
+	[ -f "$SETTING_FILE" ] || [ -f "$SERVICES_FILE" ] && return 0
+	[ -f "$CONFIG_FILE" ] || return 0
+	SLEEP_INTERVAL=""; SERVER_DIR=""; TERMUX_SERVICES=""; BINARY_SERVICES=""; BOOT_COMMANDS=""
+	WIFI_SERVICE_ENABLED=""; WIFI_SERVICE_NAMES=""; WIFI_SERVICE_NAMES_OFF=""; WIFI_SSIDS=""
+	SCHEDULE_ENABLED=""; SCHEDULE_STOP=""; SCHEDULE_START=""
+	WEBUI_ENABLED=""; WEBUI_PASSWORD_HASH=""; WEBUI_TOKEN=""
+	us=$(printf '\037')
+	tmp="$RUNDIR/.cfgdump.$$.tmp"
+	cfg_dump_all > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+	t_row=""; b_row=""
+	while IFS= read -r line || [ -n "$line" ]; do
+		k=${line%%"$us"*}
+		[ "$k" = "$line" ] && continue
+		v=${line#*"$us"}
+		case "$v" in *\\*) v=$(printf '%s' "$v" | dec_js) ;; esac
+		case "$k" in
+		sleep_interval) SLEEP_INTERVAL=$v ;;
+		server_dir) SERVER_DIR=$v ;;
+		termux_services) t_row=$v ;;
+		services) b_row=$v ;;
+		boot_commands) BOOT_COMMANDS=$v ;;
+		wifi_service_enabled) WIFI_SERVICE_ENABLED=$v ;;
+		wifi_service_names) WIFI_SERVICE_NAMES=$v ;;
+		wifi_service_names_off) WIFI_SERVICE_NAMES_OFF=$v ;;
+		wifi_ssids) WIFI_SSIDS=$v ;;
+		schedule_enabled) SCHEDULE_ENABLED=$v ;;
+		schedule_stop) SCHEDULE_STOP=$v ;;
+		schedule_start) SCHEDULE_START=$v ;;
+		webui_enabled) WEBUI_ENABLED=$v ;;
+		webui_password_hash) WEBUI_PASSWORD_HASH=$v ;;
+		webui_token) WEBUI_TOKEN=$v ;;
+		esac
+	done < "$tmp"
+	rm -f "$tmp"
+	TERMUX_SERVICES=$t_row
+	BINARY_SERVICES=$b_row
+	write_settings 2>/dev/null || return 1
+	write_services 2>/dev/null || return 1
+	old_web="$WEB_CONF_OLD"
+	[ -f "$WEB_CONF_NEW" ] || { [ -f "$old_web" ] && cp -f "$old_web" "$WEB_CONF_NEW" 2>/dev/null; }
+	mv -f "$CONFIG_FILE" "$CONFIG_FILE.bak" 2>/dev/null
+	sup_log "已从 config.json 迁移到 config/ 三文件"
+}
+
 	load_cfg_sh() {
 	# 同进程重复 load 免重复读文件（写操作清标记）。
 	[ -n "$LOAD_CFG_DONE" ] && return 0
-	# 单遍读文件解析（一次 awk，含转义值才 fork 解码）。
-	cfg_load_all
+	# 新文件优先；旧 json 存在则先一次性迁移。
+	migrate_config_json_once 2>/dev/null
+	load_settings
+	load_services
 
 	[ -n "$SLEEP_INTERVAL" ] || SLEEP_INTERVAL=60
 	is_int "$SLEEP_INTERVAL" || SLEEP_INTERVAL=60
@@ -542,9 +741,7 @@ ensure_config_keys() {
 		WEBUI_PASSWORD_HASH_DONE=1
 	fi
 
-	# 缺键才补键（ensure 内部幂等：齐全只读不写）；webui_enabled 补后纠正为 1。
-	ensure_config_keys wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start webui_enabled webui_password_hash webui_token
-	[ "$WEBUI_ENABLED" = 0 ] || sed -i 's/"webui_enabled": "0"/"webui_enabled": "1"/' "$CONFIG_FILE" 2>/dev/null
+	# 缺键才补键（ensure 内部幂等：齐全只读不写，仅作用旧 config.json 迁移前）；新 setting 缺键由 load_settings 默认值覆盖。
 	LOAD_CFG_DONE=1
 }
 
@@ -554,7 +751,7 @@ pick_termux() {
 }
 
 pick_binary() {
-	printf '%s\n' "$SERVICES" | awk -F'|' -v n="$1" '$1==n { print; exit }'
+	printf '%s\n' "$BINARY_SERVICES" | awk -F'|' -v n="$1" '$1==n { print; exit }'
 }
 
 # ---------- 定时启停 ----------
@@ -643,15 +840,6 @@ wifi_log_ssid_text() {
 	else
 		printf '%s' "$WIFI_LOG_SSID"
 	fi
-}
-
-# 中文策略文案（日志中不出现 allow/block/disabled 英文）
-wifi_policy_zh() {
-	case "$1" in
-		allow) printf '运行服务' ;;
-		block) printf '停止服务' ;;
-		*) printf '功能关闭' ;;
-	esac
 }
 
 # 检查 Wi-Fi 是否已连接
@@ -803,7 +991,10 @@ sync_wifi_service_policy() {
 	# 策略变化记录到 Wi-Fi 专属日志（含上下文），supervisor 日志不再记录
 	# 两组共享同一策略，变化行只记一次（由 on 分支记录，off 分支跳过）
 	if [ "$mode" = "on" ] && [ "$new_policy" != "$WIFI_POLICY_PREV" ]; then
-		wifi_log "WiFi 状态变化：$(wifi_policy_zh "${WIFI_POLICY_PREV:-初始}") -> $(wifi_policy_zh "$new_policy")（$(wifi_log_connected_text)，$(wifi_log_match_text)）"
+		local prev_state cur_state
+		case "${WIFI_POLICY_PREV:-}" in allow) prev_state=已连接 ;; block) prev_state=已断开 ;; *) prev_state=功能关闭 ;; esac
+		case "$new_policy" in allow) cur_state=已连接 ;; block) cur_state=已断开 ;; *) cur_state=功能关闭 ;; esac
+		wifi_log "WiFi 状态变化：$prev_state -> $cur_state（$(wifi_log_connected_text)，$(wifi_log_match_text)）"
 		# 已配置白名单且已连接时，输出当前 Wi-Fi 名称（及 netId），方便排查匹配失败；
 		# 白名单为空（任意 WiFi）时不获取 SSID，跳过该行避免输出无意义的 (空)
 		[ "$new_policy" != "disabled" ] && [ "$WIFI_LOG_CONNECTED" = "1" ] && [ -n "$WIFI_SSIDS" ] && \
@@ -869,10 +1060,10 @@ EOF
 			wifi_log "WiFi 条件满足（$(wifi_log_match_text)），启动${group}二进制服务$b_start"
 			for name in $b_start; do
 				row=$(pick_binary "$name")
-				IFS='|' read -r _ port auto cmd <<EOF
+				IFS='|' read -r _ port extra auto cmd <<EOF
 $row
 EOF
-				launch_svc binary "$name" "" "$cmd"
+				launch_svc binary "$name" "$extra" "$cmd"
 			done
 		fi
 		[ -n "$missing" ] && wifi_log "WiFi 条件满足，但${group}名单内服务$missing 不在服务配置中，跳过"
@@ -900,9 +1091,10 @@ TOKEN_DAYS_DEF=30
 FAIL_MAX_DEF=5
 FAIL_LOCK_DEF=300
 
-# 读 web.conf（单次 awk 白名单提取，非法回默认）。
+# 读 web.conf（新 config/web.conf 优先、旧根 web.conf 回退；单次 awk 白名单提取，非法回默认）。
 load_web_conf() {
-	local f="$MODDIR/web.conf" out
+	local f="$WEB_CONF_NEW" out
+	[ -f "$f" ] || f="$WEB_CONF_OLD"
 	WEBUI_LISTEN=$WEBUI_LISTEN_DEF
 	WEBUI_PORT=$WEBUI_PORT_DEF
 	SESS_TTL=$SESS_TTL_DEF
@@ -974,9 +1166,15 @@ webui_clean_stale_sess() {
 
 # 轻量读开关（免全量 load）：输出 enabled has_password。
 webui_status_fast() {
-	local e h
-	e=$(sed -n 's/^[[:space:]]*"webui_enabled":[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG_FILE" 2>/dev/null | head -n 1)
-	h=$(sed -n 's/^[[:space:]]*"webui_password_hash":[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG_FILE" 2>/dev/null | head -n 1)
+	local e h f="$SETTING_FILE"
+	[ -f "$f" ] || f="$CONFIG_FILE"
+	e=$(sed -n 's/^[[:space:]]*webui_enabled=\(.*\)/\1/p' "$f" 2>/dev/null | head -n 1)
+	h=$(sed -n 's/^[[:space:]]*webui_password_hash=\(.*\)/\1/p' "$f" 2>/dev/null | head -n 1)
+	# 旧 config.json 回退（迁移前）：沿用原 JSON 取值。
+	if [ "$f" = "$CONFIG_FILE" ]; then
+		e=$(sed -n 's/^[[:space:]]*"webui_enabled":[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG_FILE" 2>/dev/null | head -n 1)
+		h=$(sed -n 's/^[[:space:]]*"webui_password_hash":[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG_FILE" 2>/dev/null | head -n 1)
+	fi
 	[ -z "$e" ] && e=1
 	[ "$e" = 0 ] || e=1
 	[ -n "$h" ] && h=1 || h=0
