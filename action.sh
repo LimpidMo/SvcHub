@@ -186,7 +186,7 @@ api_read_log() {
 	}
 }
 
-# 设置页按需读：13 设置键（不含服务行）。
+# 设置页按需读：15 设置键（不含服务行）。
 api_get_settings() {
 	load_cfg_sh
 	{
@@ -210,6 +210,10 @@ api_get_settings() {
 		printf '%s' "$SCHEDULE_STOP" | enc_js
 		printf '","schedule_start":"'
 		printf '%s' "$SCHEDULE_START" | enc_js
+		printf '","screen_service_enabled":"'
+		printf '%s' "$SCREEN_SERVICE_ENABLED" | enc_js
+		printf '","screen_service_names":"'
+		printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js
 		printf '","webui_enabled":"'
 		printf '%s' "$WEBUI_ENABLED" | enc_js
 		printf '","webui_password_hash":"'
@@ -260,6 +264,10 @@ api_get_config() {
 		printf '%s' "$SCHEDULE_STOP" | enc_js
 		printf '","schedule_start":"'
 		printf '%s' "$SCHEDULE_START" | enc_js
+		printf '","screen_service_enabled":"'
+		printf '%s' "$SCREEN_SERVICE_ENABLED" | enc_js
+		printf '","screen_service_names":"'
+		printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js
 		printf '","webui_enabled":"'
 		printf '%s' "$WEBUI_ENABLED" | enc_js
 		printf '","webui_password_hash":"'
@@ -271,20 +279,37 @@ api_get_config() {
 }
 
 # 测试运行命令：stdin 读 shell 文本逐行执行记日志（$1=termux 时注入 Termux 环境）。
+# 高危命令（删根/格式化/写块设备/fork 炸弹）整单拒绝，防手滑。
 api_run_cmd() {
-	local mode=$1 runner=su env_prefix=
+	local mode=$1 runner=su env_prefix= body hit err
 	load_cfg_sh
+	body=$(cat)
 	if [ "$mode" = termux ]; then
 		runner="su $(termux_uid)"
 		env_prefix="$TERMUX_ENV cd $TERMUX_HOME;"
 	fi
-	run_lines "$LOG_DIR/run_test.log" '(测试运行)' "$runner" "$env_prefix"
+	hit=$(dangerous_line "$body")
+	if [ -n "$hit" ]; then
+		webui_log "高危命令已拦截：$hit"
+		err=$(printf '%s' "$hit" | cut -c1-60 | tr -d '"\\')
+		printf '{"success":false,"error":"包含高危命令，已拒绝执行：%s"}\n' "$err"
+		exit 0
+	fi
+	printf '%s\n' "$body" | run_lines "$LOG_DIR/run_test.log" "$([ "$mode" = termux ] && echo '(Termux 测试运行)' || echo '(测试运行)')" "$runner" "$env_prefix"
 	echo '{"success":true}'
 }
 
-# 手动执行开机命令（复用开机同一 runner 记账）。
+# 手动执行开机命令（复用开机同一 runner 记账；存量命令同样过高危拦截）。
 api_exec_boot() {
 	load_cfg_sh
+	local hit err
+	hit=$(dangerous_line "$BOOT_COMMANDS")
+	if [ -n "$hit" ]; then
+		webui_log "高危命令已拦截（开机命令）：$hit"
+		err=$(printf '%s' "$hit" | cut -c1-60 | tr -d '"\\')
+		printf '{"success":false,"error":"开机命令包含高危命令，已拒绝执行：%s"}\n' "$err"
+		exit 0
+	fi
 	printf '%s\n' "$BOOT_COMMANDS" | run_lines "$LOG_DIR/boot_commands.log" '开机命令(手动)'
 	echo '{"success":true}'
 }
@@ -459,6 +484,20 @@ cfg_apply_one() {
 			esac
 		fi
 		if [ "$key" = schedule_stop ]; then SCHEDULE_STOP=$val; else SCHEDULE_START=$val; fi
+		;;
+	screen_service_enabled)
+		case "$val" in
+		0|1) SCREEN_SERVICE_ENABLED=$val ;;
+		*) echo '{"success":false,"error":"亮屏启停开关必须为 0 或 1"}'; exit 1 ;;
+		esac
+		;;
+	screen_service_names)
+		invalid_name=$(printf '%s\n' "$val" | awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 != "" && $0 !~ /^[A-Za-z0-9._-]+$/) { print $0; exit } }')
+		if [ -n "$invalid_name" ]; then
+			echo "{\"success\":false,\"error\":\"锁屏白名单服务名不合法: $invalid_name\"}"
+			exit 1
+		fi
+		SCREEN_SERVICE_NAMES=$val
 		;;
 	esac
 }

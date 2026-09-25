@@ -193,7 +193,9 @@ auth_check() {
     if [ -n "$t" ]; then
         left=$(sess_touch "$t" 2>/dev/null)
         if [ -n "$left" ]; then
-            AUTH_COOKIE="Set-Cookie: SVC_SESS=$t; HttpOnly; Path=/; Max-Age=$left"
+            # Cookie 会话必须带自定义请求头：跨站表单/fetch 伪造不了该头，挡 CSRF-RCE
+            [ "$HTTP_X_REQUESTED_WITH" = "XMLHttpRequest" ] || return 1
+            AUTH_COOKIE="Set-Cookie: SVC_SESS=$t; HttpOnly; Path=/; SameSite=Lax; Max-Age=$left"
             return 0
         fi
     fi
@@ -201,7 +203,7 @@ auth_check() {
     if [ -n "$t" ]; then
         left=$(sess_touch "$t" 2>/dev/null)
         if [ -n "$left" ]; then
-            AUTH_COOKIE="Set-Cookie: SVC_SESS=$t; HttpOnly; Path=/; Max-Age=$left"
+            AUTH_COOKIE="Set-Cookie: SVC_SESS=$t; HttpOnly; Path=/; SameSite=Lax; Max-Age=$left"
             return 0
         fi
         [ -n "$WEBUI_TOKEN" ] && [ "$t" = "$WEBUI_TOKEN" ] && return 0
@@ -275,7 +277,7 @@ login)
         LEFT=$(sess_left "$OLDSESS")
         if [ -n "$LEFT" ]; then
             webui_log "登录成功（会话复用）：$(client_ip)"
-            cgi_status "200 OK" "Set-Cookie: SVC_SESS=$OLDSESS; HttpOnly; Path=/; Max-Age=$LEFT" '{"success":true,"reused":true}'
+            cgi_status "200 OK" "Set-Cookie: SVC_SESS=$OLDSESS; HttpOnly; Path=/; SameSite=Lax; Max-Age=$LEFT" '{"success":true,"reused":true}'
             exit 0
         fi
     fi
@@ -284,7 +286,7 @@ login)
     SESS=$(webui_gen_token) || { cgi_fail "500 Internal Server Error" "会话生成失败"; exit 0; }
     sess_write "$SESS" "$(($(date +%s) + TTL))" "$is_tsess"
     webui_log "登录成功：$(client_ip)"
-    cgi_status "200 OK" "Set-Cookie: SVC_SESS=$SESS; HttpOnly; Path=/; Max-Age=$TTL" '{"success":true}'
+    cgi_status "200 OK" "Set-Cookie: SVC_SESS=$SESS; HttpOnly; Path=/; SameSite=Lax; Max-Age=$TTL" '{"success":true}'
     ;;
 logout)
     auth_check 0 || { cgi_fail "401 Unauthorized" "未登录"; exit 0; }
@@ -319,6 +321,7 @@ webuistatus)
     ;;
 webuipasswd|webuiregen)
     auth_check 0 || { cgi_fail "401 Unauthorized" "未登录"; exit 0; }
+    webui_log "$([ "$R" = webuiregen ] && echo '重新生成长期 Token' || echo '修改访问密码')：$(client_ip)"
     FORM_BODY=$(cat)
     case "$R" in
     webuipasswd)
@@ -368,12 +371,12 @@ svcstatus|getconfig|getsettings|getservices|saveconfig|savesettings|saveservices
             exit 0
         fi
         case "$SUB" in
-        saveconfig) OUT=$(cat | api_save_config 2>/dev/null) ;;
-        savesettings) OUT=$(cat | api_save_settings 2>/dev/null) ;;
-        saveservices) OUT=$(cat | api_save_services 2>/dev/null) ;;
-        runcmd) OUT=$(cat | api_run_cmd 2>/dev/null) ;;
-        runcmdtermux) OUT=$(cat | api_run_cmd termux 2>/dev/null) ;;
-        execboot) OUT=$(api_exec_boot 2>/dev/null) ;;
+        saveconfig) webui_log "保存全量配置：$(client_ip)"; OUT=$(cat | api_save_config 2>/dev/null) ;;
+        savesettings) webui_log "保存设置项：$(client_ip)"; OUT=$(cat | api_save_settings 2>/dev/null) ;;
+        saveservices) webui_log "保存服务项：$(client_ip)"; OUT=$(cat | api_save_services 2>/dev/null) ;;
+        runcmd) BODY=$(cat); webui_log "测试命令（普通）来源 $(client_ip)：$(printf '%s' "$BODY" | tr '\n' ';')"; OUT=$(printf '%s' "$BODY" | api_run_cmd 2>/dev/null) ;;
+        runcmdtermux) BODY=$(cat); webui_log "测试命令（Termux）来源 $(client_ip)：$(printf '%s' "$BODY" | tr '\n' ';')"; OUT=$(printf '%s' "$BODY" | api_run_cmd termux 2>/dev/null) ;;
+        execboot) webui_log "手动执行开机命令：$(client_ip)"; OUT=$(api_exec_boot 2>/dev/null) ;;
         esac
         cgi_authed "$OUT"
         ;;
@@ -382,10 +385,11 @@ svcstatus|getconfig|getsettings|getservices|saveconfig|savesettings|saveservices
         P1=$(qparam p1)
         P2=$(qparam p2)
         case "$SUB" in
-        start) OUT=$(api_start_service "$P1" "$P2" 2>/dev/null) ;;
-        stop) OUT=$(api_stop_service "$P1" 2>/dev/null) ;;
+        start) webui_log "启动服务：${P2:-$P1}（$(client_ip)）"; OUT=$(api_start_service "$P1" "$P2" 2>/dev/null) ;;
+        stop) webui_log "停止服务：${P1:-?}（$(client_ip)）"; OUT=$(api_stop_service "$P1" 2>/dev/null) ;;
         readlog) OUT=$(api_read_log "$P1" "$P2" 2>/dev/null) ;;
         clearlog)
+            webui_log "清空日志：${P1:-?}（$(client_ip)）"
             if clear_log "$P1"; then OUT='{"success":true}'; else OUT='{"success":false,"error":"名称不合法"}'; fi
             ;;
         esac

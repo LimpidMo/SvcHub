@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# SvcHub 公共库：配置读写（config/setting.conf 设置项 + config/services.conf 服务项）、进程 pid 管理、日志轮转与校验、Wi-Fi 策略控制。
+# SvcHub 公共库：配置读写（config/setting.conf 设置项 + config/services.conf 服务项）、进程 pid 管理、日志轮转与校验、Wi-Fi 策略控制、屏幕亮灭判定。
 # 注意：调用方必须先设置 MODDIR=${0%/*} 再 source 本文件。
 
 if [ -z "$MODDIR" ] || [ ! -d "$MODDIR" ]; then
@@ -52,14 +52,22 @@ WIFI_SSID_CACHE=""
 WIFI_SSID_NOW=""
 WIFI_SSID_CACHE_TIME=0
 
+# 亮屏启停全局变量（SCREEN_ON 初始为亮屏，首轮巡检前由 refresh_screen_gate 重算）
+SCREEN_SERVICE_ENABLED=""
+SCREEN_SERVICE_NAMES=""
+SCREEN_ON="1"
+SCREEN_WARNED=""
+# 亮屏解锁判定：SCREEN_UNLOCK_OK=1 才放行启动（锁屏中亮屏=通知/抬手，不拉起）
+SCREEN_UNLOCK_OK="1"
+
 mkdir -p "$RUNDIR" "$LOG_DIR" "$RUNDIR/session"
 
 # ---------- 配置（config/setting.conf 设置项 + config/services.conf 服务项） ----------
 # 配置 schema 唯一定义：新增设置键在此登记，并同步补全 load_settings / cfg_global / write_settings 各一行；
 # 新增服务类型只需在 load_services / write_services 加一个 type 分支。
-CONFIG_KEYS='sleep_interval server_dir termux_services services boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start webui_enabled webui_password_hash webui_token'
-# 设置文件键（13 键：CONFIG_KEYS 去掉两类服务行）。
-SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start webui_enabled webui_password_hash webui_token'
+CONFIG_KEYS='sleep_interval server_dir termux_services services boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names webui_enabled webui_password_hash webui_token'
+# 设置文件键（15 键：CONFIG_KEYS 去掉两类服务行）。
+SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names webui_enabled webui_password_hash webui_token'
 
 # JSON 字符串编码：\ " tab 转义、换行转字面 \n；逐字符拼接（gsub 替换串反斜杠 busybox/gawk 语义不一致，禁用）
 enc_js() {
@@ -131,6 +139,8 @@ write_settings() {
 		printf 'schedule_enabled=%s\n'        "$(printf '%s' "$SCHEDULE_ENABLED" | enc_js)"
 		printf 'schedule_stop=%s\n'           "$(printf '%s' "$SCHEDULE_STOP" | enc_js)"
 		printf 'schedule_start=%s\n'          "$(printf '%s' "$SCHEDULE_START" | enc_js)"
+		printf 'screen_service_enabled=%s\n'  "$(printf '%s' "$SCREEN_SERVICE_ENABLED" | enc_js)"
+		printf 'screen_service_names=%s\n'    "$(printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js)"
 		printf 'webui_enabled=%s\n'           "$(printf '%s' "$WEBUI_ENABLED" | enc_js)"
 		printf 'webui_password_hash=%s\n'     "$(printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js)"
 		printf 'webui_token=%s\n'             "$(printf '%s' "$WEBUI_TOKEN" | enc_js)"
@@ -184,7 +194,9 @@ cfg_global() {
 		wifi_ssids)             printf '%s' "$WIFI_SSIDS" ;;
 		schedule_enabled)       printf '%s' "$SCHEDULE_ENABLED" ;;
 		schedule_stop)          printf '%s' "$SCHEDULE_STOP" ;;
-		schedule_start)         printf '%s' "$SCHEDULE_START" ;;
+		schedule_start)          printf '%s' "$SCHEDULE_START" ;;
+		screen_service_enabled)  printf '%s' "$SCREEN_SERVICE_ENABLED" ;;
+		screen_service_names)    printf '%s' "$SCREEN_SERVICE_NAMES" ;;
 		webui_enabled)          printf '%s' "$WEBUI_ENABLED" ;;
 		webui_password_hash)    printf '%s' "$WEBUI_PASSWORD_HASH" ;;
 		webui_token)            printf '%s' "$WEBUI_TOKEN" ;;
@@ -262,7 +274,8 @@ run_lines() {
 	local log=$1 mark=$2 runner=${3:-sh} env_prefix=${4:-} line
 	{
 		echo "=== $mark $(date '+%F %T') ==="
-		while IFS= read -r line; do
+		# read 无尾随换行返回非零但变量有效（网页 POST body 不带换行），|| [ -n "$line" ] 兜底最后一行
+		while IFS= read -r line || [ -n "$line" ]; do
 			[ -z "$line" ] && continue
 			echo "> $line"
 			$runner -c "$env_prefix $line"
@@ -450,14 +463,19 @@ stop_removed_services() {
 	done
 }
 
-# 停止全部已配置服务（读已加载全局变量；未加载则先 load_services）
+# 停止全部已配置服务（$1=可选排除名单，熄屏白名单传入；缺省=全停，disable/定时窗调用不变）
 stop_all() {
+	local ex=$1 name
 	[ -n "$LOAD_CFG_DONE" ] || load_services
 	printf '%s\n' "$TERMUX_SERVICES" | while IFS='|' read -r name port extra auto cmd; do
-		[ -n "$name" ] && stop_svc "$name"
+		[ -n "$name" ] || continue
+		[ -n "$ex" ] && name_in_set "$name" "$ex" && continue
+		stop_svc "$name"
 	done
 	printf '%s\n' "$BINARY_SERVICES" | while IFS='|' read -r name port extra auto cmd; do
-		[ -n "$name" ] && stop_svc "$name"
+		[ -n "$name" ] || continue
+		[ -n "$ex" ] && name_in_set "$name" "$ex" && continue
+		stop_svc "$name"
 	done
 }
 
@@ -515,6 +533,7 @@ load_settings() {
 	SLEEP_INTERVAL=""; SERVER_DIR=""; BOOT_COMMANDS=""
 	WIFI_SERVICE_ENABLED=""; WIFI_SERVICE_NAMES=""; WIFI_SERVICE_NAMES_OFF=""; WIFI_SSIDS=""
 	SCHEDULE_ENABLED=""; SCHEDULE_STOP=""; SCHEDULE_START=""
+	SCREEN_SERVICE_ENABLED=""; SCREEN_SERVICE_NAMES=""
 	WEBUI_ENABLED=""; WEBUI_PASSWORD_HASH=""; WEBUI_TOKEN=""
 	[ -f "$f" ] || return 0
 	while IFS= read -r line || [ -n "$line" ]; do
@@ -522,7 +541,7 @@ load_settings() {
 		case "$line" in ''|'#'*) continue ;; esac
 		k=${line%%=*}
 		case "$k" in
-		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|webui_enabled|webui_password_hash|webui_token) ;;
+		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|screen_service_enabled|screen_service_names|webui_enabled|webui_password_hash|webui_token) ;;
 		*) continue ;;
 		esac
 		v=${line#*=}
@@ -539,6 +558,8 @@ load_settings() {
 		schedule_enabled) SCHEDULE_ENABLED=$v ;;
 		schedule_stop) SCHEDULE_STOP=$v ;;
 		schedule_start) SCHEDULE_START=$v ;;
+		screen_service_enabled) SCREEN_SERVICE_ENABLED=$v ;;
+		screen_service_names) SCREEN_SERVICE_NAMES=$v ;;
 		webui_enabled) WEBUI_ENABLED=$v ;;
 		webui_password_hash) WEBUI_PASSWORD_HASH=$v ;;
 		webui_token) WEBUI_TOKEN=$v ;;
@@ -718,6 +739,8 @@ migrate_config_json_once() {
 
 	[ "$SCHEDULE_ENABLED" = "1" ] || SCHEDULE_ENABLED="0"
 
+	[ "$SCREEN_SERVICE_ENABLED" = "1" ] || SCREEN_SERVICE_ENABLED="0"
+
 	# 缺键默认开启，显式 0 保留。
 	if [ -z "$WEBUI_ENABLED" ]; then
 		WEBUI_ENABLED="1"
@@ -765,6 +788,15 @@ SCHED_IN_WINDOW="0"
 sched_log() {
 	[ -n "$1" ] || return 0
 	echo "[$(date '+%F %T')] $1" >> "$SCHED_LOG"
+}
+
+# 亮屏启停专用日志（独立于 supervisor.log，WebUI 日志按钮读取 SCREEN_LOG_NAME）
+SCREEN_LOG_NAME="screen"
+SCREEN_LOG="$LOG_DIR/$SCREEN_LOG_NAME.log"
+
+screen_log() {
+	[ -n "$1" ] || return 0
+	echo "[$(date '+%F %T')] $1" >> "$SCREEN_LOG"
 }
 
 # 纯判定：当前 now 是否落在 [stop, start) 停止窗内；返回 0=在窗内，1=窗外。
@@ -971,6 +1003,81 @@ wifi_should_skip() {
 	return 1
 }
 
+# 高危命令拦截（交互执行入口用，防手滑非安全边界）：逐行扫描，输出首个命中行（空=全部放行）。
+# 只拦明确无误伤的模式：删根（rm -rf / 结尾/尾空格/glob 星）、mkfs、写块设备、fork 炸弹；
+# 局部清理（如 rm -rf /data/local/tmp/x）、含 ":() " 文本的 echo 均放行。
+dangerous_line() {
+	printf '%s\n' "$1" | grep -m1 -E 'rm -[rf]{2} /( |$|\*)|mkfs|of=/dev/block|:\(\)\{'
+}
+
+# 锁屏检测：window/power 多字段任一命中即锁屏（兼容各 ROM），检测不到按未锁（fail-open）
+keyguard_locked() {
+	case "$(dumpsys window 2>/dev/null | grep -m1 -iE 'mDreamingLockscreen|mKeyguardShowing|mKeyguardGoingAway')" in
+	*true*) return 0 ;;
+	esac
+	case "$(dumpsys power 2>/dev/null | grep -m1 -i 'mInputRestricted')" in
+	*true*) return 0 ;;
+	esac
+	return 1
+}
+
+# 亮屏解锁门控：calc_screen_state 后判定 SCREEN_UNLOCK_OK（功能关/熄屏不在此拦截启动）
+refresh_screen_gate() {
+	calc_screen_state
+	SCREEN_UNLOCK_OK=1
+	[ "$SCREEN_SERVICE_ENABLED" = "1" ] || return 0
+	#亮屏但锁屏（通知/抬手亮屏）不放行；解锁即放行
+	if [ "$SCREEN_ON" = "1" ] && keyguard_locked; then
+		SCREEN_UNLOCK_OK=0
+	fi
+}
+
+# 启动禁令统一判定：返回 0=阻断启动；$2=1 豁免解锁禁令（Wi-Fi 无人值守）。定时窗禁启 > 熄屏仅白名单可启 > 亮屏未解锁禁启（巡检侧）
+starts_blocked() {
+	[ "$SCHED_IN_WINDOW" = "1" ] && return 0
+	if [ "$2" != "1" ] && [ "$SCREEN_SERVICE_ENABLED" = "1" ] && [ "$SCREEN_UNLOCK_OK" != "1" ]; then
+		return 0
+	fi
+	if [ "$SCREEN_SERVICE_ENABLED" = "1" ] && [ "$SCREEN_ON" != "1" ]; then
+		name_in_set "$1" "$SCREEN_SERVICE_NAMES" || return 0
+	fi
+	return 1
+}
+
+# Wi-Fi 无人值守启动专用门控：豁免亮屏未解锁禁令（到家/离家场景手机锁屏也要能起），定时窗/熄屏禁令不变
+starts_blocked_wifi() {
+	starts_blocked "$1" 1
+}
+
+# 屏幕亮灭判定：设 SCREEN_ON（1=亮屏 0=熄屏）；开关关闭首行短路零 fork。
+# 主判据 dumpsys power 的 mWakefulness，回退一 dumpsys display 的 mScreenState，
+# 回退二 Display Power: state（老设备）；全解析不到按亮屏（fail-open，误停车比
+# 不停车危害大）且只警告一次。直接赋值不用命令替换（子 shell 丢变量）。
+calc_screen_state() {
+	local pwr disp
+	[ "$SCREEN_SERVICE_ENABLED" = "1" ] || { SCREEN_ON=1; return 0; }
+	pwr=$(dumpsys power 2>/dev/null)
+	case "$pwr" in
+	*mWakefulness=Awake*) SCREEN_ON=1; return 0 ;;
+	*mWakefulness=Asleep*|*mWakefulness=Dozing*|*mWakefulness=Dreaming*) SCREEN_ON=0; return 0 ;;
+	esac
+	disp=$(dumpsys display 2>/dev/null)
+	case "$disp" in
+	*mScreenState=ON*) SCREEN_ON=1; return 0 ;;
+	*mScreenState=OFF*) SCREEN_ON=0; return 0 ;;
+	esac
+	case "$pwr" in
+	*'Display Power: state=ON'*) SCREEN_ON=1; return 0 ;;
+	*'Display Power: state=OFF'*) SCREEN_ON=0; return 0 ;;
+	esac
+	SCREEN_ON=1
+	if [ -z "$SCREEN_WARNED" ]; then
+		screen_log "无法检测屏幕状态（dumpsys 无匹配字段），按亮屏处理"
+		SCREEN_WARNED=1
+	fi
+	return 0
+}
+
 # 根据策略同步受管服务的启停
 # $1=策略(allow/block/disabled) $2=模式(on=连接组，allow起/block停；off=断开组，反向：allow停/block起)
 # 重叠规则：同一服务同时在两组时连接组优先，断开组跳过并记警告。
@@ -1010,7 +1117,7 @@ sync_wifi_service_policy() {
 	names_list=$(printf '%s\n' "$target_names" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | tr '\n' ' ')
 
 	# 同类服务聚合为一行日志（name 均经 valid_name 校验，不含空格，可安全空格拼接）
-	local t_start="" b_start="" missing="" stops="" dup=""
+	local t_start="" b_start="" missing="" stops="" dup="" blocked=""
 
 	# 断开组重叠检查：已在连接组的服务归连接组，断开组跳过并记警告
 	if [ "$mode" = "off" ] && [ -n "$on_names" ]; then
@@ -1038,6 +1145,11 @@ sync_wifi_service_policy() {
 		for name in $names_list; do
 			valid_name "$name" || continue
 			svc_running "$name" && continue
+			# 启动禁令：熄屏非白名单拦截（Wi-Fi 无人值守，豁免解锁禁令，见 starts_blocked_wifi）
+			if starts_blocked_wifi "$name"; then
+				blocked="$blocked $name"
+				continue
+			fi
 			if [ -n "$(pick_termux "$name")" ]; then
 				t_start="$t_start $name"
 			elif [ -n "$(pick_binary "$name")" ]; then
@@ -1046,6 +1158,7 @@ sync_wifi_service_policy() {
 				missing="$missing $name"
 			fi
 		done
+		[ -n "$blocked" ] && wifi_log "${group}服务$blocked 熄屏暂停启动"
 		if [ -n "$t_start" ]; then
 			wifi_log "WiFi 条件满足（$(wifi_log_match_text)），启动${group} Termux 服务$t_start"
 			for name in $t_start; do

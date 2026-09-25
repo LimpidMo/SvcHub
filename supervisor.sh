@@ -75,6 +75,15 @@ patrol_start_rows() {
 			fi
 			continue
 		fi
+		# 启动禁令（定时窗内整轮已跳过）：亮屏未解锁、熄屏非白名单均不拉起
+		if [ "$SCREEN_SERVICE_ENABLED" = "1" ] && [ "$SCREEN_UNLOCK_OK" != "1" ] && [ "$SCREEN_ON" = "1" ]; then
+			sup_log_bare "    跳过 $name (亮屏未解锁，暂不拉起)"
+			continue
+		fi
+		if starts_blocked "$name"; then
+			sup_log_bare "    跳过 $name (熄屏非白名单)"
+			continue
+		fi
 		if name_in_set "$name" "$runset"; then
 			sup_log_bare "    已运行 $name"
 			continue
@@ -118,7 +127,10 @@ patrol_once() {
 # 防止从 3600s 调回 120s 需等待整个旧周期才能生效。
 # 期间实时响应：disable 提前结束、定时窗边沿（进窗停全部/出窗立即巡检）、Wi-Fi 策略变化。
 sleep_slice() {
-	local elapsed=0 target=$SLEEP_INTERVAL chunk old_target old_policy now_in
+	local elapsed=0 target=$SLEEP_INTERVAL chunk old_target old_policy old_screen old_unlock now_in
+	# 入口取当前屏幕/解锁状态，避免开机即锁屏时误触发边沿
+	old_screen=$SCREEN_ON
+	old_unlock=$SCREEN_UNLOCK_OK
 	while [ "$elapsed" -lt "$target" ]; do
 		# disable 优先响应，避免睡完整个长周期
 		[ -f "$DISABLE_FILE" ] && break
@@ -181,6 +193,29 @@ sleep_slice() {
 			SCHED_WARNED=""
 		fi
 
+		# 屏幕/解锁边沿：亮屏且已解锁才结束休眠进巡检恢复，锁屏中亮屏只等解锁边沿
+		refresh_screen_gate
+		if [ "$SCREEN_ON" != "$old_screen" ]; then
+			old_screen=$SCREEN_ON
+			if [ "$SCREEN_ON" = "1" ]; then
+				if [ "$SCREEN_UNLOCK_OK" = "1" ]; then
+					screen_log "亮屏且已解锁，立即巡检恢复服务"
+					break
+				fi
+				screen_log "亮屏（锁屏中，待解锁后恢复）"
+			else
+				stop_all "$SCREEN_SERVICE_NAMES"
+				screen_log "进入熄屏，停止非白名单服务"
+			fi
+		elif [ "$SCREEN_ON" = "1" ] && [ "$SCREEN_UNLOCK_OK" != "$old_unlock" ]; then
+			old_unlock=$SCREEN_UNLOCK_OK
+			if [ "$SCREEN_UNLOCK_OK" = "1" ]; then
+				screen_log "亮屏已解锁，立即巡检恢复服务"
+				break
+			fi
+			screen_log "亮屏又进入锁屏（不拉起，运行中服务保留）"
+		fi
+
 		# Wi-Fi 策略变化检测与同步（在分片休眠中实时响应网络变化，无需等待下一个完整巡检周期）
 		# 窗内 sync 的 do_start 分支已被 SCHED_IN_WINDOW 守卫禁启（见 lib.sh），只执行停止分支
 		old_policy=$WIFI_POLICY
@@ -215,6 +250,15 @@ if [ "$SCHEDULE_ENABLED" = "1" ] && [ -n "$SCHEDULE_STOP" ] && [ -n "$SCHEDULE_S
 		SCHED_IN_WINDOW="1"
 		sched_log "supervisor 启动时已在定时停止窗内（${SCHEDULE_STOP}~${SCHEDULE_START}），暂停拉起"
 	fi
+fi
+
+# 屏幕/解锁门控首轮判定：开机即熄屏或锁屏则本轮巡检不拉起非白名单服务
+# （此时无受管服务在跑，不需 stop_all）
+refresh_screen_gate
+if [ "$SCREEN_ON" != "1" ]; then
+	screen_log "启动时熄屏，暂停非白名单拉起"
+elif [ "$SCREEN_UNLOCK_OK" != "1" ]; then
+	screen_log "启动时亮屏未解锁（锁屏中），暂停拉起"
 fi
 
 while :; do

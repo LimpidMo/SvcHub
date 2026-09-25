@@ -1,7 +1,7 @@
 id=SvcHub
 name=SvcHub
-version=1.2.0
-versionCode=4
+version=1.3.0
+versionCode=5
 author=Mo
 description=开机自启和保活 Termux 服务与二进制服务，并提供定时/ WIFI 启停服务和 WebUI 聚合管理
 updateJson=https://v4.gh-proxy.org/https://github.com/LimpidMo/SvcHub/releases/latest/download/update.json

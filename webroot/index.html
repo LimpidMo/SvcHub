@@ -114,7 +114,8 @@
 
     <div class="nav">
         <button class="nav-item active" data-page="status">服务状态</button>
-        <button class="nav-item" data-page="config">配置管理</button>
+        <button class="nav-item" data-page="config">服务配置</button>
+        <button class="nav-item" data-page="func">功能设置</button>
         <button class="nav-item" id="nav-logout" data-page="__logout" style="display:none;flex:0 0 auto;padding:14px 18px;">退出</button>
     </div>
 
@@ -145,10 +146,42 @@
         <div class="page" id="page-config">
             <div class="section">
                 <div class="section-hd">
+                    <span class="section-title">Termux 服务</span>
+                    <div class="actions">
+                        <button class="btn btn-lg" onclick="loadConfigSvcs(true)">刷新</button>
+                        <button class="btn btn-lg" id="sort-termux-btn" onclick="toggleSort('termux')">排序</button>
+                        <button class="btn btn-lg" onclick="openModal('termux')">添加</button>
+                    </div>
+                </div>
+                <div class="section-body" id="config-termux-list"><div class="empty">点击刷新加载</div></div>
+            </div>
+            <div class="section">
+                <div class="section-hd">
+                    <span class="section-title">二进制服务</span>
+                    <div class="actions">
+                        <button class="btn btn-lg" id="sort-binary-btn" onclick="toggleSort('binary')">排序</button>
+                        <button class="btn btn-lg" onclick="openModal('binary')">添加</button>
+                    </div>
+                </div>
+                <div class="section-body">
+                    <div class="form" style="border-bottom:1px solid var(--line);">
+                        <label class="form-label-strong">服务目录</label>
+                        <input type="text" class="form-input" id="input-server-dir" onblur="autoSaveBasic()" placeholder="/storage/emulated/0/ → 自动转换可执行目录 /data/media/0/">
+                        <div class="form-hint">务必将二进制文件设为可执行权限</div>
+                    </div>
+                    <div id="config-binary-list"><div class="empty">点击刷新加载</div></div>
+                </div>
+            </div>
+        
+        </div>
+
+        <div class="page" id="page-func">
+            <div class="section">
+                <div class="section-hd">
                     <span class="section-title">基本设置</span>
                     <div class="actions">
                         <button class="btn btn-lg" onclick="toggleDebugPanel()">调试</button>
-                        <button class="btn btn-lg" onclick="loadConfig(true)">刷新</button>
+                        <button class="btn btn-lg" onclick="loadConfigSettings(true)">刷新</button>
                     </div>
                 </div>
                 <div class="section-body">
@@ -160,52 +193,9 @@
                         </div>
                         <div class="form-error" id="error-sleep"></div>
                     </div>
-                    <div class="form">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                            <label class="form-label-strong" style="margin:0;">定时启停服务</label>
-                            <label class="switch">
-                                <input type="checkbox" id="schedule-switch" onclick="toggleSchedule(this)">
-                                <span class="switch-slider"></span>
-                            </label>
-                        </div>
-                        <div id="schedule-panel" style="display:none;">
-                            <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end;">
-                                <div style="flex:1;min-width:0;">
-                                    <label class="form-label">停止时间</label>
-                                    <input type="time" class="form-input" id="input-schedule-stop" value="" onchange="autoSaveSchedule()">
-                                </div>
-                                <div style="flex:1;min-width:0;">
-                                    <label class="form-label">启动时间</label>
-                                    <input type="time" class="form-input" id="input-schedule-start" value="" onchange="autoSaveSchedule()">
-                                </div>
-                                <button class="btn btn-lg" style="flex-shrink:0;" onclick="showLog('schedule')">日志</button>
-                            </div>
-                            <div class="form-hint">每日生效；停止早于启动为跨夜窗口（如停 22:00、启 07:00）；选好时间自动保存，关闭只停功能，时间保留</div>
-                            <div class="form-error" id="error-schedule"></div>
-                        </div>
-                    </div>
-                    <div class="form">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                            <label class="form-label-strong" style="margin:0;">Wi-Fi 启停服务</label>
-                            <label class="switch">
-                                <input type="checkbox" id="wifi-service-switch" onclick="toggleWifiService(this)">
-                                <span class="switch-slider"></span>
-                            </label>
-                        </div>
-                        <div id="wifi-service-panel" style="display:none;">
-                            <div style="display:flex;gap:6px;margin-bottom:10px;">
-                                <button class="btn btn-lg" id="wifi-pick-btn" style="flex:1;" onclick="openWifiModal('on')">连接启停组 (0)</button>
-                                <button class="btn btn-lg" id="wifi-pick-off-btn" style="flex:1;" onclick="openWifiModal('off')">断开启停组 (0)</button>
-                                <button class="btn btn-lg" onclick="showLog('wifi')">日志</button>
-                            </div>
-                            <!-- <div class="form-hint" style="margin-bottom:10px;">两组选择的服务互斥，防止冲突循环启动</div> -->
-                            <label class="form-label">Wi-Fi SSID / 名称</label>
-                            <textarea class="form-input form-textarea" id="input-wifi-ssids" onblur="saveWifiSsids()" placeholder="两组共用，每行一个，留空 = 任意 Wi-Fi"></textarea>
-                        </div>
-                    </div>
-                    <div class="form">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                            <label class="form-label-strong" style="margin:0;">外部访问</label>
+                <div class="form">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <label class="form-label-strong" style="margin:0;">外部访问</label>
                             <label class="switch">
                                 <input type="checkbox" id="webui-switch" onclick="toggleWebui(this)">
                                 <span class="switch-slider"></span>
@@ -244,6 +234,73 @@
             </div>
             <div class="section">
                 <div class="section-hd">
+                    <span class="section-title">启停功能</span>
+                </div>
+                <div class="section-body">
+                    <div class="form">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label class="form-label-strong" style="margin:0;">定时启停服务</label>
+                            <label class="switch">
+                                <input type="checkbox" id="schedule-switch" onclick="toggleSchedule(this)">
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                        <div id="schedule-panel" style="display:none;">
+                            <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end;">
+                                <div style="flex:1;min-width:0;">
+                                    <label class="form-label">停止时间</label>
+                                    <input type="time" class="form-input" id="input-schedule-stop" value="" onchange="autoSaveSchedule()">
+                                </div>
+                                <div style="flex:1;min-width:0;">
+                                    <label class="form-label">启动时间</label>
+                                    <input type="time" class="form-input" id="input-schedule-start" value="" onchange="autoSaveSchedule()">
+                                </div>
+                                <button class="btn btn-lg" style="flex-shrink:0;" onclick="showLog('schedule')">日志</button>
+                            </div>
+                            <div class="form-hint">每日生效；支持跨夜窗口（如22停到07起）；选好时间自动保存</div>
+                            <div class="form-error" id="error-schedule"></div>
+                        </div>
+                    </div>
+                    <div class="form">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label class="form-label-strong" style="margin:0;">亮屏启停服务</label>
+                            <label class="switch">
+                                <input type="checkbox" id="screen-switch" onclick="toggleScreen(this)">
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                        <div id="screen-panel" style="display:none;">
+                            <div style="display:flex;gap:6px;margin-bottom:10px;">
+                                <button class="btn btn-lg" id="screen-pick-btn" style="flex:1;" onclick="openWifiModal('screen')">锁屏白名单 (0)</button>
+                                <button class="btn btn-lg" onclick="showLog('screen')">日志</button>
+                            </div>
+                            <div class="form-hint">亮屏按 start 标签服务启动，熄屏停止全部（白名单除外）</div>
+                            <div class="form-error" id="error-screen"></div>    
+                        </div>
+                    </div>
+                    <div class="form">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label class="form-label-strong" style="margin:0;">Wi-Fi 启停服务</label>
+                            <label class="switch">
+                                <input type="checkbox" id="wifi-service-switch" onclick="toggleWifiService(this)">
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                        <div id="wifi-service-panel" style="display:none;">
+                            <div style="display:flex;gap:6px;margin-bottom:10px;">
+                                <button class="btn btn-lg" id="wifi-pick-btn" style="flex:1;" onclick="openWifiModal('on')">连接启停组 (0)</button>
+                                <button class="btn btn-lg" id="wifi-pick-off-btn" style="flex:1;" onclick="openWifiModal('off')">断开启停组 (0)</button>
+                                <button class="btn btn-lg" onclick="showLog('wifi')">日志</button>
+                            </div>
+                            <!-- <div class="form-hint" style="margin-bottom:10px;">两组选择的服务互斥，防止冲突循环启动</div> -->
+                            <label class="form-label">Wi-Fi SSID / 名称</label>
+                            <textarea class="form-input form-textarea" id="input-wifi-ssids" onblur="saveWifiSsids()" placeholder="两组共用，每行一个，留空 = 任意 Wi-Fi"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="section">
+                <div class="section-hd">
                     <span class="section-title">开机命令 & 测试命令</span>
                     <div class="actions">
                         <button class="btn btn-sm" id="btn-test-log" onclick="showTestLog()">日志</button>
@@ -267,35 +324,7 @@
                     </div>
                 </div>
             </div>
-            <div class="section">
-                <div class="section-hd">
-                    <span class="section-title">Termux 服务</span>
-                    <div class="actions">
-                        <button class="btn btn-lg" id="sort-termux-btn" onclick="toggleSort('termux')">排序</button>
-                        <button class="btn btn-lg" onclick="openModal('termux')">添加</button>
-                    </div>
-                </div>
-                <div class="section-body" id="config-termux-list"><div class="empty">点击刷新加载</div></div>
-            </div>
-            <div class="section">
-                <div class="section-hd">
-                    <span class="section-title">二进制服务</span>
-                    <div class="actions">
-                        <button class="btn btn-lg" id="sort-binary-btn" onclick="toggleSort('binary')">排序</button>
-                        <button class="btn btn-lg" onclick="openModal('binary')">添加</button>
-                    </div>
-                </div>
-                <div class="section-body">
-                    <div class="form" style="border-bottom:1px solid var(--line);">
-                        <label class="form-label-strong">服务目录</label>
-                        <input type="text" class="form-input" id="input-server-dir" onblur="autoSaveBasic()" placeholder="/storage/emulated/0/ → 自动转换可执行目录 /data/media/0/">
-                        <div class="form-hint">务必将二进制文件设为可执行权限</div>
-                    </div>
-                    <div id="config-binary-list"><div class="empty">点击刷新加载</div></div>
-                </div>
-            </div>
-        </div>
-    </div>
+        </div>    </div>
 
     <div class="modal" id="modal-svc">
         <div class="modal-box">
@@ -443,6 +472,7 @@
             wifi_service_enabled: false, wifi_service_names: new Set(), wifi_service_names_off: new Set(),
             wifi_ssids: '',
             schedule_enabled: false, schedule_stop: '', schedule_start: '',
+            screen_service_enabled: false, screen_service_names: new Set(),
             webui_enabled: false, webui_port: 5555
         };
         let statusData = { termux_services: [], binary_services: [] };
@@ -450,7 +480,11 @@
         let isTestMode = false;
         let currentLogName = '';
         let isStatusLoaded = false;
-        let isConfigLoaded = false;
+        // 两页各自加载标志：服务配置页只读服务行，功能设置页只读设置键
+        let isServicesLoaded = false;
+        let isSettingsLoaded = false;
+        let svcLoading = null;
+        let setLoading = null;
         let confirmCallback = null;
         const sortMode = { termux: false, binary: false };
         // 常用时间常量（毫秒）
@@ -661,6 +695,8 @@
         function fetchTimeout(url, init, ms = HTTP_TIMEOUT_MS) {
             const ctrl = new AbortController();
             const timer = setTimeout(() => ctrl.abort(), ms);
+            // 全部 CGI 请求带自定义头：后端据此放行 Cookie 会话，跨站 CSRF 伪造不了该头
+            init = Object.assign({}, init, { headers: Object.assign({ 'X-Requested-With': 'XMLHttpRequest' }, init.headers) });
             return fetch(url, Object.assign({}, init, { signal: ctrl.signal })).finally(() => clearTimeout(timer));
         }
 
@@ -719,15 +755,16 @@
         // 静默自检：Cookie 有效直接进页面。
         async function httpCheckAuth() {
             try {
-                const r = await fetch('cgi-bin/api.cgi?a=whoami');
+                const r = await fetch('cgi-bin/api.cgi?a=whoami', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
                 if (r.status !== 200) { showLogin(); return; }
                 const d = JSON.parse(await r.text());
                 if (d.authed) {
                     httpToken = '';
                     afterLogin();
-                    // 状态与配置并行拉取（串行要等两次后端 fork，局域网翻倍）。
-                    loadStatus(true);
-                    loadConfig(true, true);
+                    // 登录后预热三页数据：状态页首屏优先，其余两项随后补（httpd 串行处理 CGI，并行会拖慢首屏）
+                    await loadStatus(true);
+                    loadConfigSvcs(true, true);
+                    loadConfigSettings(true, true);
                 } else {
                     showLogin();
                 }
@@ -746,7 +783,7 @@
                 const body = 'password=' + encodeURIComponent(pw) + '&token=' + encodeURIComponent(tk);
                 const r = await fetch('cgi-bin/api.cgi?a=login', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
                     body
                 });
                 if (r.status === 429) {
@@ -764,8 +801,10 @@
                     httpToken = (useToken && tk) ? tk : '';
                     afterLogin();
                     toast('登录成功');
-                    loadStatus(true);
-                    loadConfig(true, true);
+                    // 登录后预热三页数据：状态页首屏优先，其余两项随后补（httpd 串行处理 CGI，并行会拖慢首屏）
+                    await loadStatus(true);
+                    loadConfigSvcs(true, true);
+                    loadConfigSettings(true, true);
                 } else {
                     errEl.textContent = d.error || '登录失败';
                 }
@@ -785,7 +824,7 @@
             try {
                 const r = await fetch(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
                     body
                 });
                 return { errno: 0, stdout: await r.text(), stderr: '' };
@@ -820,22 +859,26 @@
                 loadStatus(true);
             }
             if (name === 'config') {
-                // 先摆好面板姿态再异步回填，防旧态闪现。
+                // 服务配置页只读服务行：单次 getservices，切页秒开。
+                loadConfigSvcs();
+            }
+            if (name === 'func') {
+                // 功能设置页只读设置键：单次 getsettings；先摆骨架再回填。
                 if (httpMode) {
                     document.getElementById('webui-switch').disabled = true;
                 }
-                // 未加载/加载失败都重拉（失败时先渲染骨架+错误态，loadConfig 内回填）。
                 renderConfigFromCache();
-                loadConfig();
+                loadConfigSettings();
             }
         }
 
         // 退出登录。
         async function httpLogout() {
             httpToken = '';
-            try { await fetch('cgi-bin/api.cgi?a=logout'); } catch (e) { /* 离线也照常回登录页 */ }
+            try { await fetch('cgi-bin/api.cgi?a=logout', { headers: { 'X-Requested-With': 'XMLHttpRequest' } }); } catch (e) { /* 离线也照常回登录页 */ }
             isStatusLoaded = false;
-            isConfigLoaded = false;
+            isServicesLoaded = false;
+            isSettingsLoaded = false;
             document.getElementById('nav-logout').style.display = 'none';
             showLogin();
         }
@@ -846,7 +889,7 @@
 
         // 状态页 <-> 配置页左右滑动切换；输入框内触摸不触发，避免干扰文本选择
         (function initSwipeNav() {
-            const pages = ['status', 'config'];
+            const pages = ['status', 'config', 'func'];
             const box = document.querySelector('.container');
             let sx = 0, sy = 0, tracking = false;
             box.addEventListener('touchstart', e => {
@@ -1184,71 +1227,83 @@
         }
 
         // 配置加载中：切页/刷新并发复用同一 promise，防串行双读拖慢实机。
-        let configLoading = null;
-        async function loadConfig(force = false, silent = false) {
-            if (!ksuApi && !httpMode) { toast('请先初始化'); return; }
-            if (!force && isConfigLoaded) return;
-            if (configLoading) { try { await configLoading; } catch (e) { /* 忽略 */ } return; }
-            configLoading = (async () => {
-            if (force && !silent) toast('刷新中...');
-            // 按需分片读：设置与服务并行取（串行在实机翻倍耗时），任一失败整体重试一次。
-            let rs = await invoke('getsettings');
-            let rv = await invoke('getservices');
-            if ((rs.errno !== 0 || !rs.stdout) || (rv.errno !== 0 || !rv.stdout)) {
-                rs = await invoke('getsettings');
-                rv = await invoke('getservices');
-            }
-            if ((rs.errno !== 0 || !rs.stdout) || (rv.errno !== 0 || !rv.stdout)) {
-                if (rs.errno === 401 || rv.errno === 401) return; // 已弹登录页
-                isConfigLoaded = false;
-                renderConfigFromCache();
-                if (force && !silent) toast('刷新失败', true);
-                return;
-            }
-            try {
-                const d = JSON.parse(rs.stdout);
-                const v = JSON.parse(rv.stdout);
-                const sv = parseInt(d.sleep_interval, 10);
-                configData.sleep_interval = (isNaN(sv) || sv < 10) ? 60 : sv;
-                configData.server_dir = d.server_dir || '';
-                configData.termux_services = parseRows(v.termux_services || '', 'termux');
-                configData.binary_services = parseRows(v.binary_services || '', 'binary');
-                configData.boot_commands = d.boot_commands || '';
-                configData.wifi_service_enabled = d.wifi_service_enabled === '1';
-                configData.wifi_service_names = new Set(
-                    (d.wifi_service_names || '').split('\n').map(s => s.trim()).filter(Boolean)
-                );
-                configData.wifi_service_names_off = new Set(
-                    (d.wifi_service_names_off || '').split('\n').map(s => s.trim()).filter(Boolean)
-                );
-                configData.wifi_ssids = d.wifi_ssids || '';
-                configData.schedule_enabled = d.schedule_enabled === '1';
-                configData.schedule_stop = d.schedule_stop || '';
-                configData.schedule_start = d.schedule_start || '';
-                configData.webui_enabled = d.webui_enabled === '1';
-                isConfigLoaded = true;
-                renderConfigFromCache();
-                // 保存中的开关不回填：以用户拨动为准，否则关了又弹出来
-                if (typeof wifiToggling !== 'undefined' && wifiToggling) {
-                    document.getElementById('wifi-service-switch').checked = configData.wifi_service_enabled;
-                    document.getElementById('wifi-service-panel').style.display = configData.wifi_service_enabled ? 'block' : 'none';
+        // 服务配置页只读服务行：单次 getservices，切页/刷新不再读设置键。
+        async function loadConfigSvcs(force = false, silent = false) {
+            if (!backendReady()) { toast('请先初始化', true); return; }
+            if (!force && isServicesLoaded) return;
+            if (svcLoading) { try { await svcLoading; } catch (e) { /* 忽略 */ } return; }
+            svcLoading = (async () => {
+                if (force && !silent) toast('刷新中...');
+                let rv = await invoke('getservices');
+                if (rv.errno !== 0 || !rv.stdout) rv = await invoke('getservices');
+                if (rv.errno === 401) return; // 已弹登录页
+                if (rv.errno !== 0 || !rv.stdout) { if (force && !silent) toast('刷新失败', true); return; }
+                try {
+                    const v = JSON.parse(rv.stdout);
+                    configData.termux_services = parseRows(v.termux_services || '', 'termux');
+                    configData.binary_services = parseRows(v.binary_services || '', 'binary');
+                    isServicesLoaded = true;
+                    renderConfigLists();
+                    if (force && !silent) toast('已刷新');
+                } catch (e) { toast('解析失败，请重试', true); }
+            })();
+            try { await svcLoading; } finally { svcLoading = null; }
+        }
+
+        // 功能设置页只读设置键：单次 getsettings（原 loadConfig 的设置段整体搬入）。
+        async function loadConfigSettings(force = false, silent = false) {
+            if (!backendReady()) { toast('请先初始化', true); return; }
+            if (!force && isSettingsLoaded) return;
+            if (setLoading) { try { await setLoading; } catch (e) { /* 忽略 */ } return; }
+            setLoading = (async () => {
+                if (force && !silent) toast('刷新中...');
+                let rs = await invoke('getsettings');
+                if (rs.errno !== 0 || !rs.stdout) rs = await invoke('getsettings');
+                if (rs.errno === 401) return; // 已弹登录页
+                if (rs.errno !== 0 || !rs.stdout) { renderConfigFromCache(); if (force && !silent) toast('刷新失败', true); return; }
+                try {
+                    const d = JSON.parse(rs.stdout);
+                    const sv = parseInt(d.sleep_interval, 10);
+                    configData.sleep_interval = (isNaN(sv) || sv < 10) ? 60 : sv;
+                    configData.server_dir = d.server_dir || '';
+                    configData.boot_commands = d.boot_commands || '';
+                    configData.wifi_service_enabled = d.wifi_service_enabled === '1';
+                    configData.wifi_service_names = new Set((d.wifi_service_names || '').split('\n').map(s => s.trim()).filter(Boolean));
+                    configData.wifi_service_names_off = new Set((d.wifi_service_names_off || '').split('\n').map(s => s.trim()).filter(Boolean));
+                    configData.wifi_ssids = d.wifi_ssids || '';
+                    configData.schedule_enabled = d.schedule_enabled === '1';
+                    configData.schedule_stop = d.schedule_stop || '';
+                    configData.schedule_start = d.schedule_start || '';
+                    configData.screen_service_enabled = d.screen_service_enabled === '1';
+                    configData.screen_service_names = new Set((d.screen_service_names || '').split('\n').map(s => s.trim()).filter(Boolean));
+                    configData.webui_enabled = d.webui_enabled === '1';
+                    isSettingsLoaded = true;
+                    renderConfigFromCache();
+                    // 保存中的开关不回填：以用户拨动为准，否则关了又弹回来
+                    if (typeof wifiToggling !== 'undefined' && wifiToggling) {
+                        document.getElementById('wifi-service-switch').checked = configData.wifi_service_enabled;
+                        document.getElementById('wifi-service-panel').style.display = configData.wifi_service_enabled ? 'block' : 'none';
+                    }
+                    if (typeof schedToggling !== 'undefined' && schedToggling) {
+                        document.getElementById('schedule-switch').checked = configData.schedule_enabled;
+                        document.getElementById('schedule-panel').style.display = configData.schedule_enabled ? 'block' : 'none';
+                    }
+                    if (typeof screenToggling !== 'undefined' && screenToggling) {
+                        document.getElementById('screen-switch').checked = configData.screen_service_enabled;
+                        document.getElementById('screen-panel').style.display = configData.screen_service_enabled ? 'block' : 'none';
+                    }
+                    if (typeof webuiToggling !== 'undefined' && webuiToggling) {
+                        document.getElementById('webui-switch').checked = configData.webui_enabled;
+                    }
+                    refreshWebuiPanel();
+                    if (force && !silent) toast('已刷新');
+                } catch (e) {
+                    isSettingsLoaded = false;
+                    renderConfigFromCache();
+                    toast('解析失败，请重试', true);
                 }
-                if (typeof schedToggling !== 'undefined' && schedToggling) {
-                    document.getElementById('schedule-switch').checked = configData.schedule_enabled;
-                    document.getElementById('schedule-panel').style.display = configData.schedule_enabled ? 'block' : 'none';
-                }
-                if (typeof webuiToggling !== 'undefined' && webuiToggling) {
-                    document.getElementById('webui-switch').checked = configData.webui_enabled;
-                }
-                refreshWebuiPanel();
-                if (force && !silent) toast('已刷新');
-            } catch (e) {
-                isConfigLoaded = false;
-                renderConfigFromCache();
-                toast('解析失败: ' + e.message);
-            }
-            })().finally(() => { configLoading = null; });
-            try { await configLoading; } catch (e) { /* 忽略 */ }
+            })();
+            try { await setLoading; } finally { setLoading = null; }
         }
 
         function renderConfigFromCache() {
@@ -1279,6 +1334,12 @@
             document.getElementById('input-schedule-stop').value = configData.schedule_stop;
             document.getElementById('input-schedule-start').value = configData.schedule_start;
             document.getElementById('error-schedule').textContent = '';
+            if (typeof screenToggling === 'undefined' || !screenToggling) {
+                document.getElementById('screen-switch').checked = configData.screen_service_enabled;
+                document.getElementById('screen-panel').style.display = configData.screen_service_enabled ? 'block' : 'none';
+            }
+            updateScreenPickBtn();
+            document.getElementById('error-screen').textContent = '';
             renderConfigLists();
         }
 
@@ -1430,7 +1491,7 @@
         // 只存本类服务：saveservices 单键（另一类不动，设置不动）；失败回读刷新。
         async function saveServicesOnly(type) {
             if (!backendReady()) { toast('请先初始化', true); return; }
-            if (!isConfigLoaded) { toast('配置未加载完成，已取消保存', true); return; }
+            if (!isServicesLoaded) { toast('配置未加载完成，已取消保存', true); return; }
             const key = type === 'binary' ? 'binary_services' : 'termux_services';
             const payload = key + '=' + toB64(stringifyRows(svcArr(type), type));
             const r = await runAction('saveservices', payload);
@@ -1472,7 +1533,10 @@
         function autoSaveBasic() {
             if (validateBasic()) {
                 toast('保存中...');
-                saveConfig();
+                // sleep 与服务目录同属本区输入框，两键一次提交；空 sleep=默认60，目录路径归一化同后端规则
+                const sleepV = document.getElementById('input-sleep').value.trim();
+                const serverDir = (document.getElementById('input-server-dir').value || '').trim().replace(/\/storage\/emulated\/0\//g, '/data/media/0/').replace(/(.)\/+$/, '$1');
+                saveConfigPayload('sleep_interval=' + toB64(sleepV === '' ? '60' : sleepV) + '\n' + 'server_dir=' + toB64(serverDir), null, 'savesettings');
             } else {
                 toast('数据无效，请修正', true);
             }
@@ -1486,7 +1550,7 @@
             }
             configData.boot_commands = value;
             toast('保存中...');
-            saveConfig();
+            saveConfigPayload('boot_commands=' + toB64(value), null, 'savesettings');
         }
 
         // 外部访问：开关/密码/Token 仅管理器可操作，直连侧只读状态。
@@ -1657,7 +1721,7 @@
 
         // SSID 文本框失焦：整理后走单键保存（轻量，不触发全页重载）
         function saveWifiSsids() {
-            if (!isConfigLoaded) {
+            if (!isSettingsLoaded) {
                 toast('配置未加载完成，请稍后再试', true);
                 return;
             }
@@ -1666,7 +1730,7 @@
             if (cleaned !== el.value) el.value = cleaned;
             if (cleaned === configData.wifi_ssids) return; // 无变化不打扰后端
             toast('保存中...');
-            saveWifiKey('wifi_ssids', cleaned, (ok) => {
+            saveSettingsKey('wifi_ssids', cleaned, (ok) => {
                 if (!ok) el.value = configData.wifi_ssids; // 失败回滚显示
             });
         }
@@ -1687,7 +1751,7 @@
             }
             // 轻量保存：只发开关单键（saveconfig 缺键继承其余），不做全量重载；失败按快照回弹
             configData.wifi_service_enabled = on;
-            saveWifiKey('wifi_service_enabled', on ? '1' : '0', (ok) => {
+            saveSettingsKey('wifi_service_enabled', on ? '1' : '0', (ok) => {
                 wifiToggling = false;
                 sw.disabled = false;
                 if (ok) toast('已保存');
@@ -1703,6 +1767,30 @@
         // —— 定时启停服务 ——
 
         const SCHEDULE_TIME_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+
+        // —— 亮屏启停服务 ——
+
+        let screenToggling = false;
+        function toggleScreen(el) {
+            if (screenToggling) return;
+            const sw = el || document.getElementById('screen-switch');
+            const on = sw.checked;
+            screenToggling = true;
+            sw.disabled = true;
+            document.getElementById('screen-panel').style.display = on ? 'block' : 'none';
+            configData.screen_service_enabled = on;
+            saveSettingsKey('screen_service_enabled', on ? '1' : '0', (ok) => {
+                screenToggling = false;
+                sw.disabled = false;
+                if (ok) toast('已保存');
+                else {
+                    configData.screen_service_enabled = !on;
+                    sw.checked = !on;
+                    document.getElementById('screen-panel').style.display = !on ? 'block' : 'none';
+                    toast('保存失败', true);
+                }
+            });
+        }
 
         let schedToggling = false;
         function toggleSchedule(el) {
@@ -1732,7 +1820,7 @@
         // 保存中再次拨动直接返回，防并发互踩；失败回滚输入框
         let scheduleSaving = false;
         async function autoSaveSchedule() {
-            if (!isConfigLoaded || scheduleSaving) return;
+            if (!isSettingsLoaded || scheduleSaving) return;
             const errEl = document.getElementById('error-schedule');
             const stopEl = document.getElementById('input-schedule-stop');
             const startEl = document.getElementById('input-schedule-start');
@@ -1783,7 +1871,7 @@
         // 保存统一链路：成功返回 true。sub 默认 savesettings（设置类），服务类走 saveservices。
         function backendReady() { return httpMode || (!!ksuApi && !!MODDIR); }
         async function saveConfigPayload(payload, errEl, sub) {
-            if (!backendReady() || !isConfigLoaded) {
+            if (!backendReady() || !isSettingsLoaded) {
                 toast('配置未加载完成，已取消保存', true);
                 return false;
             }
@@ -1806,12 +1894,14 @@
             return false;
         }
 
-        // 单键保存：只提交一个 wifi 键，走 savesettings；不触发全页重载
-        async function saveWifiKey(key, value, done) {
+        // 单键保存（开关/名单选择用）：走 savesettings 单键链路，只提交一键
+        async function saveSettingsKey(key, value, done) {
             const ok = await saveConfigPayload(key + '=' + toB64(value), null, 'savesettings');
             if (ok) {
                 if (key === 'wifi_service_enabled') configData.wifi_service_enabled = (value === '1');
                 else if (key === 'wifi_ssids') configData.wifi_ssids = value;
+                else if (key === 'screen_service_enabled') configData.screen_service_enabled = (value === '1');
+                else if (key === 'screen_service_names') configData.screen_service_names = new Set(String(value).split('\n').map(s => s.trim()).filter(Boolean));
                 toast('已保存');
             } else {
                 toast('保存失败', true);
@@ -1822,6 +1912,10 @@
         function updateWifiPickBtn() {
             document.getElementById('wifi-pick-btn').textContent = '连接启停组 (' + configData.wifi_service_names.size + ')';
             document.getElementById('wifi-pick-off-btn').textContent = '断开启停组 (' + configData.wifi_service_names_off.size + ')';
+        }
+
+        function updateScreenPickBtn() {
+            document.getElementById('screen-pick-btn').textContent = '锁屏白名单 (' + configData.screen_service_names.size + ')';
         }
 
         // 选择弹窗：另一组已选的服务置灰禁用（仍可见，不可勾选），互斥一目了然
@@ -1853,17 +1947,23 @@
         }
 
         function wifiPickTarget() {
+            if (wifiPickMode === 'screen') return configData.screen_service_names;
             return wifiPickMode === 'off' ? configData.wifi_service_names_off : configData.wifi_service_names;
         }
 
-        function openWifiModal(mode) {
-            wifiPickMode = (mode === 'off') ? 'off' : 'on';
+        async function openWifiModal(mode) {
+            // 选择弹窗要服务列表：服务配置页没加载过就先拉一次
+            if (!isServicesLoaded) await loadConfigSvcs();
+            wifiPickMode = (mode === 'off') ? 'off' : (mode === 'screen') ? 'screen' : 'on';
             const picked = new Set(wifiPickTarget());
-            // 另一组已选的置灰禁用，互斥在选择时生效
-            const excluded = wifiPickMode === 'off' ? configData.wifi_service_names : configData.wifi_service_names_off;
+            // 另一组已选的置灰禁用（锁屏白名单无互斥组），互斥在选择时生效
+            const excluded = wifiPickMode === 'off' ? configData.wifi_service_names
+                : wifiPickMode === 'screen' ? new Set() : configData.wifi_service_names_off;
             wifiPickBackup = picked;
             document.getElementById('wifi-pick-title').textContent =
-                wifiPickMode === 'off' ? '选择断开组服务（断开则运行，连上则停止）' : '选择连接组服务（连上时运行,断开则停止）';
+                wifiPickMode === 'off' ? '选择断开组服务（断开则运行，连上则停止）'
+                : wifiPickMode === 'screen' ? '选择锁屏白名单服务（熄屏时保持运行）'
+                : '选择连接组服务（连上时运行,断开则停止）';
             document.getElementById('wifi-pick-body').innerHTML = renderWifiPickBody(picked, excluded);
             document.getElementById('wifi-pick-ok').disabled = !configData.termux_services.length && !configData.binary_services.length;
             showAnyModal('modal-wifi-pick');
@@ -1872,7 +1972,8 @@
         function closeWifiModal() {
             // 取消：恢复弹窗打开前的选择
             if (wifiPickBackup) {
-                if (wifiPickMode === 'off') configData.wifi_service_names_off = new Set(wifiPickBackup);
+                if (wifiPickMode === 'screen') configData.screen_service_names = new Set(wifiPickBackup);
+                else if (wifiPickMode === 'off') configData.wifi_service_names_off = new Set(wifiPickBackup);
                 else configData.wifi_service_names = new Set(wifiPickBackup);
             }
             wifiPickBackup = null;
@@ -1883,15 +1984,18 @@
             const picked = new Set();
             document.querySelectorAll('#wifi-pick-body input[type="checkbox"]:checked').forEach(el => picked.add(el.value));
             // 禁用项不可勾选，确定时直接落盘（后端连接优先仍是兜底）
-            if (wifiPickMode === 'off') configData.wifi_service_names_off = picked;
+            if (wifiPickMode === 'screen') configData.screen_service_names = picked;
+            else if (wifiPickMode === 'off') configData.wifi_service_names_off = picked;
             else configData.wifi_service_names = picked;
             wifiPickBackup = null;
             hideAnyModal('modal-wifi-pick');
-            updateWifiPickBtn();
+            const upd = wifiPickMode === 'screen' ? updateScreenPickBtn : updateWifiPickBtn;
+            upd();
             // 轻量保存：只发本组名单单键，不做全量重载；失败回滚按钮计数
             toast('保存中...');
-            const key = wifiPickMode === 'off' ? 'wifi_service_names_off' : 'wifi_service_names';
-            saveWifiKey(key, [...picked].join('\n'), (ok) => { if (ok) updateWifiPickBtn(); });
+            const key = wifiPickMode === 'screen' ? 'screen_service_names'
+                : wifiPickMode === 'off' ? 'wifi_service_names_off' : 'wifi_service_names';
+            saveSettingsKey(key, [...picked].join('\n'), (ok) => { if (ok) upd(); });
         }
 
         // 弹窗遮罩点击 = 取消
@@ -1933,77 +2037,6 @@
             else { toast('执行失败', true); }
         }
 
-        async function saveConfig() {
-            if (!backendReady()) { toast('请先初始化', true); return; }
-            // 配置未成功加载前一律拒绝保存：内存里是空列表，全量提交会把设备配置写空
-            if (!isConfigLoaded) { toast('配置未加载完成，已取消保存', true); return; }
-            const sleepRaw = (document.getElementById('input-sleep').value || '').trim();
-            // 清空输入框视为恢复默认 60；非法数字也回退 60，小于 10 按最小值钳制（与后端一致）
-            let sleepInterval = sleepRaw === '' ? 60 : parseInt(sleepRaw, 10);
-            if (isNaN(sleepInterval)) sleepInterval = 60;
-            if (sleepInterval < 10) sleepInterval = 10;
-            if (sleepInterval > 86400) sleepInterval = 86400;
-            const serverDir = (document.getElementById('input-server-dir').value || '').trim().replace(/\/storage\/emulated\/0\//g, '/data/media/0/');
-            const bootStr = isTestMode ? configData.boot_commands : (document.getElementById('input-boot-cmds').value || '');
-            const wifiEnabled = document.getElementById('wifi-service-switch').checked ? '1' : '0';
-            const wifiNames = [...configData.wifi_service_names].join('\n');
-            const wifiNamesOff = [...configData.wifi_service_names_off].join('\n');
-            const wifiSsids = normalizeSsidText(document.getElementById('input-wifi-ssids').value);
-            const schedEnabled = document.getElementById('schedule-switch').checked ? '1' : '0';
-            const schedStop = (document.getElementById('input-schedule-stop').value || '').trim();
-            const schedStart = (document.getElementById('input-schedule-start').value || '').trim();
-
-            // 设置与服务分开落盘：设置走 savesettings（不含服务行），服务走 saveservices。
-            const settingsPayload = [
-                'sleep_interval=' + toB64(String(sleepInterval)),
-                'server_dir=' + toB64(serverDir),
-                'boot_commands=' + toB64(bootStr),
-                'wifi_service_enabled=' + toB64(wifiEnabled),
-                'wifi_service_names=' + toB64(wifiNames),
-                'wifi_service_names_off=' + toB64(wifiNamesOff),
-                'wifi_ssids=' + toB64(wifiSsids),
-                'schedule_enabled=' + toB64(schedEnabled),
-                'schedule_stop=' + toB64(schedStop),
-                'schedule_start=' + toB64(schedStart)
-            ].join('\n');
-            const termuxStr = stringifyRows(configData.termux_services, 'termux');
-            const binaryStr = stringifyRows(configData.binary_services, 'binary');
-            const servicesPayload = [
-                'termux_services=' + toB64(termuxStr),
-                'services=' + toB64(binaryStr)
-            ].join('\n');
-            const r = await runAction('savesettings', settingsPayload);
-            if (r.errno === 0) {
-                try {
-                    const d = JSON.parse(r.stdout || '{}');
-                    if (d.success) {
-                        const r2 = await runAction('saveservices', servicesPayload);
-                        try {
-                            const d2 = JSON.parse(r2.stdout || '{}');
-                            if (d2.success) {
-                                await loadConfig(true, true);
-                                toast('已保存');
-                                return;
-                            }
-                            showDebug('保存服务返回失败：\n\nstdout:\n' + (r2.stdout || '') + '\n\nstderr:\n' + (r2.stderr || ''));
-                            toast(d2.error || '保存失败', true);
-                        } catch (e) {
-                            showDebug('保存服务返回无法解析：\n\nstdout:\n' + (r2.stdout || '') + '\n\n解析错误：' + e.message);
-                            toast('保存失败', true);
-                        }
-                        return;
-                    }
-                    showDebug('保存配置返回失败：\n\nstdout:\n' + (r.stdout || '') + '\n\nstderr:\n' + (r.stderr || ''));
-                    toast(d.error || '保存失败', true);
-                } catch (e) {
-                    showDebug('保存配置返回无法解析：\n\nstdout:\n' + (r.stdout || '') + '\n\n解析错误：' + e.message);
-                    toast('保存失败', true);
-                }
-            } else {
-                showDebug('执行保存命令失败：\nerrno=' + r.errno + '\nstderr:\n' + (r.stderr || ''));
-                toast('保存失败', true);
-            }
-        }
 
         async function init() {
             if (!initRootApi()) {
@@ -2026,9 +2059,10 @@
             }
             const ok = await initModuleDir();
             if (!ok || !MODDIR) return;
-            loadStatus(true);
-            // 管理器内同样预加载配置：切配置页秒开，失败切页时再重试。
-            loadConfig(true, true);
+            // 进入即预热三页数据：状态页首屏优先，其余两项随后补（httpd 串行处理 CGI，并行会拖慢首屏）
+            await loadStatus(true);
+            loadConfigSvcs(true, true);
+            loadConfigSettings(true, true);
         }
         init();
     </script>
