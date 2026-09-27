@@ -4,8 +4,8 @@
 
 #项目相关文件
 dist/
-docs/
-tools/
+docs/*
+!docs/images/
 AGENTS.md
 
 # 日志与运行期临时文件

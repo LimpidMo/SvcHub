@@ -47,7 +47,7 @@ jobs:
         run: |
           ZIPNAME=${{ needs.get_vars.outputs.id }}-${{ needs.get_vars.outputs.version }}.zip
           echo zipname=$ZIPNAME >> $GITHUB_OUTPUT
-          zip -0qry ./$ZIPNAME * -x .github ${{ needs.get_vars.outputs.zip_exclude }}
+          git archive --format=zip --output=$ZIPNAME HEAD
       
       - name: Generate update JSON
         run: bash .github/bin/updateJson.sh ${{ needs.get_vars.outputs.version }} ${{ needs.get_vars.outputs.versionCode }} ${{ needs.get_vars.outputs.changelog }} ${{ steps.zip.outputs.zipname }}

@@ -5,3 +5,13 @@ module.prop text eol=lf
 *.conf text eol=lf
 *.html text eol=lf
 *.json text eol=lf
+# 打包文件夹及文件夹
+docs export-ignore
+tools export-ignore
+README.md export-ignore
+AGENTS.md export-ignore
+CHANGELOG.md export-ignore
+LICENSE export-ignore
+.gitignore export-ignore
+.gitattributes export-ignore
+.github export-ignore

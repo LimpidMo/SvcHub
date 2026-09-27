@@ -876,6 +876,11 @@ wifi_log_ssid_text() {
 
 # 检查 Wi-Fi 是否已连接
 wifi_connected() {
+	# 沙盒联调：mock_wifi 行1 = on/off，直读绕开 dumpsys（文件不存在按未连接）
+	if [ "$SVCHUB_MOCK" = "1" ]; then
+		[ "$(sed -n '1p' "$MODDIR/mock_wifi" 2>/dev/null)" = "on" ] && return 0
+		return 1
+	fi
 	# 1. dumpsys connectivity：WIFI 类型 NetworkAgentInfo 且状态 CONNECTED
 	if dumpsys connectivity 2>/dev/null | grep -A 5 "NetworkAgentInfo{type: WIFI" | grep -q "state: CONNECTED"; then
 		return 0
@@ -898,6 +903,12 @@ wifi_connected() {
 # SSID 可能含中文/空格/全角符号/emoji：解析时只做行内提取与首尾空白清理，
 # 不对字符集做任何过滤；比较时按字节精确匹配，不区分大小写之外的任何归一化。
 wifi_current_ssid_cached() {
+	# 沙盒联调：mock_wifi 行2 = SSID，直读无缓存（改文件下一轮巡检即生效）
+	if [ "$SVCHUB_MOCK" = "1" ]; then
+		WIFI_SSID_NOW=$(sed -n '2p' "$MODDIR/mock_wifi" 2>/dev/null)
+		WIFI_LOG_NETID=""
+		return 0
+	fi
 	local now cache_time=60
 	now=$(date +%s)
 	if [ -n "$WIFI_SSID_CACHE_TIME" ] && [ $((now - WIFI_SSID_CACHE_TIME)) -lt "$cache_time" ]; then
@@ -1012,6 +1023,11 @@ dangerous_line() {
 
 # 锁屏检测：window/power 多字段任一命中即锁屏（兼容各 ROM），检测不到按未锁（fail-open）
 keyguard_locked() {
+	# 沙盒联调：mock_screen 行2 = lock/unlock，直读绕开 dumpsys（无文件走真检测）
+	if [ "$SVCHUB_MOCK" = "1" ] && [ -f "$MODDIR/mock_screen" ]; then
+		[ "$(sed -n '2p' "$MODDIR/mock_screen" 2>/dev/null)" = "lock" ] && return 0
+		return 1
+	fi
 	case "$(dumpsys window 2>/dev/null | grep -m1 -iE 'mDreamingLockscreen|mKeyguardShowing|mKeyguardGoingAway')" in
 	*true*) return 0 ;;
 	esac
@@ -1056,6 +1072,11 @@ starts_blocked_wifi() {
 calc_screen_state() {
 	local pwr disp
 	[ "$SCREEN_SERVICE_ENABLED" = "1" ] || { SCREEN_ON=1; return 0; }
+	# 沙盒联调：mock_screen 行1 = on/off，直读绕开 dumpsys（文件不存在按亮屏）
+	if [ "$SVCHUB_MOCK" = "1" ]; then
+		[ "$(sed -n '1p' "$MODDIR/mock_screen" 2>/dev/null)" = "off" ] && { SCREEN_ON=0; return 0; }
+		SCREEN_ON=1; return 0
+	fi
 	pwr=$(dumpsys power 2>/dev/null)
 	case "$pwr" in
 	*mWakefulness=Awake*) SCREEN_ON=1; return 0 ;;

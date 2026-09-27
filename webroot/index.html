@@ -234,6 +234,31 @@
             </div>
             <div class="section">
                 <div class="section-hd">
+                    <span class="section-title">开机命令 & 测试命令</span>
+                    <div class="actions">
+                        <button class="btn btn-sm" id="btn-test-log" onclick="showTestLog()">日志</button>
+                        <span style="font-size:12px;color:var(--muted);display:flex;align-items:center;">测试</span>
+                        <label class="switch" style="margin-right:8px;">
+                            <input type="checkbox" id="test-cmd-switch" onchange="toggleTestCmd()">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="section-body">
+                    <div class="form" style="border-bottom:none;">
+                        <textarea class="form-input form-textarea" id="input-boot-cmds" onblur="saveBootCmds()" placeholder="请自行确认命令安全性和可用性后再放入"></textarea>
+                        <div class="form-hint-row">
+                            <div class="form-hint">模块启动时执行；编辑完成后点击框外自动保存</div>
+                            <div class="actions run-bar" id="test-run-bar" style="display:none;">
+                                <button class="btn btn-lg" onclick="runTestCmds('termux')">以termux运行</button>
+                                <button class="btn btn-lg btn-primary" onclick="runTestCmds('normal')">运行</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="section">
+                <div class="section-hd">
                     <span class="section-title">启停功能</span>
                 </div>
                 <div class="section-body">
@@ -295,31 +320,6 @@
                             <!-- <div class="form-hint" style="margin-bottom:10px;">两组选择的服务互斥，防止冲突循环启动</div> -->
                             <label class="form-label">Wi-Fi SSID / 名称</label>
                             <textarea class="form-input form-textarea" id="input-wifi-ssids" onblur="saveWifiSsids()" placeholder="两组共用，每行一个，留空 = 任意 Wi-Fi"></textarea>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="section">
-                <div class="section-hd">
-                    <span class="section-title">开机命令 & 测试命令</span>
-                    <div class="actions">
-                        <button class="btn btn-sm" id="btn-test-log" onclick="showTestLog()">日志</button>
-                        <span style="font-size:12px;color:var(--muted);display:flex;align-items:center;">测试</span>
-                        <label class="switch" style="margin-right:8px;">
-                            <input type="checkbox" id="test-cmd-switch" onchange="toggleTestCmd()">
-                            <span class="switch-slider"></span>
-                        </label>
-                    </div>
-                </div>
-                <div class="section-body">
-                    <div class="form" style="border-bottom:none;">
-                        <textarea class="form-input form-textarea" id="input-boot-cmds" onblur="saveBootCmds()" placeholder="请自行确认命令安全性和可用性后再放入"></textarea>
-                        <div class="form-hint-row">
-                            <div class="form-hint">模块启动时执行；编辑完成后点击框外自动保存</div>
-                            <div class="actions run-bar" id="test-run-bar" style="display:none;">
-                                <button class="btn btn-lg" onclick="runTestCmds('termux')">以termux运行</button>
-                                <button class="btn btn-lg btn-primary" onclick="runTestCmds('normal')">运行</button>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -747,6 +747,7 @@
         function afterLogin() {
             hideAnyModal('modal-login');
             document.querySelector('.container').style.display = '';
+            document.querySelector('.nav').style.display = ''; 
             document.getElementById('nav-logout').style.display = '';
             document.getElementById('input-login-pw').value = '';
             document.getElementById('input-login-token').value = '';
@@ -814,6 +815,7 @@
         function showLogin() {
             if (ksuApi) return; // 管理器内免登录
             document.querySelector('.container').style.display = 'none';
+            document.querySelector('.nav').style.display = 'none';
             showAnyModal('modal-login');
         }
 
@@ -2045,6 +2047,7 @@
                     httpMode = true;
                     hideDebug();
                     document.querySelector('.container').style.display = 'none';
+                    document.querySelector('.nav').style.display = 'none';
                     httpCheckAuth();
                     return;
                 }
