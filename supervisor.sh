@@ -137,6 +137,12 @@ sleep_slice() {
 
 		chunk=$((target - elapsed))
 		[ "$chunk" -gt 60 ] && chunk=60
+		# 亮屏启停开启时：熄屏（等亮屏边沿）与亮屏锁屏中（等解锁边沿）压到 10s 短分片，以便快速识别到亮屏解锁恢复巡检
+		if [ "$SCREEN_SERVICE_ENABLED" = "1" ] && [ "$chunk" -gt 10 ]; then
+			if [ "$SCREEN_O/N" != "1" ] || [ "$SCREEN_UNLOCK_OK" != "1" ]; then
+				chunk=10
+			fi
+		fi
 
 		sleep "$chunk" || break
 		elapsed=$((elapsed + chunk))
