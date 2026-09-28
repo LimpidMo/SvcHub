@@ -216,10 +216,6 @@ api_get_settings() {
 		printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js
 		printf '","webui_enabled":"'
 		printf '%s' "$WEBUI_ENABLED" | enc_js
-		printf '","webui_password_hash":"'
-		printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js
-		printf '","webui_token":"'
-		printf '%s' "$WEBUI_TOKEN" | enc_js
 		printf '"}\n'
 	}
 }
@@ -270,10 +266,6 @@ api_get_config() {
 		printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js
 		printf '","webui_enabled":"'
 		printf '%s' "$WEBUI_ENABLED" | enc_js
-		printf '","webui_password_hash":"'
-		printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js
-		printf '","webui_token":"'
-		printf '%s' "$WEBUI_TOKEN" | enc_js
 		printf '"}\n'
 	}
 }
