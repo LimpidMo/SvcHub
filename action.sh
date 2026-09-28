@@ -13,50 +13,55 @@ count_rows() {
 	printf '%s\n' "$1" | grep -c '^[^|]\{1,\}|' 2>/dev/null || true
 }
 
-# 服务行校验：合法输出空，非法输出首个非法行号（saveservices 指明行号、saveconfig 判空共用）。
+# stdin 读一行 key=BASE64 并解码：成功设 KV_KEY/KV_VAL 返回 0，EOF 返回 1，空行 KV_KEY 置空；
+# webui_* 键走专用子命令，编码/解码/超限错误直接输出 JSON 并 exit 1。
+read_kv_b64() {
+	local line key b64
+	IFS= read -r line || [ -n "$line" ] || return 1
+	if [ -z "$line" ]; then KV_KEY=""; return 0; fi
+	key=${line%%=*}
+	b64=${line#*=}
+	case "$key" in
+	webui_*) echo '{"success":false,"error":"外部访问配置请用专用接口修改"}'; exit 1 ;;
+	esac
+	case "$b64" in
+	*[!A-Za-z0-9+/=]*) echo '{"success":false,"error":"配置编码错误"}'; exit 1 ;;
+	esac
+	KV_VAL=$(printf '%s' "$b64" | base64 -d 2>/dev/null) || { echo '{"success":false,"error":"配置解码失败"}'; exit 1; }
+	[ "${#KV_VAL}" -le 1048576 ] || { echo '{"success":false,"error":"配置内容过大"}'; exit 1; }
+	KV_KEY=$key
+	return 0
+}
+
+# 名单校验（每行一个服务名）：输出首个非法名（空=全部合法）。
+validate_name_list() {
+	printf '%s\n' "$1" | awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 != "" && $0 !~ /^[A-Za-z0-9._-]+$/) { print $0; exit } }'
+}
+
+# 服务行校验：合法输出空，非法输出首个非法行号（saveservices 指明行号共用）。
 validate_rows() {
-	# $1=kind(termux_services|binary_services，兼容旧 services)；从 stdin 逐行校验格式
+	# $1=kind(termux_services|binary_services)；从 stdin 逐行校验 5 段 name|port|extra|auto|cmd
 	local kind=$1 r=0 line name port extra auto cmd
 	while IFS= read -r line; do
 		[ -z "$line" ] && continue
 		r=$((r + 1))
 		if [ "$r" -gt 500 ]; then printf '%s' "$r"; return 0; fi
-		case "$kind" in
-		termux_services)
-			IFS='|' read -r name port extra auto cmd <<EOF
+		IFS='|' read -r name port extra auto cmd <<EOF
 $line
 EOF
-			valid_name "$name" || { printf '%s' "$r"; return 0; }
-			[ -n "$cmd" ] || { printf '%s' "$r"; return 0; }
-			case "$auto" in start|stop) ;; *) printf '%s' "$r"; return 0 ;; esac
-			case "$port" in *\|*) printf '%s' "$r"; return 0 ;; esac
-			[ "${#port}" -le 32 ] || { printf '%s' "$r"; return 0; }
+		if [ "$kind" = binary_services ]; then
+			# binary 的 extra 段恒空
+			[ -z "$extra" ] || { printf '%s' "$r"; return 0; }
+		else
 			case "$extra" in
 			*'$'*|*'`'*|*';'*|*'&'*|*'|'*|*'('*|*')'*|*'<'*|*'>'*|*'"'*|*"'"'*|*'\'*) printf '%s' "$r"; return 0 ;;
 			esac
-			;;
-		services|binary_services)
-			# 内存 6 段 name|port|extra|auto|cmd（extra 恒空）；旧 4 段兼容。
-			case "$line" in
-			*\|*\|*\|*\|*)
-				IFS='|' read -r name port extra auto cmd <<EOF
-$line
-EOF
-				[ -z "$extra" ] || { printf '%s' "$r"; return 0; }
-				;;
-			*)
-				IFS='|' read -r name port auto cmd <<EOF
-$line
-EOF
-				;;
-			esac
-			valid_name "$name" || { printf '%s' "$r"; return 0; }
-			[ -n "$cmd" ] || { printf '%s' "$r"; return 0; }
-			case "$auto" in start|stop) ;; *) printf '%s' "$r"; return 0 ;; esac
-			case "$port" in *\|*) printf '%s' "$r"; return 0 ;; esac
-			[ "${#port}" -le 32 ] || { printf '%s' "$r"; return 0; }
-			;;
-		esac
+		fi
+		valid_name "$name" || { printf '%s' "$r"; return 0; }
+		[ -n "$cmd" ] || { printf '%s' "$r"; return 0; }
+		case "$auto" in start|stop) ;; *) printf '%s' "$r"; return 0 ;; esac
+		case "$port" in *\|*) printf '%s' "$r"; return 0 ;; esac
+		[ "${#port}" -le 32 ] || { printf '%s' "$r"; return 0; }
 	done
 	return 0
 }
@@ -232,43 +237,6 @@ api_get_services() {
 	}
 }
 
-# 旧全量读兼容层：设置 + 服务拼装（字段与原来一致，前端迁移完成前可用）。
-api_get_config() {
-	load_cfg_sh
-	{
-		printf '{"sleep_interval":"'
-		printf '%s' "$SLEEP_INTERVAL" | enc_js
-		printf '","server_dir":"'
-		printf '%s' "$SERVER_DIR" | enc_js
-		printf '","termux_services":"'
-		printf '%s' "$TERMUX_SERVICES" | enc_js
-		printf '","services":"'
-		printf '%s' "$BINARY_SERVICES" | enc_js
-		printf '","boot_commands":"'
-		printf '%s' "$BOOT_COMMANDS" | enc_js
-		printf '","wifi_service_enabled":"'
-		printf '%s' "$WIFI_SERVICE_ENABLED" | enc_js
-		printf '","wifi_service_names":"'
-		printf '%s' "$WIFI_SERVICE_NAMES" | enc_js
-		printf '","wifi_service_names_off":"'
-		printf '%s' "$WIFI_SERVICE_NAMES_OFF" | enc_js
-		printf '","wifi_ssids":"'
-		printf '%s' "$WIFI_SSIDS" | enc_js
-		printf '","schedule_enabled":"'
-		printf '%s' "$SCHEDULE_ENABLED" | enc_js
-		printf '","schedule_stop":"'
-		printf '%s' "$SCHEDULE_STOP" | enc_js
-		printf '","schedule_start":"'
-		printf '%s' "$SCHEDULE_START" | enc_js
-		printf '","screen_service_enabled":"'
-		printf '%s' "$SCREEN_SERVICE_ENABLED" | enc_js
-		printf '","screen_service_names":"'
-		printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js
-		printf '","webui_enabled":"'
-		printf '%s' "$WEBUI_ENABLED" | enc_js
-		printf '"}\n'
-	}
-}
 
 # 测试运行命令：stdin 读 shell 文本逐行执行记日志（$1=termux 时注入 Termux 环境）。
 # 高危命令（删根/格式化/写块设备/fork 炸弹）整单拒绝，防手滑。
@@ -427,11 +395,6 @@ cfg_apply_one() {
 		SLEEP_INTERVAL=$val
 		;;
 	server_dir) SERVER_DIR=$val ;;
-	termux_services|services)
-		bad=$(printf '%s\n' "$val" | validate_rows "$key")
-		[ -z "$bad" ] || { echo '{"success":false,"error":"服务配置格式错误"}'; exit 1; }
-		if [ "$key" = termux_services ]; then TERMUX_SERVICES=$val; else BINARY_SERVICES=$val; fi
-		;;
 	boot_commands) BOOT_COMMANDS=$val ;;
 	wifi_service_enabled)
 		case "$val" in
@@ -440,7 +403,7 @@ cfg_apply_one() {
 		esac
 		;;
 	wifi_service_names|wifi_service_names_off)
-		invalid_name=$(printf '%s\n' "$val" | awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 != "" && $0 !~ /^[A-Za-z0-9._-]+$/) { print $0; exit } }')
+		invalid_name=$(validate_name_list "$val")
 		if [ -n "$invalid_name" ]; then
 			echo "{\"success\":false,\"error\":\"Wi-Fi 服务名不合法: $invalid_name\"}"
 			exit 1
@@ -484,7 +447,7 @@ cfg_apply_one() {
 		esac
 		;;
 	screen_service_names)
-		invalid_name=$(printf '%s\n' "$val" | awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 != "" && $0 !~ /^[A-Za-z0-9._-]+$/) { print $0; exit } }')
+		invalid_name=$(validate_name_list "$val")
 		if [ -n "$invalid_name" ]; then
 			echo "{\"success\":false,\"error\":\"锁屏白名单服务名不合法: $invalid_name\"}"
 			exit 1
@@ -499,71 +462,15 @@ cfg_verify_written() {
 	[ "$(setting_get sleep_interval)" = "$SLEEP_INTERVAL" ] || { echo '{"success":false,"error":"配置写入校验不一致"}'; exit 1; }
 }
 
-# stdin 读 key=BASE64 行，白名单校验后落盘（未提供的键沿用现值；旧全量兼容层，按 key 路由双文件）。
-api_save_config() {
-	local line key b64 val bad provided= old_ts old_sv need_settings= need_services=
-	load_cfg_sh
-	old_ts=$TERMUX_SERVICES
-	old_sv=$BINARY_SERVICES
-	# 末行无尾随换行仍处理（fetch body 无尾换行时 read 返回非零）。
-	while IFS= read -r line || [ -n "$line" ]; do
-		[ -z "$line" ] && continue
-		key=${line%%=*}
-		b64=${line#*=}
-		# webui_* 走专用子命令，禁止经 saveconfig 覆盖。
-		case "$key" in
-		webui_*) echo '{"success":false,"error":"外部访问配置请用专用接口修改"}'; exit 1 ;;
-		esac
-		word_in_set "$key" "$CONFIG_KEYS" || { echo '{"success":false,"error":"未知配置键"}'; exit 1; }
-		case "$b64" in
-		*[!A-Za-z0-9+/=]*) echo '{"success":false,"error":"配置编码错误"}'; exit 1 ;;
-		esac
-		val=$(printf '%s' "$b64" | base64 -d 2>/dev/null) || { echo '{"success":false,"error":"配置解码失败"}'; exit 1; }
-		[ "${#val}" -le 1048576 ] || { echo '{"success":false,"error":"配置内容过大"}'; exit 1; }
-		cfg_apply_one "$key" "$val"
-		provided="$provided $key"
-		case "$key" in
-		termux_services|services) need_services=1 ;;
-		*) need_settings=1 ;;
-		esac
-	done
-	# 空 body 不能当成功写回旧值（否则前端误报“已保存”）。
-	[ -n "$provided" ] || { echo '{"success":false,"error":"配置内容为空"}'; exit 1; }
-	# 启用时起止相同无意义（进窗判定恒窗外），直接拒绝。
-	if [ "$SCHEDULE_ENABLED" = "1" ] && [ -n "$SCHEDULE_STOP" ] && [ "$SCHEDULE_STOP" = "$SCHEDULE_START" ]; then
-		echo '{"success":false,"error":"停止时间与启动时间不能相同"}'
-		exit 1
-	fi
-
-	[ -n "$need_settings" ] && { write_settings || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }; }
-	[ -n "$need_services" ] && { write_services || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }; }
-	# 被删服务仍在运行则停，防止配置已删进程残留。
-	if word_in_set termux_services "$provided" || word_in_set services "$provided"; then
-		stop_removed_services "$old_ts" "$TERMUX_SERVICES" "$old_sv" "$BINARY_SERVICES"
-	fi
-	cfg_verify_written
-	echo '{"success":true}'
-}
-
 # 设置页按需保存：只接受 SETTING_KEYS（webui_* 直接拒），只写 setting.conf。
 api_save_settings() {
-	local line key b64 val provided=
+	local provided=
 	load_cfg_sh
-	while IFS= read -r line || [ -n "$line" ]; do
-		[ -z "$line" ] && continue
-		key=${line%%=*}
-		b64=${line#*=}
-		case "$key" in
-		webui_*) echo '{"success":false,"error":"外部访问配置请用专用接口修改"}'; exit 1 ;;
-		esac
-		word_in_set "$key" "$SETTING_KEYS" || { echo '{"success":false,"error":"未知配置键"}'; exit 1; }
-		case "$b64" in
-		*[!A-Za-z0-9+/=]*) echo '{"success":false,"error":"配置编码错误"}'; exit 1 ;;
-		esac
-		val=$(printf '%s' "$b64" | base64 -d 2>/dev/null) || { echo '{"success":false,"error":"配置解码失败"}'; exit 1; }
-		[ "${#val}" -le 1048576 ] || { echo '{"success":false,"error":"配置内容过大"}'; exit 1; }
-		cfg_apply_one "$key" "$val"
-		provided="$provided $key"
+	while read_kv_b64; do
+		[ -n "$KV_KEY" ] || continue
+		word_in_set "$KV_KEY" "$SETTING_KEYS" || { echo '{"success":false,"error":"未知配置键"}'; exit 1; }
+		cfg_apply_one "$KV_KEY" "$KV_VAL"
+		provided="$provided $KV_KEY"
 	done
 	[ -n "$provided" ] || { echo '{"success":false,"error":"配置内容为空"}'; exit 1; }
 	if [ "$SCHEDULE_ENABLED" = "1" ] && [ -n "$SCHEDULE_STOP" ] && [ "$SCHEDULE_STOP" = "$SCHEDULE_START" ]; then
@@ -575,29 +482,22 @@ api_save_settings() {
 	echo '{"success":true}'
 }
 
-# 服务页按需保存：只接受 termux_services/services，只写 services.conf；非法整单拒绝并带行号。
+# 服务页按需保存：只接受 termux_services|binary_services，只写 services.conf；非法整单拒绝并带行号。
 api_save_services() {
-	local line key b64 val provided= old_ts old_sv bad
+	local provided= old_ts old_sv bad
 	load_cfg_sh
 	old_ts=$TERMUX_SERVICES
 	old_sv=$BINARY_SERVICES
-	while IFS= read -r line || [ -n "$line" ]; do
-		[ -z "$line" ] && continue
-		key=${line%%=*}
-		b64=${line#*=}
-		case "$key" in
+	while read_kv_b64; do
+		[ -n "$KV_KEY" ] || continue
+		case "$KV_KEY" in
 		termux_services|binary_services) ;;
 		*) echo '{"success":false,"error":"未知配置键"}'; exit 1 ;;
 		esac
-		case "$b64" in
-		*[!A-Za-z0-9+/=]*) echo '{"success":false,"error":"配置编码错误"}'; exit 1 ;;
-		esac
-		val=$(printf '%s' "$b64" | base64 -d 2>/dev/null) || { echo '{"success":false,"error":"配置解码失败"}'; exit 1; }
-		[ "${#val}" -le 1048576 ] || { echo '{"success":false,"error":"配置内容过大"}'; exit 1; }
-		bad=$(printf '%s\n' "$val" | validate_rows "$key")
+		bad=$(printf '%s\n' "$KV_VAL" | validate_rows "$KV_KEY")
 		[ -z "$bad" ] || { echo "{\"success\":false,\"error\":\"服务配置格式错误（第 $bad 行）\"}"; exit 1; }
-		if [ "$key" = termux_services ]; then TERMUX_SERVICES=$val; else BINARY_SERVICES=$val; fi
-		provided="$provided $key"
+		if [ "$KV_KEY" = termux_services ]; then TERMUX_SERVICES=$KV_VAL; else BINARY_SERVICES=$KV_VAL; fi
+		provided="$provided $KV_KEY"
 	done
 	[ -n "$provided" ] || { echo '{"success":false,"error":"配置内容为空"}'; exit 1; }
 	write_services || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
@@ -622,17 +522,11 @@ logs)
 readlog)
 	api_read_log "$2" "$3"
 	;;
-getconfig)
-	api_get_config
-	;;
 getsettings)
 	api_get_settings
 	;;
 getservices)
 	api_get_services
-	;;
-saveconfig)
-	api_save_config
 	;;
 savesettings)
 	api_save_settings

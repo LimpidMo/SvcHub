@@ -3,11 +3,13 @@
 *.sh text eol=lf
 module.prop text eol=lf
 *.conf text eol=lf
+*.cgi text eol=lf
 *.html text eol=lf
 *.json text eol=lf
-# 打包文件夹及文件夹
+# 打包文件夹及文件夹排除
 docs export-ignore
 tools export-ignore
+config export-ignore
 README.md export-ignore
 AGENTS.md export-ignore
 CHANGELOG.md export-ignore

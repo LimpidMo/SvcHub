@@ -1751,7 +1751,7 @@
                 const ssidEl = document.getElementById('input-wifi-ssids');
                 ssidEl.value = normalizeSsidText(ssidEl.value);
             }
-            // 轻量保存：只发开关单键（saveconfig 缺键继承其余），不做全量重载；失败按快照回弹
+            // 轻量保存：只发开关单键（savesettings 缺键沿用现值），不做全量重载；失败按快照回弹
             configData.wifi_service_enabled = on;
             saveSettingsKey('wifi_service_enabled', on ? '1' : '0', (ok) => {
                 wifiToggling = false;

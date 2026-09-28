@@ -83,8 +83,7 @@ else
 fi
 
 # ==================== 升级时保留配置 ====================
-# config/ 三文件（新）优先保留；旧 config.json / 根 web.conf 兜底拷贝，开机迁移；
-# Token 长期会话文件（run/session/tsess_*）保留，未过期重装不断登。
+# config/ 三文件保留；Token 长期会话文件（run/session/tsess_*）保留，未过期重装不断登。
 MODID=${MODID:-$(basename "${MODPATH:-}")}
 if [ -n "$MODID" ]; then
     OLD_MOD="/data/adb/modules/$MODID"
@@ -96,18 +95,6 @@ if [ -n "$MODID" ]; then
                 && ui_print "- 已保留配置 config/$cf" \
                 || ui_print "! 配置 config/$cf 保留失败，将使用默认配置"
         done
-    else
-        if [ -f "$OLD_MOD/config.json" ]; then
-            cp -f "$OLD_MOD/config.json" "$MODPATH/config.json" 2>/dev/null \
-                && ui_print "- 已保留旧配置 config.json（开机自动迁移）" \
-                || ui_print "! 配置 config.json 保留失败，将使用默认配置"
-        fi
-    fi
-    if [ ! -f "$MODPATH/config/web.conf" ] && [ -f "$OLD_MOD/web.conf" ]; then
-        mkdir -p "$MODPATH/config" 2>/dev/null
-        cp -f "$OLD_MOD/web.conf" "$MODPATH/config/web.conf" 2>/dev/null \
-            && ui_print "- 已保留旧配置 web.conf（已迁入 config/）" \
-            || ui_print "! 配置 web.conf 保留失败，将使用默认配置"
     fi
     if [ -d "$OLD_MOD/run/session" ]; then
         mkdir -p "$MODPATH/run/session" 2>/dev/null

@@ -58,7 +58,7 @@ wait_boot_stages() {
 # 仅 auto=start 且未运行才启动；Wi-Fi 策略兜底统一由 wifi_should_skip 判定
 # （定时停止窗已在轮首整轮跳过，此处不再重复判断）。
 patrol_start_rows() {
-	local kind=$1 rows=$2 runset=$3 name port extra auto cmd
+	local kind=$1 rows=$2 runset=$3 name port extra auto cmd reason
 	# 两类行统一 5 段 name|port|extra|auto|cmd（含 binary 空 extra），read 变量名列表一致
 	set -- name port extra auto cmd
 	while IFS='|' read -r "$@"; do
@@ -75,13 +75,9 @@ patrol_start_rows() {
 			fi
 			continue
 		fi
-		# 启动禁令（定时窗内整轮已跳过）：亮屏未解锁、熄屏非白名单均不拉起
-		if [ "$SCREEN_SERVICE_ENABLED" = "1" ] && [ "$SCREEN_UNLOCK_OK" != "1" ] && [ "$SCREEN_ON" = "1" ]; then
-			sup_log_bare "    跳过 $name (亮屏未解锁，暂不拉起)"
-			continue
-		fi
-		if starts_blocked "$name"; then
-			sup_log_bare "    跳过 $name (熄屏非白名单)"
+		# 启动禁令单点判定：亮屏未解锁/熄屏非白名单（定时窗已在轮首整轮跳过）
+		if reason=$(starts_blocked_reason "$name"); then
+			sup_log_bare "    跳过 $name ($reason)"
 			continue
 		fi
 		if name_in_set "$name" "$runset"; then

@@ -340,7 +340,7 @@ webuistart|webuistop)
     # 开关走管理器，CGI 不代理。
     cgi_fail "403 Forbidden" "请在管理器内操作"
     ;;
-svcstatus|getconfig|getsettings|getservices|saveconfig|savesettings|saveservices|start|stop|logs|readlog|clearlog|execboot|runcmd|runcmdtermux)
+svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|execboot|runcmd|runcmdtermux)
     auth_check 1 || { cgi_fail "401 Unauthorized" "未登录"; exit 0; }
     # 滑动过期：每次有效访问续满 TTL，锁屏回来不断登。
     case "$R" in
@@ -348,13 +348,8 @@ svcstatus|getconfig|getsettings|getservices|saveconfig|savesettings|saveservices
     *) SUB=$R ;;
     esac
     case "$SUB" in
-    getconfig)
-        # 出站过滤哈希与 Token 明文。
-        OUT=$(api_get_config 2>/dev/null | sed 's/"webui_password_hash":"[^"]*"/"webui_password_hash":""/; s/"webui_token":"[^"]*"/"webui_token":""/')
-        cgi_authed "$OUT"
-        ;;
     getsettings)
-        # 出站过滤哈希与 Token 明文（与 getconfig 同规则）。
+        # 出站过滤哈希与 Token 明文。
         OUT=$(api_get_settings 2>/dev/null | sed 's/"webui_password_hash":"[^"]*"/"webui_password_hash":""/; s/"webui_token":"[^"]*"/"webui_token":""/')
         cgi_authed "$OUT"
         ;;
@@ -362,7 +357,7 @@ svcstatus|getconfig|getsettings|getservices|saveconfig|savesettings|saveservices
         OUT=$(api_get_services 2>/dev/null)
         cgi_authed "$OUT"
         ;;
-    saveconfig|savesettings|saveservices|runcmd|runcmdtermux|execboot)
+    savesettings|saveservices|runcmd|runcmdtermux|execboot)
         # body 透传 stdin；空 body 直接拒，防“已保存”假成功。
         BODY_LEN=${CONTENT_LENGTH:-0}
         case "$BODY_LEN" in ''|*[!0-9]*) BODY_LEN=0 ;; esac
@@ -371,7 +366,6 @@ svcstatus|getconfig|getsettings|getservices|saveconfig|savesettings|saveservices
             exit 0
         fi
         case "$SUB" in
-        saveconfig) webui_log "保存全量配置：$(client_ip)"; OUT=$(cat | api_save_config 2>/dev/null) ;;
         savesettings) webui_log "保存设置项：$(client_ip)"; OUT=$(cat | api_save_settings 2>/dev/null) ;;
         saveservices) webui_log "保存服务项：$(client_ip)"; OUT=$(cat | api_save_services 2>/dev/null) ;;
         runcmd) BODY=$(cat); webui_log "测试命令（普通）来源 $(client_ip)：$(printf '%s' "$BODY" | tr '\n' ';')"; OUT=$(printf '%s' "$BODY" | api_run_cmd 2>/dev/null) ;;
