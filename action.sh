@@ -84,6 +84,7 @@ function esc(s,   o, i, n, c) {
 		if (c == "\\") o = o "\\\\"
 		else if (c == "\"") o = o "\\\""
 		else if (c == "\t") o = o "\\t"
+		else if (c == "\r") o = o "\\r"
 		else o = o c
 	}
 	return o
@@ -385,7 +386,7 @@ EOF
 
 # 单键校验落盘：$1=key $2=解码值（非法直接 exit 1）。
 cfg_apply_one() {
-	local key=$1 val=$2 invalid_name ssid_lines
+	local key=$1 val=$2 invalid_name ssid_lines err
 	case "$key" in
 	sleep_interval)
 		[ -n "$val" ] || val=60
@@ -405,7 +406,8 @@ cfg_apply_one() {
 	wifi_service_names|wifi_service_names_off)
 		invalid_name=$(validate_name_list "$val")
 		if [ -n "$invalid_name" ]; then
-			echo "{\"success\":false,\"error\":\"Wi-Fi 服务名不合法: $invalid_name\"}"
+			err=$(printf '%s' "$invalid_name" | tr -d '\r' | cut -c1-60 | tr -d '"\\')
+			echo "{\"success\":false,\"error\":\"Wi-Fi 服务名不合法: $err\"}"
 			exit 1
 		fi
 		if [ "$key" = wifi_service_names ]; then WIFI_SERVICE_NAMES=$val; else WIFI_SERVICE_NAMES_OFF=$val; fi
@@ -449,7 +451,8 @@ cfg_apply_one() {
 	screen_service_names)
 		invalid_name=$(validate_name_list "$val")
 		if [ -n "$invalid_name" ]; then
-			echo "{\"success\":false,\"error\":\"锁屏白名单服务名不合法: $invalid_name\"}"
+			err=$(printf '%s' "$invalid_name" | tr -d '\r' | cut -c1-60 | tr -d '"\\')
+			echo "{\"success\":false,\"error\":\"锁屏白名单服务名不合法: $err\"}"
 			exit 1
 		fi
 		SCREEN_SERVICE_NAMES=$val

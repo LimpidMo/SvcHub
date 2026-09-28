@@ -64,14 +64,14 @@ mkdir -p "$RUNDIR" "$LOG_DIR" "$RUNDIR/session"
 # 新增服务类型只需在 load_services / write_services 加一个 type 分支。
 SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names webui_enabled webui_password_hash webui_token'
 
-# JSON 字符串编码：\ " tab 转义、换行转字面 \n；逐字符拼接（gsub 替换串反斜杠 busybox/gawk 语义不一致，禁用）
+# JSON 字符串编码：\ " tab CR 转义、换行转字面 \n；逐字符拼接（gsub 替换串反斜杠 busybox/gawk 语义不一致，禁用）
 enc_js() {
-	awk 'function esc(s,   o, i, n, c) { o = ""; n = length(s); for (i = 1; i <= n; i++) { c = substr(s, i, 1); if (c == "\\") o = o "\\\\"; else if (c == "\"") o = o "\\\""; else if (c == "\t") o = o "\\t"; else o = o c } return o } { if (NR > 1) printf "\\n"; printf "%s", esc($0) }'
+	awk 'function esc(s,   o, i, n, c) { o = ""; n = length(s); for (i = 1; i <= n; i++) { c = substr(s, i, 1); if (c == "\\") o = o "\\\\"; else if (c == "\"") o = o "\\\""; else if (c == "\t") o = o "\\t"; else if (c == "\r") o = o "\\r"; else o = o c } return o } { if (NR > 1) printf "\\n"; printf "%s", esc($0) }'
 }
 
-# JSON 字符串解码：左到右单遍，\n \t \" \\ 还原明文，孤立 \ 原样保留
+# JSON 字符串解码：左到右单遍，\n \t \r \" \\ 还原明文，孤立 \ 原样保留
 dec_js() {
-	awk 'function unesc(s,   o, i, n, c) { o = ""; n = length(s); for (i = 1; i <= n; i++) { c = substr(s, i, 1); if (c != "\\") { o = o c; continue } i++; c = substr(s, i, 1); if (c == "n") o = o "\n"; else if (c == "t") o = o "\t"; else if (c == "\"") o = o "\""; else if (c == "\\") o = o "\\"; else o = o "\\" c } return o } { printf "%s", unesc($0) }'
+	awk 'function unesc(s,   o, i, n, c) { o = ""; n = length(s); for (i = 1; i <= n; i++) { c = substr(s, i, 1); if (c != "\\") { o = o c; continue } i++; c = substr(s, i, 1); if (c == "n") o = o "\n"; else if (c == "t") o = o "\t"; else if (c == "r") o = o "\r"; else if (c == "\"") o = o "\""; else if (c == "\\") o = o "\\"; else o = o "\\" c } return o } { printf "%s", unesc($0) }'
 }
 
 # ---------- 校验 ----------

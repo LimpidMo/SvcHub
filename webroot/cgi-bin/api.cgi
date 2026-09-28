@@ -20,11 +20,13 @@ ACTION_SOURCED=1
 
 cgi_status() {
     # 头体之间空一行，否则 httpd 吞 body。
-    if [ -n "$2" ]; then
-        printf 'Status: %s\nContent-Type: application/json\n%s\n\n%s' "$1" "$2" "$3"
-    else
-        printf 'Status: %s\nContent-Type: application/json\n\n%s' "$1" "$3"
-    fi
+    # 全响应带安全头：禁嗅探、禁缓存（webuitoken 回传 Token 明文）、导航不带 Referer。
+    local hdr='X-Content-Type-Options: nosniff
+Cache-Control: no-store
+Referrer-Policy: no-referrer'
+    [ -n "$2" ] && hdr="$hdr
+$2"
+    printf 'Status: %s\nContent-Type: application/json\n%s\n\n%s' "$1" "$hdr" "$3"
 }
 
 cgi_ok() {
@@ -33,6 +35,20 @@ cgi_ok() {
 
 cgi_fail() {
     cgi_status "$1" "" "{\"success\":false,\"error\":\"$2\"}"
+}
+
+# 读 POST 体前校验长度：空体 400，超 64KB 413（超限必须主 shell exit，包在 $(...) 里拦不住）。
+cgi_check_body() {
+    local n=${CONTENT_LENGTH:-0}
+    case "$n" in ''|*[!0-9]*) n=0 ;; esac
+    if [ "$n" -le 0 ] 2>/dev/null; then
+        cgi_fail "400 Bad Request" "请求体为空"
+        exit 0
+    fi
+    if [ "$n" -gt 65536 ] 2>/dev/null; then
+        cgi_fail "413 Payload Too Large" "请求体过大"
+        exit 0
+    fi
 }
 
 # URL 解码（无尾随换行仍处理最后一行）。
@@ -71,6 +87,17 @@ client_ip() {
     printf '%s' "${REMOTE_ADDR:-unknown}" | tr -c 'A-Za-z0-9.:_' '_'
 }
 
+# Origin 兜底（老 WebView 不认 SameSite）：带 Origin 必须同源；头缺失则放行，自定义请求头仍是主防线。
+cgi_origin_ok() {
+    [ -n "$HTTP_ORIGIN" ] && [ -n "$HTTP_HOST" ] || return 0
+    [ "$HTTP_ORIGIN" = "http://$HTTP_HOST" ]
+}
+
+# 审计日志压行：换行/回车转分号，防多行参数伪造日志行（runcmd 分支同款处理）。
+log_flat() {
+    printf '%s' "$1" | tr '\n\r' ';;'
+}
+
 # 登录失败记录（次数:解锁时间），锁定期返回 0。
 fail_read() {
 	local f="$WEBUI_FAIL_PREFIX$(client_ip)" n=0 unlock=0
@@ -107,6 +134,17 @@ fail_add() {
 
 fail_clear() {
     rm -f "$WEBUI_FAIL_PREFIX$(client_ip)"
+}
+
+# 清过期失败计数（锁定已解除的文件），防按 IP 无界堆积；正常计数与锁定中的文件保留。
+fail_sweep() {
+    local f unlock now
+    now=$(date +%s)
+    for f in "$WEBUI_FAIL_PREFIX"*; do
+        [ -f "$f" ] || continue
+        unlock=$(cat "$f" 2>/dev/null | tr -dc '0-9:' | sed 's/^.*://')
+        [ "$unlock" -gt 0 ] 2>/dev/null && [ "$unlock" -le "$now" ] 2>/dev/null && rm -f "$f"
+    done
 }
 
 # 会话剩余秒数：$1=token，输出剩余秒（过期/无效输出空并顺手删文件，空读重试防并发续写中途）。
@@ -195,6 +233,8 @@ auth_check() {
         if [ -n "$left" ]; then
             # Cookie 会话必须带自定义请求头：跨站表单/fetch 伪造不了该头，挡 CSRF-RCE
             [ "$HTTP_X_REQUESTED_WITH" = "XMLHttpRequest" ] || return 1
+            # 老 WebView 不认 SameSite，Origin 同源兜底（头缺失放行）
+            cgi_origin_ok || return 1
             AUTH_COOKIE="Set-Cookie: SVC_SESS=$t; HttpOnly; Path=/; SameSite=Lax; Max-Age=$left"
             return 0
         fi
@@ -250,9 +290,10 @@ status)
 login)
     [ "$REQUEST_METHOD" = "POST" ] || { cgi_fail "405 Method Not Allowed" "仅支持 POST"; exit 0; }
     if fail_locked; then
-        cgi_fail "429 Too Many Requests" "尝试过多，请 $FAIL_LOCK 秒后再试"
+        cgi_status "429 Too Many Requests" "Retry-After: $FAIL_LOCK" '{"success":false,"error":"尝试过多，请 '$FAIL_LOCK' 秒后再试"}'
         exit 0
     fi
+    cgi_check_body
     FORM_BODY=$(cat)
     PW=$(form_field password)
     TK=$(form_field token)
@@ -270,6 +311,8 @@ login)
         exit 0
     fi
     fail_clear
+    # 顺带清过期失败计数（当前 IP 的已由 fail_clear 删除）。
+    fail_sweep
     # 密码会话按 SESS_TTL，Token 会话按 TOKEN_DAYS 天。
     if [ -n "$via_token" ]; then TTL=$((TOKEN_DAYS * 86400)); is_tsess=1; else TTL=$SESS_TTL; is_tsess=""; fi
     OLDSESS=$(cookie SVC_SESS)
@@ -322,7 +365,14 @@ webuistatus)
 webuipasswd|webuiregen)
     auth_check 0 || { cgi_fail "401 Unauthorized" "未登录"; exit 0; }
     webui_log "$([ "$R" = webuiregen ] && echo '重新生成长期 Token' || echo '修改访问密码')：$(client_ip)"
-    FORM_BODY=$(cat)
+    # regen 不读表单；passwd 限 POST 并校验体长。
+    case "$R" in
+    webuipasswd)
+        [ "$REQUEST_METHOD" = "POST" ] || { cgi_fail "405 Method Not Allowed" "仅支持 POST"; exit 0; }
+        cgi_check_body
+        FORM_BODY=$(cat)
+        ;;
+    esac
     case "$R" in
     webuipasswd)
         PW=$(form_field password)
@@ -359,12 +409,7 @@ svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|read
         ;;
     savesettings|saveservices|runcmd|runcmdtermux|execboot)
         # body 透传 stdin；空 body 直接拒，防“已保存”假成功。
-        BODY_LEN=${CONTENT_LENGTH:-0}
-        case "$BODY_LEN" in ''|*[!0-9]*) BODY_LEN=0 ;; esac
-        if [ "$BODY_LEN" -le 0 ] 2>/dev/null; then
-            cgi_fail "400 Bad Request" "请求体为空"
-            exit 0
-        fi
+        cgi_check_body
         case "$SUB" in
         savesettings) webui_log "保存设置项：$(client_ip)"; OUT=$(cat | api_save_settings 2>/dev/null) ;;
         saveservices) webui_log "保存服务项：$(client_ip)"; OUT=$(cat | api_save_services 2>/dev/null) ;;
@@ -379,11 +424,11 @@ svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|read
         P1=$(qparam p1)
         P2=$(qparam p2)
         case "$SUB" in
-        start) webui_log "启动服务：${P2:-$P1}（$(client_ip)）"; OUT=$(api_start_service "$P1" "$P2" 2>/dev/null) ;;
-        stop) webui_log "停止服务：${P1:-?}（$(client_ip)）"; OUT=$(api_stop_service "$P1" 2>/dev/null) ;;
+        start) webui_log "启动服务：$(log_flat "${P2:-$P1}")（$(client_ip)）"; OUT=$(api_start_service "$P1" "$P2" 2>/dev/null) ;;
+        stop) webui_log "停止服务：$(log_flat "${P1:-?}")（$(client_ip)）"; OUT=$(api_stop_service "$P1" 2>/dev/null) ;;
         readlog) OUT=$(api_read_log "$P1" "$P2" 2>/dev/null) ;;
         clearlog)
-            webui_log "清空日志：${P1:-?}（$(client_ip)）"
+            webui_log "清空日志：$(log_flat "${P1:-?}")（$(client_ip)）"
             if clear_log "$P1"; then OUT='{"success":true}'; else OUT='{"success":false,"error":"名称不合法"}'; fi
             ;;
         esac
