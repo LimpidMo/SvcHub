@@ -933,7 +933,7 @@
             const p = String(port || '').trim();
             if (!p) return 'port:未知';
             const n = parseValidPort(p);
-            return n === null ? p : 'port:' + n;
+            return n === null ? escapeHtml(p) : 'port:' + n;
         }
 
         // 状态页/配置页共用条目信息（名称 + 端口 + extra + auto 标签，extra 为空不占位）

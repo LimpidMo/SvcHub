@@ -212,10 +212,6 @@ api_get_settings() {
 		printf '%s' "$SCHEDULE_START" | enc_js
 		printf '","webui_enabled":"'
 		printf '%s' "$WEBUI_ENABLED" | enc_js
-		printf '","webui_password_hash":"'
-		printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js
-		printf '","webui_token":"'
-		printf '%s' "$WEBUI_TOKEN" | enc_js
 		printf '"}\n'
 	}
 }
@@ -262,10 +258,6 @@ api_get_config() {
 		printf '%s' "$SCHEDULE_START" | enc_js
 		printf '","webui_enabled":"'
 		printf '%s' "$WEBUI_ENABLED" | enc_js
-		printf '","webui_password_hash":"'
-		printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js
-		printf '","webui_token":"'
-		printf '%s' "$WEBUI_TOKEN" | enc_js
 		printf '"}\n'
 	}
 }
