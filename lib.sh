@@ -62,7 +62,7 @@ mkdir -p "$RUNDIR" "$LOG_DIR" "$RUNDIR/session"
 # ---------- 配置（config/setting.conf 设置项 + config/services.conf 服务项） ----------
 # 配置 schema 唯一定义（15 键）：新增设置键需同步补全 load_settings / write_settings / action.sh cfg_apply_one 及前端字段；
 # 新增服务类型只需在 load_services / write_services 加一个 type 分支。
-SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names webui_enabled webui_password_hash webui_token'
+SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names patrol_enabled webui_enabled webui_password_hash webui_token'
 
 # JSON 字符串编码：\ " tab CR 转义、换行转字面 \n；逐字符拼接（gsub 替换串反斜杠 busybox/gawk 语义不一致，禁用）
 enc_js() {
@@ -108,6 +108,8 @@ write_settings() {
 		printf 'schedule_start=%s\n'          "$(printf '%s' "$SCHEDULE_START" | enc_js)"
 		printf 'screen_service_enabled=%s\n'  "$(printf '%s' "$SCREEN_SERVICE_ENABLED" | enc_js)"
 		printf 'screen_service_names=%s\n'    "$(printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js)"
+		printf 'screen_resume_names=%s\n'     "$(printf '%s' "$SCREEN_RESUME_NAMES" | enc_js)"
+		printf 'patrol_enabled=%s\n'          "$(printf '%s' "$PATROL_ENABLED" | enc_js)"
 		printf 'webui_enabled=%s\n'           "$(printf '%s' "$WEBUI_ENABLED" | enc_js)"
 		printf 'webui_password_hash=%s\n'     "$(printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js)"
 		printf 'webui_token=%s\n'             "$(printf '%s' "$WEBUI_TOKEN" | enc_js)"
@@ -420,7 +422,8 @@ load_settings() {
 	SLEEP_INTERVAL=""; SERVER_DIR=""; BOOT_COMMANDS=""
 	WIFI_SERVICE_ENABLED=""; WIFI_SERVICE_NAMES=""; WIFI_SERVICE_NAMES_OFF=""; WIFI_SSIDS=""
 	SCHEDULE_ENABLED=""; SCHEDULE_STOP=""; SCHEDULE_START=""
-	SCREEN_SERVICE_ENABLED=""; SCREEN_SERVICE_NAMES=""
+	SCREEN_SERVICE_ENABLED=""; SCREEN_SERVICE_NAMES=""; SCREEN_RESUME_NAMES=""
+	PATROL_ENABLED=""
 	WEBUI_ENABLED=""; WEBUI_PASSWORD_HASH=""; WEBUI_TOKEN=""
 	[ -f "$f" ] || return 0
 	while IFS= read -r line || [ -n "$line" ]; do
@@ -428,7 +431,7 @@ load_settings() {
 		case "$line" in ''|'#'*) continue ;; esac
 		k=${line%%=*}
 		case "$k" in
-		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|screen_service_enabled|screen_service_names|webui_enabled|webui_password_hash|webui_token) ;;
+		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|screen_service_enabled|screen_service_names|screen_resume_names|patrol_enabled|webui_enabled|webui_password_hash|webui_token) ;;
 		*) continue ;;
 		esac
 		v=${line#*=}
@@ -447,6 +450,8 @@ load_settings() {
 		schedule_start) SCHEDULE_START=$v ;;
 		screen_service_enabled) SCREEN_SERVICE_ENABLED=$v ;;
 		screen_service_names) SCREEN_SERVICE_NAMES=$v ;;
+		screen_resume_names) SCREEN_RESUME_NAMES=$v ;;
+		patrol_enabled) PATROL_ENABLED=$v ;;
 		webui_enabled) WEBUI_ENABLED=$v ;;
 		webui_password_hash) WEBUI_PASSWORD_HASH=$v ;;
 		webui_token) WEBUI_TOKEN=$v ;;
@@ -552,6 +557,13 @@ load_cfg_sh() {
 	[ "$SCHEDULE_ENABLED" = "1" ] || SCHEDULE_ENABLED="0"
 
 	[ "$SCREEN_SERVICE_ENABLED" = "1" ] || SCREEN_SERVICE_ENABLED="0"
+
+	# 自动巡检：缺键默认开启，显式 0 保留（老配置升级兼容）。
+	if [ -z "$PATROL_ENABLED" ]; then
+		PATROL_ENABLED="1"
+	elif [ "$PATROL_ENABLED" != "0" ] && [ "$PATROL_ENABLED" != "1" ]; then
+		PATROL_ENABLED="1"
+	fi
 
 	# 缺键默认开启，显式 0 保留。
 	if [ -z "$WEBUI_ENABLED" ]; then
@@ -665,13 +677,13 @@ wifi_log() {
 }
 
 wifi_log_connected_text() {
-	[ "$WIFI_LOG_CONNECTED" = "1" ] && printf '已连接' || printf '未连接'
+	[ "$WIFI_LOG_CONNECTED" = "1" ] && printf '已连接' || printf '已断开'
 }
 
 wifi_log_match_text() {
 	case "$WIFI_LOG_SSID_MATCH" in
 		1) printf 'SSID匹配' ;;
-		0) printf 'SSID不匹配' ;;
+		0) printf '无SSID匹配' ;;
 		*) printf 'SSID未检测' ;;
 	esac
 }
@@ -684,6 +696,11 @@ wifi_log_ssid_text() {
 	else
 		printf '%s' "$WIFI_LOG_SSID"
 	fi
+}
+
+# 名单拼接展示用：压连续空格并去首尾（sync 日志合并行共用）
+wifi_trim_list() {
+	printf '%s' "$1" | sed 's/  */ /g;s/^ //;s/ $//'
 }
 
 # 检查 Wi-Fi 是否已连接
@@ -873,9 +890,10 @@ starts_blocked_reason() {
 	return 1
 }
 
-# Wi-Fi 无人值守启动专用门控：豁免亮屏未解锁禁令（到家/离家场景手机锁屏也要能起），定时窗/熄屏禁令不变
+# Wi-Fi 无人值守启动专用门控：豁免亮屏未解锁禁令（到家/离家场景手机锁屏也要能起），定时窗/熄屏禁令不变。
+# 输出原因文案（空=放行），调用方按实际原因记录
 starts_blocked_wifi() {
-	starts_blocked_reason "$1" 1 >/dev/null
+	starts_blocked_reason "$1" 1
 }
 
 # 屏幕亮灭判定：设 SCREEN_ON（1=亮屏 0=熄屏）；开关关闭首行短路零 fork。
@@ -912,11 +930,79 @@ calc_screen_state() {
 	return 0
 }
 
+# Wi-Fi 启动段：窗内边沿说明/门控筛选/两类启动执行。$1=组名 $2=清洗后名单
+wifi_sync_starts() {
+	local group=$1 names_list=$2 name row port extra auto cmd reason
+	local t_start="" b_start="" missing="" blocked=""
+	if [ "$SCHED_IN_WINDOW" = "1" ]; then
+		# 定时窗优先级高于 Wi-Fi 启动：窗内不启动，仅首次说明（边沿化防刷屏）
+		if [ -z "$WIFI_WINDOW_NOTED" ] && [ -n "$names_list" ]; then
+			WIFI_WINDOW_NOTED=1
+			wifi_log "定时停止窗内，${group}暂停启动"
+		fi
+		return 0
+	fi
+	WIFI_WINDOW_NOTED=""
+	for name in $names_list; do
+		valid_name "$name" || continue
+		svc_running "$name" && continue
+		# 启动禁令：按实际原因记录（Wi-Fi 无人值守豁免解锁禁令，见 starts_blocked_wifi）
+		if reason=$(starts_blocked_wifi "$name"); then
+			blocked="$blocked $name（$reason）"
+			continue
+		fi
+		if [ -n "$(pick_termux "$name")" ]; then
+			t_start="$t_start $name"
+		elif [ -n "$(pick_binary "$name")" ]; then
+			b_start="$b_start $name"
+		else
+			missing="$missing $name"
+		fi
+	done
+	[ -n "$blocked" ] && wifi_log "按门控暂停启动：$(wifi_trim_list "$blocked")"
+	# 两类服务合并一行输出（Termux 在前），执行仍按类型分开
+	if [ -n "$t_start" ] || [ -n "$b_start" ]; then
+		wifi_log "启动${group}：$(wifi_trim_list "$t_start $b_start")"
+	fi
+	for name in $t_start; do
+		row=$(pick_termux "$name")
+		IFS='|' read -r _ port extra auto cmd <<EOF
+$row
+EOF
+		launch_svc termux "$name" "$extra" "$cmd"
+	done
+	for name in $b_start; do
+		row=$(pick_binary "$name")
+		IFS='|' read -r _ port extra auto cmd <<EOF
+$row
+EOF
+		launch_svc binary "$name" "$extra" "$cmd"
+	done
+	[ -n "$missing" ] && wifi_log "不在服务配置中，跳过：$(wifi_trim_list "$missing")"
+	return 0
+}
+
+# Wi-Fi 停止段：无条件停止（停止不经门控）。$1=组名 $2=清洗后名单
+wifi_sync_stops() {
+	local group=$1 names_list=$2 name stops=""
+	for name in $names_list; do
+		valid_name "$name" || continue
+		svc_running "$name" && stops="$stops $name"
+	done
+	if [ -n "$stops" ]; then
+		wifi_log "停止${group}：$(wifi_trim_list "$stops")"
+		for name in $stops; do
+			stop_svc "$name"
+		done
+	fi
+	return 0
+}
+
 # 根据策略同步受管服务的启停
 # $1=策略(allow/block/disabled) $2=模式(on=连接组，allow起/block停；off=断开组，反向：allow停/block起)
 # 重叠规则：同一服务同时在两组时连接组优先，断开组跳过并记警告。
 sync_wifi_service_policy() {
-	local new_policy=$1 mode=${2:-on} name row port extra auto cmd
+	local new_policy=$1 mode=${2:-on} name
 	local group target_names on_names
 
 	if [ "$mode" = "off" ]; then
@@ -932,14 +1018,16 @@ sync_wifi_service_policy() {
 	# 策略变化记录到 Wi-Fi 专属日志（含上下文），supervisor 日志不再记录
 	# 两组共享同一策略，变化行只记一次（由 on 分支记录，off 分支跳过）
 	if [ "$mode" = "on" ] && [ "$new_policy" != "$WIFI_POLICY_PREV" ]; then
-		local prev_state cur_state
-		case "${WIFI_POLICY_PREV:-}" in allow) prev_state=已连接 ;; block) prev_state=已断开 ;; *) prev_state=功能关闭 ;; esac
-		case "$new_policy" in allow) cur_state=已连接 ;; block) cur_state=已断开 ;; *) cur_state=功能关闭 ;; esac
-		wifi_log "WiFi 状态变化：$prev_state -> $cur_state（$(wifi_log_connected_text)，$(wifi_log_match_text)）"
-		# 已配置白名单且已连接时，输出当前 Wi-Fi 名称（及 netId），方便排查匹配失败；
-		# 白名单为空（任意 WiFi）时不获取 SSID，跳过该行避免输出无意义的 (空)
-		[ "$new_policy" != "disabled" ] && [ "$WIFI_LOG_CONNECTED" = "1" ] && [ -n "$WIFI_SSIDS" ] && \
-			wifi_log "当前 Wi-Fi：$(wifi_log_ssid_text)"
+		# 状态行：直接呈现当前连接态与匹配结果
+		if [ "$new_policy" = "disabled" ]; then
+			wifi_log "Wi-Fi 启停已关闭"
+		else
+			wifi_log "WiFi $(wifi_log_connected_text)（$(wifi_log_match_text)）"
+			# 已配置白名单且已连接时，输出当前 Wi-Fi 名称（及 netId），方便排查匹配失败；
+			# 白名单为空（任意 WiFi）时不获取 SSID，跳过该行避免输出无意义的 (空)
+			[ "$WIFI_LOG_CONNECTED" = "1" ] && [ -n "$WIFI_SSIDS" ] && \
+				wifi_log "当前 Wi-Fi：$(wifi_log_ssid_text)"
+		fi
 		WIFI_POLICY_PREV="$new_policy"
 	fi
 
@@ -950,12 +1038,9 @@ sync_wifi_service_policy() {
 	local names_list
 	names_list=$(printf '%s\n' "$target_names" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | tr '\n' ' ')
 
-	# 同类服务聚合为一行日志（name 均经 valid_name 校验，不含空格，可安全空格拼接）
-	local t_start="" b_start="" missing="" stops="" dup="" blocked=""
-
 	# 断开组重叠检查：已在连接组的服务归连接组，断开组跳过并记警告
 	if [ "$mode" = "off" ] && [ -n "$on_names" ]; then
-		local on_list clean_list=""
+		local on_list clean_list="" dup=""
 		on_list=$(printf '%s\n' "$on_names" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | tr '\n' ' ')
 		for name in $names_list; do
 			case " $on_list " in
@@ -964,7 +1049,7 @@ sync_wifi_service_policy() {
 			esac
 		done
 		names_list=$clean_list
-		[ -n "$dup" ] && wifi_log "断开组服务$dup 同时在连接组，已按连接组处理"
+		[ -n "$dup" ] && wifi_log "断开组服务$(wifi_trim_list "$dup") 同时在连接组，已按连接组处理"
 	fi
 
 	# 断开组语义与连接组完全反向：allow=Wi-Fi 连上=断开组停、block=Wi-Fi 断开=断开组起
@@ -975,58 +1060,9 @@ sync_wifi_service_policy() {
 		if [ "$new_policy" = "allow" ]; then do_start=1; do_stop=""; else do_start=""; do_stop=1; fi
 	fi
 
-	if [ -n "$do_start" ] && [ "$SCHED_IN_WINDOW" != "1" ]; then
-		for name in $names_list; do
-			valid_name "$name" || continue
-			svc_running "$name" && continue
-			# 启动禁令：熄屏非白名单拦截（Wi-Fi 无人值守，豁免解锁禁令，见 starts_blocked_wifi）
-			if starts_blocked_wifi "$name"; then
-				blocked="$blocked $name"
-				continue
-			fi
-			if [ -n "$(pick_termux "$name")" ]; then
-				t_start="$t_start $name"
-			elif [ -n "$(pick_binary "$name")" ]; then
-				b_start="$b_start $name"
-			else
-				missing="$missing $name"
-			fi
-		done
-		[ -n "$blocked" ] && wifi_log "${group}服务$blocked 熄屏暂停启动"
-		if [ -n "$t_start" ]; then
-			wifi_log "WiFi 条件满足（$(wifi_log_match_text)），启动${group} Termux 服务$t_start"
-			for name in $t_start; do
-				row=$(pick_termux "$name")
-				IFS='|' read -r _ port extra auto cmd <<EOF
-$row
-EOF
-				launch_svc termux "$name" "$extra" "$cmd"
-			done
-		fi
-		if [ -n "$b_start" ]; then
-			wifi_log "WiFi 条件满足（$(wifi_log_match_text)），启动${group}二进制服务$b_start"
-			for name in $b_start; do
-				row=$(pick_binary "$name")
-				IFS='|' read -r _ port extra auto cmd <<EOF
-$row
-EOF
-				launch_svc binary "$name" "$extra" "$cmd"
-			done
-		fi
-		[ -n "$missing" ] && wifi_log "WiFi 条件满足，但${group}名单内服务$missing 不在服务配置中，跳过"
-	fi
-	if [ -n "$do_stop" ]; then
-		for name in $names_list; do
-			valid_name "$name" || continue
-			svc_running "$name" && stops="$stops $name"
-		done
-		if [ -n "$stops" ]; then
-			wifi_log "WiFi 条件不满足（$(wifi_log_connected_text)，$(wifi_log_match_text)），停止${group}服务$stops"
-			for name in $stops; do
-				stop_svc "$name"
-			done
-		fi
-	fi
+	[ -n "$do_start" ] && wifi_sync_starts "$group" "$names_list"
+	[ -n "$do_stop" ] && wifi_sync_stops "$group" "$names_list"
+	return 0
 }
 
 # 外部访问：监听与安全策略来自 web.conf，缺文件/非法值回默认。

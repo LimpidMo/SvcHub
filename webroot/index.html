@@ -100,6 +100,9 @@
         .wifi-group-title { font-size: 11px; color: var(--muted); letter-spacing: 0.5px; margin: 10px 0 6px; }
         .wifi-group-title:first-child { margin-top: 0; }
         .wifi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px; }
+        /* 选择窗两栏布局：左 Termux 右二进制，栏内服务项竖向单列 */
+        .wifi-pick-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; align-items: start; }
+        .wifi-pick-cols .wifi-grid { grid-template-columns: 1fr; }
         .wifi-grid label { display: flex; align-items: center; gap: 8px; padding: 6px 4px; font-size: 13px; cursor: pointer; border-radius: 4px; }
         .wifi-grid label:active { background: var(--bg); }
         .wifi-grid .port { margin-left: auto; }
@@ -187,12 +190,20 @@
                 </div>
                 <div class="section-body">
                     <div class="form">
-                        <label class="form-label-strong">检查间隔 (秒)</label>
-                        <div class="form-row">
-                            <input type="number" class="form-input" id="input-sleep" value="60" min="10" onblur="autoSaveBasic()" placeholder="最小 10 秒，建议 60 秒">
-                            <button class="btn btn-lg" onclick="showLog('supervisor')">日志</button>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label class="form-label-strong" style="margin:0;">巡检保活</label>
+                            <label class="switch" title="自动巡检：关闭后仅停周期拉起；出停止窗/亮屏解锁/Wi-Fi 条件满足的恢复照常">
+                                <input type="checkbox" id="patrol-switch" onclick="togglePatrol(this)">
+                                <span class="switch-slider"></span>
+                            </label>
                         </div>
-                        <div class="form-error" id="error-sleep"></div>
+                        <div id="patrol-panel" style="display:none;">
+                            <div class="form-row">
+                                <input type="number" class="form-input" id="input-sleep" value="60" min="10" onblur="autoSaveBasic()" placeholder="检查间隔 (秒)，最小10秒，建议60秒">
+                                <button class="btn btn-lg" onclick="showLog('supervisor')">日志</button>
+                            </div>
+                            <div class="form-error" id="error-sleep"></div>
+                        </div>
                     </div>
                 <div class="form">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -297,10 +308,11 @@
                         </div>
                         <div id="screen-panel" style="display:none;">
                             <div style="display:flex;gap:6px;margin-bottom:10px;">
+                                <button class="btn btn-lg" id="screenon-pick-btn" style="flex:1;" onclick="openWifiModal('screenon')">亮屏白名单 (0)</button>
                                 <button class="btn btn-lg" id="screen-pick-btn" style="flex:1;" onclick="openWifiModal('screen')">锁屏白名单 (0)</button>
                                 <button class="btn btn-lg" onclick="showLog('screen')">日志</button>
                             </div>
-                            <div class="form-hint">亮屏按 start 标签服务启动，熄屏停止全部（白名单除外）</div>
+                            <div class="form-hint">亮屏解锁后启动亮屏白名单服务（为空则恢复 start 项服务）；锁屏后停止全部（锁屏白名单除外）</div>
                             <div class="form-error" id="error-screen"></div>    
                         </div>
                     </div>
@@ -473,7 +485,8 @@
             wifi_service_enabled: false, wifi_service_names: new Set(), wifi_service_names_off: new Set(),
             wifi_ssids: '',
             schedule_enabled: false, schedule_stop: '', schedule_start: '',
-            screen_service_enabled: false, screen_service_names: new Set(),
+            screen_service_enabled: false, screen_service_names: new Set(), screen_resume_names: new Set(),
+            patrol_enabled: false,
             webui_enabled: false, webui_port: 5555
         };
         let statusData = { termux_services: [], binary_services: [] };
@@ -1279,6 +1292,8 @@
                     configData.schedule_start = d.schedule_start || '';
                     configData.screen_service_enabled = d.screen_service_enabled === '1';
                     configData.screen_service_names = new Set((d.screen_service_names || '').split('\n').map(s => s.trim()).filter(Boolean));
+                    configData.screen_resume_names = new Set((d.screen_resume_names || '').split('\n').map(s => s.trim()).filter(Boolean));
+                    configData.patrol_enabled = d.patrol_enabled === '1';
                     configData.webui_enabled = d.webui_enabled === '1';
                     isSettingsLoaded = true;
                     renderConfigFromCache();
@@ -1294,6 +1309,10 @@
                     if (typeof screenToggling !== 'undefined' && screenToggling) {
                         document.getElementById('screen-switch').checked = configData.screen_service_enabled;
                         document.getElementById('screen-panel').style.display = configData.screen_service_enabled ? 'block' : 'none';
+                    }
+                    if (typeof patrolToggling !== 'undefined' && patrolToggling) {
+                        document.getElementById('patrol-switch').checked = configData.patrol_enabled;
+                        document.getElementById('patrol-panel').style.display = configData.patrol_enabled ? 'block' : 'none';
                     }
                     if (typeof webuiToggling !== 'undefined' && webuiToggling) {
                         document.getElementById('webui-switch').checked = configData.webui_enabled;
@@ -1342,7 +1361,12 @@
                 document.getElementById('screen-panel').style.display = configData.screen_service_enabled ? 'block' : 'none';
             }
             updateScreenPickBtn();
+            updateScreenOnPickBtn();
             document.getElementById('error-screen').textContent = '';
+            if (typeof patrolToggling === 'undefined' || !patrolToggling) {
+                document.getElementById('patrol-switch').checked = configData.patrol_enabled;
+                document.getElementById('patrol-panel').style.display = configData.patrol_enabled ? 'block' : 'none';
+            }
             renderConfigLists();
         }
 
@@ -1411,11 +1435,15 @@
                 toast('停止 ' + name + '...');
                 await invoke('stop ' + sq(name));
                 svcArr(type).splice(idx, 1);
-                // 同步清理 Wi-Fi 启停名单中的残留，避免名单指向不存在的服务
+                // 同步清理名单中的残留，避免名单指向不存在的服务
                 configData.wifi_service_names.delete(name);
                 configData.wifi_service_names_off.delete(name);
+                configData.screen_service_names.delete(name);
+                configData.screen_resume_names.delete(name);
                 renderConfigLists();
                 updateWifiPickBtn();
+                updateScreenPickBtn();
+                updateScreenOnPickBtn();
                 toast('保存中...');
                 saveServicesOnly(type);
                 closeConfirm();
@@ -1550,6 +1578,31 @@
                 document.getElementById('input-sleep').value = configData.sleep_interval;
                 document.getElementById('input-server-dir').value = configData.server_dir;
             }
+        }
+
+        // —— 自动巡检开关 ——
+
+        let patrolToggling = false;
+        function togglePatrol(el) {
+            if (patrolToggling) return;
+            const sw = el || document.getElementById('patrol-switch');
+            const on = sw.checked;
+            // 待定态：禁用防连点，面板按本次拨动即时显隐
+            patrolToggling = true;
+            sw.disabled = true;
+            document.getElementById('patrol-panel').style.display = on ? 'block' : 'none';
+            configData.patrol_enabled = on;
+            saveSettingsKey('patrol_enabled', on ? '1' : '0', (ok) => {
+                patrolToggling = false;
+                sw.disabled = false;
+                if (ok) toast(on ? '已开启' : '已关闭');
+                else {
+                    configData.patrol_enabled = !on;
+                    sw.checked = !on;
+                    document.getElementById('patrol-panel').style.display = !on ? 'block' : 'none';
+                    toast('保存失败', true);
+                }
+            });
         }
 
         async function saveBootCmds() {
@@ -1913,9 +1966,9 @@
             const ok = await saveConfigPayload(key + '=' + toB64(value), null, 'savesettings');
             if (ok) {
                 if (key === 'wifi_service_enabled') configData.wifi_service_enabled = (value === '1');
+                else if (key === 'patrol_enabled') configData.patrol_enabled = (value === '1');
                 else if (key === 'wifi_ssids') configData.wifi_ssids = value;
                 else if (key === 'screen_service_enabled') configData.screen_service_enabled = (value === '1');
-                else if (key === 'screen_service_names') configData.screen_service_names = new Set(String(value).split('\n').map(s => s.trim()).filter(Boolean));
                 toast('已保存');
             } else {
                 toast('保存失败', true);
@@ -1932,6 +1985,10 @@
             document.getElementById('screen-pick-btn').textContent = '锁屏白名单 (' + configData.screen_service_names.size + ')';
         }
 
+        function updateScreenOnPickBtn() {
+            document.getElementById('screenon-pick-btn').textContent = '亮屏白名单 (' + configData.screen_resume_names.size + ')';
+        }
+
         // 选择弹窗：另一组已选的服务置灰禁用（仍可见，不可勾选），互斥一目了然
         function renderWifiPickBody(picked, excluded) {
             const groups = [
@@ -1939,77 +1996,73 @@
                 { title: '二进制服务', list: configData.binary_services }
             ].filter(g => g.list.length);
             if (!groups.length) return '<div class="empty">暂无服务</div>';
-            return groups.map(g => `
-                <div class="wifi-group-title">${g.title}</div>
-                <div class="wifi-grid">
-                    ${g.list.map(s => {
-                        const locked = excluded.has(s.name);
-                        return `
-                    <label style="${locked ? 'opacity:0.45;' : ''}">
-                        <input type="checkbox" value="${escapeHtml(s.name)}" ${picked.has(s.name) ? 'checked' : ''} ${locked ? 'disabled' : ''}>
-                        <span>${escapeHtml(s.name)}</span>
-                    </label>`; }).join('')}
-                </div>`).join('');
+            const renderGroup = g => `
+                <div>
+                    <div class="wifi-group-title">${g.title}</div>
+                    <div class="wifi-grid">
+                        ${g.list.map(s => {
+                            const locked = excluded.has(s.name);
+                            return `
+                        <label style="${locked ? 'opacity:0.45;' : ''}">
+                            <input type="checkbox" value="${escapeHtml(s.name)}" ${picked.has(s.name) ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+                            <span>${escapeHtml(s.name)}</span>
+                        </label>`; }).join('')}
+                    </div>
+                </div>`;
+            // 两组都有内容时左右分栏（左 Termux 右二进制），单组维持原布局
+            if (groups.length === 2) return `<div class="wifi-pick-cols">${groups.map(renderGroup).join('')}</div>`;
+            return groups.map(renderGroup).join('');
         }
 
-        // wifi 弹窗按 mode 复用：on=连接启停组名单，off=断开启停组名单
-        let wifiPickMode = 'on';
-        let wifiPickBackup = null;
+        //  弹窗按 mode 复用，配置驱动：key=configData 属性（与保存键同名），peer=同功能互斥组
+        // （Wi-Fi 连接组↔断开组、锁屏白名单↔亮屏白名单；跨功能不互斥）
+        let pickMode = 'on';
+        let pickBackup = null;
+        const SERVICES_PICK_DEFS = {
+            on:       { title: '选择连接组服务（连上时运行，断开则停止）', key: 'wifi_service_names', peer: 'wifi_service_names_off', upd: updateWifiPickBtn },
+            off:      { title: '选择断开组服务（断开则运行，连上则停止）', key: 'wifi_service_names_off', peer: 'wifi_service_names', upd: updateWifiPickBtn },
+            screen:   { title: '选择锁屏白名单服务（若已运行，锁屏时保持运行）', key: 'screen_service_names', peer: 'screen_resume_names', upd: updateScreenPickBtn },
+            screenon: { title: '选择亮屏白名单服务（亮屏解锁后启动的服务，空则启动start项）', key: 'screen_resume_names', peer: 'screen_service_names', upd: updateScreenOnPickBtn }
+        };
+
         // 清空当前弹窗已勾选项（另一组锁定项不动）
         function clearWifiPick() {
             document.querySelectorAll('#wifi-pick-body input[type="checkbox"]:not(:disabled)').forEach(c => { c.checked = false; });
         }
 
-        function wifiPickTarget() {
-            if (wifiPickMode === 'screen') return configData.screen_service_names;
-            return wifiPickMode === 'off' ? configData.wifi_service_names_off : configData.wifi_service_names;
-        }
-
         async function openWifiModal(mode) {
             // 选择弹窗要服务列表：服务配置页没加载过就先拉一次
             if (!isServicesLoaded) await loadConfigSvcs();
-            wifiPickMode = (mode === 'off') ? 'off' : (mode === 'screen') ? 'screen' : 'on';
-            const picked = new Set(wifiPickTarget());
-            // 另一组已选的置灰禁用（锁屏白名单无互斥组），互斥在选择时生效
-            const excluded = wifiPickMode === 'off' ? configData.wifi_service_names
-                : wifiPickMode === 'screen' ? new Set() : configData.wifi_service_names_off;
-            wifiPickBackup = picked;
-            document.getElementById('wifi-pick-title').textContent =
-                wifiPickMode === 'off' ? '选择断开组服务（断开则运行，连上则停止）'
-                : wifiPickMode === 'screen' ? '选择锁屏白名单服务（熄屏时保持运行）'
-                : '选择连接组服务（连上时运行,断开则停止）';
-            document.getElementById('wifi-pick-body').innerHTML = renderWifiPickBody(picked, excluded);
+            pickMode = SERVICES_PICK_DEFS[mode] ? mode : 'on';
+            const def = SERVICES_PICK_DEFS[pickMode];
+            const picked = new Set(configData[def.key]);
+            pickBackup = picked;
+            document.getElementById('wifi-pick-title').textContent = def.title;
+            document.getElementById('wifi-pick-body').innerHTML = renderWifiPickBody(picked, configData[def.peer]);
             document.getElementById('wifi-pick-ok').disabled = !configData.termux_services.length && !configData.binary_services.length;
             showAnyModal('modal-wifi-pick');
         }
 
         function closeWifiModal() {
             // 取消：恢复弹窗打开前的选择
-            if (wifiPickBackup) {
-                if (wifiPickMode === 'screen') configData.screen_service_names = new Set(wifiPickBackup);
-                else if (wifiPickMode === 'off') configData.wifi_service_names_off = new Set(wifiPickBackup);
-                else configData.wifi_service_names = new Set(wifiPickBackup);
-            }
-            wifiPickBackup = null;
+            const def = SERVICES_PICK_DEFS[pickMode];
+            if (pickBackup) configData[def.key] = new Set(pickBackup);
+            pickBackup = null;
             hideAnyModal('modal-wifi-pick');
         }
 
         function confirmWifiPick() {
+            const def = SERVICES_PICK_DEFS[pickMode];
             const picked = new Set();
             document.querySelectorAll('#wifi-pick-body input[type="checkbox"]:checked').forEach(el => picked.add(el.value));
             // 禁用项不可勾选，确定时直接落盘（后端连接优先仍是兜底）
-            if (wifiPickMode === 'screen') configData.screen_service_names = picked;
-            else if (wifiPickMode === 'off') configData.wifi_service_names_off = picked;
-            else configData.wifi_service_names = picked;
-            wifiPickBackup = null;
+            configData[def.key] = picked;
+            pickBackup = null;
             hideAnyModal('modal-wifi-pick');
-            const upd = wifiPickMode === 'screen' ? updateScreenPickBtn : updateWifiPickBtn;
-            upd();
+            def.upd();
             // 轻量保存：只发本组名单单键，不做全量重载；失败回滚按钮计数
             toast('保存中...');
-            const key = wifiPickMode === 'screen' ? 'screen_service_names'
-                : wifiPickMode === 'off' ? 'wifi_service_names_off' : 'wifi_service_names';
-            saveSettingsKey(key, [...picked].join('\n'), (ok) => { if (ok) upd(); });
+            saveSettingsKey(def.key, [...picked].join('\n'), (ok) => { if (ok) def.upd(); });
         }
 
         // 弹窗遮罩点击 = 取消

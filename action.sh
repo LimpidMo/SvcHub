@@ -220,6 +220,10 @@ api_get_settings() {
 		printf '%s' "$SCREEN_SERVICE_ENABLED" | enc_js
 		printf '","screen_service_names":"'
 		printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js
+		printf '","screen_resume_names":"'
+		printf '%s' "$SCREEN_RESUME_NAMES" | enc_js
+		printf '","patrol_enabled":"'
+		printf '%s' "$PATROL_ENABLED" | enc_js
 		printf '","webui_enabled":"'
 		printf '%s' "$WEBUI_ENABLED" | enc_js
 		printf '"}\n'
@@ -469,6 +473,25 @@ cfg_apply_one() {
 		fi
 		SCREEN_SERVICE_NAMES=$val
 		;;
+	screen_resume_names)
+		invalid_name=$(validate_name_list "$val")
+		if [ -n "$invalid_name" ]; then
+			err=$(printf '%s' "$invalid_name" | tr -d '\r' | cut -c1-60 | tr -d '"\\')
+			echo "{\"success\":false,\"error\":\"亮屏白名单服务名不合法: $err\"}"
+			exit 1
+		fi
+		SCREEN_RESUME_NAMES=$val
+		;;
+	patrol_enabled)
+		case "$val" in
+		0|1)
+			# 开关值实际变化才记日志，全量保存不刷屏
+			[ "$PATROL_ENABLED" != "$val" ] && TOGGLE_LOG="$TOGGLE_LOG patrol_enabled=$val"
+			PATROL_ENABLED=$val
+			;;
+		*) echo '{"success":false,"error":"巡检开关必须为 0 或 1"}'; exit 1 ;;
+		esac
+		;;
 	esac
 }
 
@@ -501,6 +524,7 @@ api_save_settings() {
 		tkey=${tkey%%=*}
 		[ "$tval" = 1 ] && tstate=开启 || tstate=关闭
 		case "$tkey" in
+		patrol_enabled)         sup_log    "自动巡检已$tstate" ;;
 		wifi_service_enabled)   wifi_log   "Wi-Fi 启停服务已$tstate" ;;
 		schedule_enabled)       sched_log  "定时启停服务已$tstate" ;;
 		screen_service_enabled) screen_log "亮屏启停服务已$tstate" ;;

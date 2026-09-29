@@ -54,16 +54,19 @@ wait_boot_stages() {
 	fi
 }
 
-# 巡检启动单类服务：$1=kind(termux|binary) $2=配置行列表 $3=运行中名字集合。
-# 仅 auto=start 且未运行才启动；Wi-Fi 策略兜底统一由 wifi_should_skip 判定
+# 巡检启动单类服务：$1=kind(termux|binary) $2=配置行列表 $3=运行中名字集合 $4=仅启名单(空=正常巡检)。
+# 名单模式（亮屏白名单恢复轮）：只处理名单内服务且不看 auto 标签（显式名单覆盖），名单外零输出；
+# 正常模式：仅 auto=start 且未运行才启动；Wi-Fi 策略兜底统一由 wifi_should_skip 判定
 # （定时停止窗已在轮首整轮跳过，此处不再重复判断）。
 patrol_start_rows() {
-	local kind=$1 rows=$2 runset=$3 name port extra auto cmd reason
+	local kind=$1 rows=$2 runset=$3 allow_names=$4 name port extra auto cmd reason
 	# 两类行统一 5 段 name|port|extra|auto|cmd（含 binary 空 extra），read 变量名列表一致
 	set -- name port extra auto cmd
 	while IFS='|' read -r "$@"; do
 		[ -n "$name" ] || continue
-		if [ "$auto" != start ]; then
+		if [ -n "$allow_names" ]; then
+			name_in_set "$name" "$allow_names" || continue
+		elif [ "$auto" != start ]; then
 			sup_log_bare "    跳过 $name"
 			continue
 		fi
@@ -81,7 +84,8 @@ patrol_start_rows() {
 			continue
 		fi
 		if name_in_set "$name" "$runset"; then
-			sup_log_bare "    已运行 $name"
+			# 名单模式只输出启动动作，已运行静默
+			[ -z "$allow_names" ] && sup_log_bare "    已运行 $name"
 			continue
 		fi
 		if launch_svc "$kind" "$name" "${extra:-}" "$cmd"; then
@@ -96,27 +100,61 @@ EOF
 }
 
 # 单轮巡检：定时停止窗内只做 Wi-Fi 同步的停止分支（禁启由 lib.sh 守卫）；
+# 自动巡检禁用时静默跳过周期拉起（零输出）——出停止窗/亮屏解锁的边沿恢复经 PATROL_RESUME 放行一次，
+# Wi-Fi 条件启停在 sleep_slice 分片里照常执行，不经此处；
+# "巡检开始/完成"头日志在此输出（禁用静默轮不出，避免刷屏）；
 # 窗外先算 Wi-Fi 策略并同步（在计算 runset 之前执行，确保新启动的服务能被正确识别为已运行），
 # 再按配置巡检启动 auto=start 且未运行的服务。
 patrol_once() {
-	local runset
+	local runset resume_kind="" resume_allow=""
+	# 边沿恢复放行标记（一次性消费）：sched=出停止窗恢复(全量)；screen=亮屏解锁恢复(受亮屏白名单约束)
+	case "$PATROL_RESUME" in
+	sched) resume_kind=sched ;;
+	screen) resume_kind=screen ;;
+	esac
+	PATROL_RESUME=""
 	LOAD_CFG_DONE=""
 	load_cfg_sh
+	# 亮屏名单必须在 load_cfg_sh 之后读取，避免用到上一分片的旧值
+	if [ "$resume_kind" = "screen" ] && [ -n "$SCREEN_RESUME_NAMES" ]; then
+		resume_allow=$SCREEN_RESUME_NAMES
+	fi
 	if [ "$SCHED_IN_WINDOW" = "1" ]; then
-		sup_log_bare "    跳过巡检（定时停止窗内 ${SCHEDULE_STOP}~${SCHEDULE_START}）"
+		# 窗内日志边沿化：进窗首轮说明一次，窗内期间静默
+		if [ -z "$SCHED_LOGGED" ]; then
+			SCHED_LOGGED=1
+			sup_log "巡检开始 启停功能策略（定时停止窗内 ${SCHEDULE_STOP}~${SCHEDULE_START}），暂停拉起"
+		fi
 		calc_wifi_policy
 		sync_wifi_service_policy "$WIFI_POLICY" on
 		sync_wifi_service_policy "$WIFI_POLICY" off
 		return 0
 	fi
+	# 窗外即清窗内已说明标记（下次进窗再说明一次）
+	SCHED_LOGGED=""
+	# 自动巡检禁用且非边沿恢复轮：静默跳过零输出（httpd 保活/日志轮转/边沿检测照常）
+	if [ "$PATROL_ENABLED" != "1" ] && [ -z "$resume_kind" ]; then
+		return 0
+	fi
+	# 边沿恢复轮头部标明"启停功能策略"，避免 interval 让用户误以为周期巡检仍在跑
+	if [ -n "$resume_kind" ]; then
+		sup_log "巡检开始 启停功能策略"
+	else
+		sup_log "巡检开始 interval=${SLEEP_INTERVAL}s"
+	fi
 	calc_wifi_policy
 	sync_wifi_service_policy "$WIFI_POLICY" on
 	sync_wifi_service_policy "$WIFI_POLICY" off
 	runset=$(compute_runset)
+	# 亮屏白名单恢复轮：名单非空仅启动名单内服务；空名单=正常巡检恢复
+	if [ -n "$resume_allow" ]; then
+		sup_log_bare "    亮屏白名单恢复：仅启动名单内服务"
+	fi
 	sup_log_bare " ------- Termux 服务 ------- "
-	patrol_start_rows termux "$TERMUX_SERVICES" "$runset"
+	patrol_start_rows termux "$TERMUX_SERVICES" "$runset" "$resume_allow"
 	sup_log_bare " ------- 二进制服务 ------- "
-	patrol_start_rows binary "$BINARY_SERVICES" "$runset"
+	patrol_start_rows binary "$BINARY_SERVICES" "$runset" "$resume_allow"
+	sup_log "巡检完成"
 }
 
 # 巡检后的分片休眠：长间隔拆成 <=60s 的分片，每片后重读配置，实现间隔热更新；
@@ -159,6 +197,7 @@ sleep_slice() {
 			if [ "$SCHED_IN_WINDOW" = "1" ]; then
 				SCHED_IN_WINDOW="0"
 				sched_log "定时启停已关闭，恢复巡检"
+				PATROL_RESUME=sched
 				break
 			fi
 			SCHED_WARNED=""
@@ -176,6 +215,7 @@ sleep_slice() {
 				else
 					sched_log "退出定时停止窗（${SCHEDULE_STOP}~${SCHEDULE_START}），立即巡检恢复服务"
 					# 出窗立即结束本轮休眠进入巡检：避免 sleep_interval=3600 时恢复延迟一小时
+					PATROL_RESUME=sched
 					break
 				fi
 			fi
@@ -184,6 +224,7 @@ sleep_slice() {
 			if [ "$SCHED_IN_WINDOW" = "1" ]; then
 				SCHED_IN_WINDOW="0"
 				sched_log "退出定时停止窗（${SCHEDULE_STOP}~${SCHEDULE_START}），立即巡检恢复服务"
+				PATROL_RESUME=sched
 				break
 			fi
 			if [ -z "$SCHED_WARNED" ]; then
@@ -203,10 +244,17 @@ sleep_slice() {
 			old_unlock=$SCREEN_UNLOCK_OK
 			if [ "$SCREEN_ON" = "1" ]; then
 				if [ "$SCREEN_UNLOCK_OK" = "1" ]; then
-					screen_log "亮屏且已解锁，立即巡检恢复服务"
-					break
+					if [ "$SCHED_IN_WINDOW" = "1" ]; then
+						# 定时窗优先级高于亮屏恢复：窗内不恢复，日志如实说明
+						screen_log "亮屏且已解锁，定时停止窗内，暂停拉起"
+					else
+						screen_log "亮屏且已解锁，立即巡检恢复服务"
+						PATROL_RESUME=screen
+						break
+					fi
+				else
+					screen_log "亮屏（锁屏中，待解锁后恢复）"
 				fi
-				screen_log "亮屏（锁屏中，待解锁后恢复）"
 			else
 				stop_all "$SCREEN_SERVICE_NAMES"
 				screen_log "进入熄屏，停止非白名单服务"
@@ -214,10 +262,16 @@ sleep_slice() {
 		elif [ "$SCREEN_ON" = "1" ] && [ "$SCREEN_UNLOCK_OK" != "$old_unlock" ]; then
 			old_unlock=$SCREEN_UNLOCK_OK
 			if [ "$SCREEN_UNLOCK_OK" = "1" ]; then
-				screen_log "亮屏已解锁，立即巡检恢复服务"
-				break
+				if [ "$SCHED_IN_WINDOW" = "1" ]; then
+					screen_log "亮屏已解锁，定时停止窗内，暂停拉起"
+				else
+					screen_log "亮屏已解锁，立即巡检恢复服务"
+					PATROL_RESUME=screen
+					break
+				fi
+			else
+				screen_log "亮屏又进入锁屏（不拉起，运行中服务保留）"
 			fi
-			screen_log "亮屏又进入锁屏（不拉起，运行中服务保留）"
 		fi
 
 		# Wi-Fi 策略变化检测与同步（在分片休眠中实时响应网络变化，无需等待下一个完整巡检周期）
@@ -249,6 +303,10 @@ load_cfg_sh
 # 定时停止窗首轮判定：重启落在窗内直接守住，巡检不拉起（无需持久化名单）
 SCHED_IN_WINDOW="0"
 SCHED_WARNED=""
+# 窗内已说明标记：进窗首轮在 supervisor.log 说明一次，窗内期间静默
+SCHED_LOGGED=""
+# 边沿恢复放行标记：出停止窗(sched)/亮屏解锁(screen)的立即巡检不受自动巡检禁用影响
+PATROL_RESUME=""
 if [ "$SCHEDULE_ENABLED" = "1" ] && [ -n "$SCHEDULE_STOP" ] && [ -n "$SCHEDULE_START" ]; then
 	if sched_in_window "$SCHEDULE_STOP" "$SCHEDULE_START" "$(date '+%H:%M')"; then
 		SCHED_IN_WINDOW="1"
@@ -274,9 +332,7 @@ while :; do
 		exit 0
 	fi
 
-	sup_log "巡检开始 interval=${SLEEP_INTERVAL}s"
 	patrol_once
-	sup_log "巡检完成"
 	rotate_all_logs
 
 	sleep_slice
