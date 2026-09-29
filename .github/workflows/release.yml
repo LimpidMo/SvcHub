@@ -55,8 +55,11 @@ jobs:
       - name: Extract release notes
         id: notes
         run: |
+          # 解析出的当前版本段落直接覆盖 changelog.md（zip 已由 git archive 打好，updateJson 只用文件名）：
+          # release 正文与附件 changelog.md 都是当前版本内容，不再上传全量 CHANGELOG
           bash .github/bin/releaseNotes.sh "${{ github.ref_name }}" "${{ needs.get_vars.outputs.changelog }}" release_notes.md
-          echo "notes_file=release_notes.md" >> "$GITHUB_OUTPUT"
+          mv release_notes.md "${{ needs.get_vars.outputs.changelog }}"
+          echo "notes_file=${{ needs.get_vars.outputs.changelog }}" >> "$GITHUB_OUTPUT"
 
       - name: Release
         uses: softprops/action-gh-release@v2.3.1

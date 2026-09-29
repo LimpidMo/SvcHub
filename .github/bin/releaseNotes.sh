@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 从 CHANGELOG.md 提取指定版本的段落，供 release 正文使用。
+# 从 CHANGELOG.md 提取指定版本的段落，供 release 正文与附件 changelog.md 使用。
 # 用法：bash .github/bin/releaseNotes.sh <version> [CHANGELOG.md] [输出文件]
 # version 可带 v 前缀（如 v1.0.2），自动去掉后匹配 "## [1.0.2]" 节。
 # 找不到对应节时输出一句兜底文案，保证 body_path 文件存在且流程不中断。
@@ -19,9 +19,9 @@ if [ ! -f "$CHANGELOG_FILE" ]; then
     exit 0
 fi
 
-# 取 "## [version]" 开头的节（标题行含日期后缀，不含标题行本身），到下一个同级 "## " 为止
+# 取 "## [version]" 开头的节（含标题行：附件 changelog 与更新弹窗都要版本标题），到下一个同级 "## " 为止
 awk -v prefix="## [$VERSION]" '
-    index($0, prefix) == 1 { found = 1; next }
+    index($0, prefix) == 1 { found = 1; print; next }
     found && /^## / { exit }
     found { print }
 ' "$CHANGELOG_FILE" | sed '/./,$!d' > "$OUTPUT_FILE"
