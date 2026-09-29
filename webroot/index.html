@@ -1533,27 +1533,38 @@
             return valid;
         }
 
-        function autoSaveBasic() {
-            if (validateBasic()) {
-                toast('保存中...');
-                // sleep 与服务目录同属本区输入框，两键一次提交；空 sleep=默认60，目录路径归一化同后端规则
-                const sleepV = document.getElementById('input-sleep').value.trim();
-                const serverDir = (document.getElementById('input-server-dir').value || '').trim().replace(/\/storage\/emulated\/0\//g, '/data/media/0/').replace(/(.)\/+$/, '$1');
-                saveConfigPayload('sleep_interval=' + toB64(sleepV === '' ? '60' : sleepV) + '\n' + 'server_dir=' + toB64(serverDir), null, 'savesettings');
+        async function autoSaveBasic() {
+            if (!validateBasic()) { toast('数据无效，请修正', true); return; }
+            toast('保存中...');
+            // sleep 与服务目录同属本区输入框，两键一次提交；空 sleep=默认60，目录路径归一化同后端规则
+            const sleepV = document.getElementById('input-sleep').value.trim();
+            const serverDir = (document.getElementById('input-server-dir').value || '').trim().replace(/\/storage\/emulated\/0\//g, '/data/media/0/').replace(/(.)\/+$/, '$1');
+            const ok = await saveConfigPayload('sleep_interval=' + toB64(sleepV === '' ? '60' : sleepV) + '\n' + 'server_dir=' + toB64(serverDir), null, 'savesettings');
+            if (ok) {
+                // 同步内存值：不回填 renderConfigFromCache 会用旧值盖输入框，之后提交也会旧覆盖新
+                configData.sleep_interval = sleepV === '' ? 60 : parseInt(sleepV, 10) || configData.sleep_interval;
+                configData.server_dir = serverDir;
+                toast('已保存');
             } else {
-                toast('数据无效，请修正', true);
+                // 失败回滚输入框到已加载值，避免留着的失败值被下次提交发出去
+                document.getElementById('input-sleep').value = configData.sleep_interval;
+                document.getElementById('input-server-dir').value = configData.server_dir;
             }
         }
 
-        function saveBootCmds() {
+        async function saveBootCmds() {
             const value = document.getElementById('input-boot-cmds').value;
             if (isTestMode) {
                 testCmdData = value;
                 return;
             }
-            configData.boot_commands = value;
             toast('保存中...');
-            saveConfigPayload('boot_commands=' + toB64(value), null, 'savesettings');
+            // 等保存结果再收尾：成功才同步内存并提示，失败不碰内存（回填仍用旧值）
+            const ok = await saveConfigPayload('boot_commands=' + toB64(value), null, 'savesettings');
+            if (ok) {
+                configData.boot_commands = value;
+                toast('已保存');
+            }
         }
 
         // 外部访问：开关/密码/Token 仅管理器可操作，直连侧只读状态。
@@ -1629,7 +1640,7 @@
             if (d) {
                 errEl.textContent = '';
                 document.getElementById('webui-panel').style.display = on ? 'block' : 'none';
-                toast('已保存');
+                toast(on ? '已开启' : '已关闭');
             } else {
                 try { errEl.textContent = (JSON.parse(r.stdout || '{}').error) || '操作失败'; } catch (e) { errEl.textContent = '操作失败'; }
                 sw.checked = !on;
@@ -1757,7 +1768,7 @@
             saveSettingsKey('wifi_service_enabled', on ? '1' : '0', (ok) => {
                 wifiToggling = false;
                 sw.disabled = false;
-                if (ok) toast('已保存');
+                if (ok) toast(on ? '已开启' : '已关闭');
                 else {
                     configData.wifi_service_enabled = !on;
                     sw.checked = !on;
@@ -1785,7 +1796,7 @@
             saveSettingsKey('screen_service_enabled', on ? '1' : '0', (ok) => {
                 screenToggling = false;
                 sw.disabled = false;
-                if (ok) toast('已保存');
+                if (ok) toast(on ? '已开启' : '已关闭');
                 else {
                     configData.screen_service_enabled = !on;
                     sw.checked = !on;
@@ -1809,7 +1820,7 @@
             saveScheduleKey('schedule_enabled', on ? '1' : '0', (ok) => {
                 schedToggling = false;
                 sw.disabled = false;
-                if (ok) toast('已保存');
+                if (ok) toast(on ? '已开启' : '已关闭');
                 else {
                     configData.schedule_enabled = !on;
                     sw.checked = !on;
