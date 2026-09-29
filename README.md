@@ -34,8 +34,8 @@
 | 服务状态 | 服务配置 | 功能设置|
 |---------|---------|---------|
 | ![服务状态](docs/images/01-status.png) | ![服务配置](docs/images/02-services.png ) |![功能设置](docs/images/03-settings.png)|
-| 启停服务 | 服务日志页 | 网页登录页|
-| ![启停服务](docs/images/04-start_stop.png) | ![服务日志页](docs/images/05-log.png ) |![网页登录页](docs/images/06-login.png)|
+| 命令执行/启停服务 | 服务日志页 | 网页登录页|
+| ![命令执行/启停服务](docs/images/04-start_stop.png) | ![服务日志页](docs/images/05-log.png ) |![网页登录页](docs/images/06-login.png)|
 </div>
 
 ### 两类服务
@@ -63,8 +63,8 @@
 >**优先级**：功能全开时（但不推荐），定时启停> 亮屏启停> Wi-Fi 启停>普通巡检
 - **定时启停服务**：按每日时间窗口服务全停，过时间窗后再恢复正常巡检
   - 停止时间~启动时间：选好自动保存；支持跨夜窗口（如停 22:00、启 07:00，该段时间内为停止窗口）
-- **亮屏启停服务**：亮屏解锁后恢复正常巡检，熄屏停止全部（可设锁屏白名单）
-  - 检测按10秒分片执行，以便亮屏解锁快速响应，锁屏判断间隔按分片休眠间隔
+- **亮屏启停服务**：亮屏解锁后执行亮屏白名单服务为空，恢复正常巡检，熄屏停止全部（可设锁屏白名单）
+  - 亮屏检测按10秒分片执行，以便亮屏解锁快速响应，锁屏判断间隔按分片休眠间隔
 - **Wi-Fi 启停服务**：打开开关后按所选分组启停，两组的选择的服务互斥
   - **连接组**：连上名单 Wi-Fi 时运行，离开即停止
   - **断开组**：离开名单 Wi-Fi 时运行，连上即停止
@@ -76,7 +76,7 @@
 ## WebUI 使用
 
 在 KernelSU 或 Apatch 等管理器 → 模块 →  点击打开 SvcHub → 进入 WebUI。页面可左右滑动查看，
->或开启外部访问（默认开启），访问 http://127.0.0.1:5555，默认密码 admin
+>Magisk 用户无Webui 开启外部访问（默认开启），访问 http://127.0.0.1:5555 默认密码 admin 即可
 
 ## 服务配置示例
 
@@ -94,7 +94,7 @@
 ### 二进制服务配置
 以 [Memos](https://github.com/usememos/memos) 为例，二进制服务默认工作目录 `/data/media/0/Server`，即外部存储目录 `/storage/emulated/0/Server`：
 - 在`Server` 文件夹加下创建个`memos`文件夹，将下载的`memos_0.xx.0_linux_arm64.tar.gz`解压获得可执行的`memos`放入该文件夹内
-- 相关二进制文件已设置可执行权限（`chmod +x ./memos`），本模块不提供对二进制文件权限修改，请自行处理。依赖的库文件和相关资源文件与二进制放在同一目录
+- 相关二进制文件已设置可执行权限（`chmod +x ./memos`）即将文件设权限为`755`，本模块不提供对二进制文件权限修改，请自行处理。并将依赖的库文件和相关资源文件与二进制放在同一目录
 - 启动命令填写`cd ./memos;./memos`，前面`cd ./xxx`是切换工作目录进入目录，后面`./xxx`是启动二进制文件
 - memos 启动后默认端口 8081 ，也可以加`--port 5230`指定端口 5230 ，其他参数请看官方文档。将8081填入端口输入框中即可在服务页打开跳转
 
@@ -113,8 +113,10 @@ node tools/mock-server.js reflash  # 改脚本后热更新文件
 ```
 
 - Wi-Fi 模拟：`curl "http://127.0.0.1:8090/__wifi?state=on&ssid=Home"`
-- 冷启动可带参数：`node tools/mock-server.js --wifi on --ssid Home`
-- shell命令依赖 Git Bash（mock-server 自动探测安装路径，尽量配置系统环境）
+  - 冷启动可带参数： `node tools/mock-server.js --wifi on --ssid Home`
+- 亮屏锁屏模拟：`curl "http://127.0.0.1:8090/__screen?screen=off&lock=lock"` 
+  - 其参数还可为`screen=on&lock=lock`亮屏未解锁或`screen=on&lock=unlock` 亮屏已解锁
+- shell命令依赖 Git Bash（mock-server 自动探测安装路径，尽量配置系统环境变量）
 
 ### 模块构建
 
