@@ -199,6 +199,8 @@ sleep_slice() {
 		refresh_screen_gate
 		if [ "$SCREEN_ON" != "$old_screen" ]; then
 			old_screen=$SCREEN_ON
+			# 同步解锁态：熄屏期间 SCREEN_UNLOCK_OK 恒 1，不同步会掩盖随后的 0→1 解锁边沿
+			old_unlock=$SCREEN_UNLOCK_OK
 			if [ "$SCREEN_ON" = "1" ]; then
 				if [ "$SCREEN_UNLOCK_OK" = "1" ]; then
 					screen_log "亮屏且已解锁，立即巡检恢复服务"

@@ -296,6 +296,7 @@ api_webui_enable() {
 	sh "$MODDIR/httpd.sh" start
 	rc=$?
 	if [ "$rc" -eq 0 ]; then
+		webui_log "外部访问已开启"
 		echo '{"success":true}'
 	else
 		case "$rc" in
@@ -313,6 +314,7 @@ api_webui_disable() {
 	WEBUI_ENABLED=0
 	write_settings || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
 	if sh "$MODDIR/httpd.sh" stop >/dev/null 2>&1; then
+		webui_log "外部访问已关闭"
 		echo '{"success":true}'
 	else
 		echo '{"success":false,"error":"httpd 停止失败，进程仍存活，请查看 webui 日志"}'
@@ -399,7 +401,11 @@ cfg_apply_one() {
 	boot_commands) BOOT_COMMANDS=$val ;;
 	wifi_service_enabled)
 		case "$val" in
-		0|1) WIFI_SERVICE_ENABLED=$val ;;
+		0|1)
+			# 开关值实际变化才记日志，全量保存不刷屏
+			[ "$WIFI_SERVICE_ENABLED" != "$val" ] && TOGGLE_LOG="$TOGGLE_LOG wifi_service_enabled=$val"
+			WIFI_SERVICE_ENABLED=$val
+			;;
 		*) echo '{"success":false,"error":"Wi-Fi 功能开关必须为 0 或 1"}'; exit 1 ;;
 		esac
 		;;
@@ -427,7 +433,10 @@ cfg_apply_one() {
 		;;
 	schedule_enabled)
 		case "$val" in
-		0|1) SCHEDULE_ENABLED=$val ;;
+		0|1)
+			[ "$SCHEDULE_ENABLED" != "$val" ] && TOGGLE_LOG="$TOGGLE_LOG schedule_enabled=$val"
+			SCHEDULE_ENABLED=$val
+			;;
 		*) echo '{"success":false,"error":"定时功能开关必须为 0 或 1"}'; exit 1 ;;
 		esac
 		;;
@@ -444,7 +453,10 @@ cfg_apply_one() {
 		;;
 	screen_service_enabled)
 		case "$val" in
-		0|1) SCREEN_SERVICE_ENABLED=$val ;;
+		0|1)
+			[ "$SCREEN_SERVICE_ENABLED" != "$val" ] && TOGGLE_LOG="$TOGGLE_LOG screen_service_enabled=$val"
+			SCREEN_SERVICE_ENABLED=$val
+			;;
 		*) echo '{"success":false,"error":"亮屏启停开关必须为 0 或 1"}'; exit 1 ;;
 		esac
 		;;
@@ -467,7 +479,8 @@ cfg_verify_written() {
 
 # 设置页按需保存：只接受 SETTING_KEYS（webui_* 直接拒），只写 setting.conf。
 api_save_settings() {
-	local provided=
+	local provided= tkey tval tstate
+	TOGGLE_LOG=""
 	load_cfg_sh
 	while read_kv_b64; do
 		[ -n "$KV_KEY" ] || continue
@@ -482,6 +495,17 @@ api_save_settings() {
 	fi
 	write_settings || { echo '{"success":false,"error":"配置写入失败"}'; exit 1; }
 	cfg_verify_written
+	# 落盘成功后才记开关日志，避免写失败时日志与实际状态不一致
+	for tkey in $TOGGLE_LOG; do
+		tval=${tkey#*=}
+		tkey=${tkey%%=*}
+		[ "$tval" = 1 ] && tstate=开启 || tstate=关闭
+		case "$tkey" in
+		wifi_service_enabled)   wifi_log   "Wi-Fi 启停服务已$tstate" ;;
+		schedule_enabled)       sched_log  "定时启停服务已$tstate" ;;
+		screen_service_enabled) screen_log "亮屏启停服务已$tstate" ;;
+		esac
+	done
 	echo '{"success":true}'
 }
 
