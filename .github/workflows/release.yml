@@ -45,7 +45,7 @@ jobs:
       - name: Create module ZIP
         id: zip
         run: |
-          ZIPNAME=${{ needs.get_vars.outputs.id }}-${{ needs.get_vars.outputs.version }}.zip
+          ZIPNAME=${{ needs.get_vars.outputs.id }}-${{ needs.get_vars.outputs.versionCode }}-${{ needs.get_vars.outputs.version }}.zip
           echo zipname=$ZIPNAME >> $GITHUB_OUTPUT
           git archive --format=zip --output=$ZIPNAME HEAD
       
@@ -61,7 +61,7 @@ jobs:
           mv release_notes.md "${{ needs.get_vars.outputs.changelog }}"
           echo "notes_file=${{ needs.get_vars.outputs.changelog }}" >> "$GITHUB_OUTPUT"
 
-      - name: Release
+      - name: Create Draft Release
         uses: softprops/action-gh-release@v2.3.1
         with:
           name: ${{ needs.get_vars.outputs.name }} ${{ github.ref_name }}
@@ -70,3 +70,9 @@ jobs:
             ${{ steps.zip.outputs.zipname }}
             ${{ needs.get_vars.outputs.changelog }}
             update.json
+          draft: true          
+
+      - name: Publish Release
+        run: gh release edit ${{ github.ref_name }} --draft=false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
