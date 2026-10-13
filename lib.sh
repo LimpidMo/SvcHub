@@ -17,27 +17,24 @@ CONFIG_DIR="$MODDIR/config"
 SETTING_FILE="$CONFIG_DIR/setting.conf"
 SERVICES_FILE="$CONFIG_DIR/services.conf"
 WEB_CONF="$CONFIG_DIR/web.conf"
+DEFAULT_SERVER_DIR="/data/media/0/Server"
 
-# 设备上为空走默认路径，零影响
+# Termux 运行环境：TERMUX_HOME、TERMUX_UID、TERMUX_ENV、DNS_GID
+# 沙盒中 TERMUX_HOME 为空跳过，对实机路径无影响 
 [ -n "$SVCHUB_TERMUX_HOME" ] && TERMUX_HOME="$SVCHUB_TERMUX_HOME" || TERMUX_HOME="/data/data/com.termux/files/home"
+TERMUX_UID=$(stat -c '%u' "$TERMUX_HOME" 2>/dev/null)
+TERMUX_GID=$(stat -c '%g' "$TERMUX_HOME" 2>/dev/null)
+TERMUX_ENV='export LANG=en_US.UTF-8;export LC_ALL=en_US.UTF-8; export PREFIX=/data/data/com.termux/files/usr; export PATH=$PREFIX/bin:$PREFIX/bin/applets:\$PATH; export TMPDIR=$PREFIX/tmp; export LD_LIBRARY_PATH=$PREFIX/lib;export LD_PRELOAD=$PREFIX/lib/libtermux-exec.so;'
+DNS_GID=$(stat -c '%g' /dev/socket/dnsproxyd 2>/dev/null)
 
-# Termux 应用运行 uid
-termux_uid() {
-	if [ -z "$TERMUX_UID" ]; then
-		TERMUX_UID=$(stat -c '%u' "$TERMUX_HOME" 2>/dev/null || stat -c '%u' /data/data/com.termux 2>/dev/null)
-		[ -z "$TERMUX_UID" ] && TERMUX_UID=10000
-	fi
-	printf '%s\n' "$TERMUX_UID"
+# termux 服务完整以 termux 用户运行的 su 附加参数（惰性缓存）：uid + 主组 + inet 组（探测失败缺省回退）
+termux_user_args() {
+	[ -n "$TERMUX_UID" ] || TERMUX_UID=0
+	[ -n "$TERMUX_GID" ] || TERMUX_GID=$TERMUX_UID
+	[ -n "$DNS_GID" ] || DNS_GID=3003
+	printf '%s\n' "-g $TERMUX_UID -G $DNS_GID $TERMUX_UID" 
 }
 
-# Termux 启动命令必须注入的环境
-# 联调覆盖：SVCHUB_MOCK=1 时（电脑沙盒）清空注入，设备 Termux 路径在 PC 上不存在
-if [ "$SVCHUB_MOCK" = "1" ]; then
-	TERMUX_ENV=''
-else
-	TERMUX_ENV='export PREFIX=/data/data/com.termux/files/usr; export PATH=$PREFIX/bin:$PATH; export TMPDIR=$PREFIX/tmp; export LD_LIBRARY_PATH=$PREFIX/lib;'
-fi
-DEFAULT_SERVER_DIR="/data/media/0/Server"
 
 # 日志统一上限（字节），默认1MB
 LOG_MAX_BYTES=1048576
@@ -60,7 +57,7 @@ SCREEN_UNLOCK_OK="1"
 mkdir -p "$RUNDIR" "$LOG_DIR" "$RUNDIR/session"
 
 # ---------- 配置（config/setting.conf 设置项 + config/services.conf 服务项） ----------
-# 配置 schema 唯一定义（15 键）：新增设置键需同步补全 load_settings / write_settings / action.sh cfg_apply_one 及前端字段；
+# 配置 schema 唯一定义全键：新增设置键需同步补全 load_settings / write_settings / action.sh cfg_apply_one 及前端字段；
 # 新增服务类型只需在 load_services / write_services 加一个 type 分支。
 SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names patrol_enabled webui_enabled webui_password_hash webui_token'
 
@@ -311,7 +308,7 @@ launch_svc() {
 	local cmdtext=$4
 	case "$cmdtext" in *\\*) cmdtext=$(printf '%s' "$cmdtext" | dec_js) ;; esac
 	case "$1" in
-		termux) start_svc "$2" "$TERMUX_HOME" "$3" "$TERMUX_ENV $cmdtext" ;;
+		termux) start_svc "$2" "$TERMUX_HOME" "$(termux_user_args) $3" "$TERMUX_ENV $cmdtext" ;;
 		binary) start_svc "$2" "$SERVER_DIR" "" "$cmdtext" ;;
 	esac
 }

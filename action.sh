@@ -250,7 +250,7 @@ api_run_cmd() {
 	load_cfg_sh
 	body=$(cat)
 	if [ "$mode" = termux ]; then
-		runner="su $(termux_uid)"
+		runner="su $(termux_user_args)"
 		env_prefix="$TERMUX_ENV cd $TERMUX_HOME;"
 	fi
 	hit=$(dangerous_line "$body")
