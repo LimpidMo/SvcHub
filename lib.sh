@@ -24,7 +24,14 @@ DEFAULT_SERVER_DIR="/data/media/0/Server"
 [ -n "$SVCHUB_TERMUX_HOME" ] && TERMUX_HOME="$SVCHUB_TERMUX_HOME" || TERMUX_HOME="/data/data/com.termux/files/home"
 TERMUX_UID=$(stat -c '%u' "$TERMUX_HOME" 2>/dev/null)
 TERMUX_GID=$(stat -c '%g' "$TERMUX_HOME" 2>/dev/null)
-TERMUX_ENV='export LANG=en_US.UTF-8;export LC_ALL=en_US.UTF-8; export PREFIX=/data/data/com.termux/files/usr; export PATH=$PREFIX/bin:$PREFIX/bin/applets:\$PATH; export TMPDIR=$PREFIX/tmp; export LD_LIBRARY_PATH=$PREFIX/lib;export LD_PRELOAD=$PREFIX/lib/libtermux-exec.so;'
+# PATH 末段的 $PATH 不带反斜杠：由服务 shell 运行时展开为 su 继承的 PATH（带 \ 会变字面死串）；
+# 再并上系统默认 PATH 保底，Termux 目录缺失时（如 PC 联调沙盒）仍能找到 sleep 等基础命令。
+TERMUX_PATH_SYS='/system/bin:/system/xbin:/vendor/bin:/data/local/bin:/bin:/usr/bin'
+TERMUX_ENV='export LANG=en_US.UTF-8;export LC_ALL=en_US.UTF-8; export PREFIX=/data/data/com.termux/files/usr; export PATH=$PREFIX/bin:$PREFIX/bin/applets:$PATH:'"$TERMUX_PATH_SYS"'; export TMPDIR=$PREFIX/tmp; export LD_LIBRARY_PATH=$PREFIX/lib;export LD_PRELOAD=$PREFIX/lib/libtermux-exec.so;'
+# 联调沙盒：Termux 目录与 libtermux-exec.so 均不存在，去掉真机专用变量免每条 fork 报错
+if [ "$SVCHUB_MOCK" = "1" ]; then
+	TERMUX_ENV='export LANG=en_US.UTF-8;export LC_ALL=en_US.UTF-8; export PREFIX=/data/data/com.termux/files/usr; export PATH=$PREFIX/bin:$PREFIX/bin/applets:$PATH:'"$TERMUX_PATH_SYS"';'
+fi
 DNS_GID=$(stat -c '%g' /dev/socket/dnsproxyd 2>/dev/null)
 
 # termux 服务完整以 termux 用户运行的 su 附加参数（惰性缓存）：uid + 主组 + inet 组（探测失败缺省回退）
@@ -114,12 +121,14 @@ write_settings() {
 	LOAD_CFG_DONE=""
 }
 
-# 服务项写成 services.conf（统一 6 段 type|name|port|extra|auto|cmd，先全部 termux 再 # binary + 全部 binary；原子替换）。
-# 无参：直接从 load_cfg_sh 的 TERMUX_SERVICES / BINARY_SERVICES（内存统一 5 段 name|port|extra|auto|cmd，binary 的 extra 恒空）读取。
+# 服务项写成 services.conf（统一 5 段 type|name|port|auto|cmd，先全部 termux 再 # binary + 全部 binary；原子替换）。
+# 首行 # svc-v1.3.6 为格式标记：无标记按旧 6 段解析并丢弃 extra 段，写回即升级。
+# 无参：直接从 load_cfg_sh 的 TERMUX_SERVICES / BINARY_SERVICES（内存统一 4 段 name|port|auto|cmd）读取。
 write_services() {
 	local tmp="$SERVICES_FILE.tmp" line
 	mkdir -p "$CONFIG_DIR" 2>/dev/null
 	{
+		echo '# svc-v1.3.6'
 		printf '%s\n' "$TERMUX_SERVICES" | while IFS= read -r line || [ -n "$line" ]; do
 			[ -n "$line" ] || continue
 			printf 'termux|%s\n' "$line"
@@ -302,18 +311,18 @@ compute_runset() {
 	} | detect_running
 }
 
-# 按服务类型启动：$1=kind(termux|binary) $2=名称 $3=extra $4=命令文本。
-# 统一启动收口（巡检/Wi-Fi/WebUI）：binary extra 忽略；cmd 库存字面 \n，执行前还原为真换行。
+# 按服务类型启动：$1=kind(termux|binary) $2=名称 $3=命令文本。
+# 统一启动收口（巡检/Wi-Fi/WebUI）：termux 固定以完整 Termux 用户身份运行；cmd 库存字面 \n，执行前还原为真换行。
 launch_svc() {
-	local cmdtext=$4
+	local cmdtext=$3
 	case "$cmdtext" in *\\*) cmdtext=$(printf '%s' "$cmdtext" | dec_js) ;; esac
 	case "$1" in
-		termux) start_svc "$2" "$TERMUX_HOME" "$(termux_user_args) $3" "$TERMUX_ENV $cmdtext" ;;
+		termux) start_svc "$2" "$TERMUX_HOME" "$(termux_user_args)" "$TERMUX_ENV $cmdtext" ;;
 		binary) start_svc "$2" "$SERVER_DIR" "" "$cmdtext" ;;
 	esac
 }
 
-# 启动服务：$1=名称 $2=工作目录 $3=su 附加参数 $4=命令文本
+# 启动服务：$1=名称 $2=工作目录 $3=su 附加参数（binary 恒空） $4=命令文本
 # setsid 让服务成为独立会话/进程组 leader，命令末尾补 wait 等待全部子进程。
 start_svc() {
 	local name=$1 dir=$2 extra=$3 cmdtext=$4 log="$LOG_DIR/$1.log" pidf="$RUNDIR/$1.pid" leader su_bin
@@ -398,12 +407,12 @@ stop_removed_services() {
 stop_all() {
 	local ex=$1 name
 	[ -n "$LOAD_CFG_DONE" ] || load_services
-	printf '%s\n' "$TERMUX_SERVICES" | while IFS='|' read -r name port extra auto cmd; do
+	printf '%s\n' "$TERMUX_SERVICES" | while IFS='|' read -r name port auto cmd; do
 		[ -n "$name" ] || continue
 		[ -n "$ex" ] && name_in_set "$name" "$ex" && continue
 		stop_svc "$name"
 	done
-	printf '%s\n' "$BINARY_SERVICES" | while IFS='|' read -r name port extra auto cmd; do
+	printf '%s\n' "$BINARY_SERVICES" | while IFS='|' read -r name port auto cmd; do
 		[ -n "$name" ] || continue
 		[ -n "$ex" ] && name_in_set "$name" "$ex" && continue
 		stop_svc "$name"
@@ -474,7 +483,7 @@ setting_get() {
 	done < "$f"
 }
 
-# 校验后的行（5 段 name|port|extra|auto|cmd）追加到对应内存变量；binary 段数不足视为非法
+# 校验后的行（4 段 name|port|auto|cmd）追加到对应内存变量；binary 段数不足视为非法
 append_row() {
 	local rest=$2
 	case "$1" in
@@ -484,7 +493,7 @@ $rest"; else TERMUX_SERVICES=$rest; fi
 		;;
 	binary)
 		case "$rest" in
-		*\|*\|*\|*\|*) : ;;
+		*\|*\|*\|*) : ;;
 		*) sup_log "services.conf 非法行(binary段数不足)：$rest"; return 1 ;;
 		esac
 		if [ -n "$BINARY_SERVICES" ]; then BINARY_SERVICES="$BINARY_SERVICES
@@ -494,13 +503,19 @@ $rest"; else BINARY_SERVICES=$rest; fi
 }
 
 # 读 services.conf 到 TERMUX_SERVICES / BINARY_SERVICES（去首段 type；非法行跳过记日志）。
+# 首行 # svc-v1.3.6 为格式标记：无标记按旧 6 段解析并丢弃 extra 段（下次写回自动升级）。
 load_services() {
-	local f="$SERVICES_FILE" line type rest name _r1 CR BOM TAB
+	local f="$SERVICES_FILE" line type rest name _r1 CR BOM TAB first v2 n1 n2 n3 n4 n5
 	CR=$(printf '\r')
 	BOM=$(printf '\357\273\277')
 	TAB=$(printf '\t')
 	TERMUX_SERVICES=""; BINARY_SERVICES=""
 	[ -f "$f" ] || return 0
+	v2=""
+	IFS= read -r first < "$f"
+	case "$first" in *"$CR") first=${first%"$CR"} ;; esac
+	case "$first" in "$BOM"*) first=${first#"$BOM"} ;; esac
+	case "$first" in '# svc-v1.3.6'*) v2=1 ;; esac
 	while IFS= read -r line || [ -n "$line" ]; do
 		case "$line" in *"$CR") line=${line%"$CR"} ;; esac
 		# 清行首 BOM/空格/Tab，否则 type 带前缀全量判非法
@@ -520,6 +535,17 @@ load_services() {
 		IFS='|' read -r type rest <<SVCEOF
 $line
 SVCEOF
+		# 旧 6 段（含 extra）：够 5 段才转换，丢弃第 3 段 extra 重拼为 4 段
+		if [ -z "$v2" ]; then
+			case "$rest" in
+			*\|*\|*\|*\|*)
+				IFS='|' read -r n1 n2 n3 n4 n5 <<SVCEOF
+$rest
+SVCEOF
+				rest="$n1|$n2|$n4|$n5"
+				;;
+			esac
+		fi
 		IFS='|' read -r name _r1 <<SVCEOF
 $rest
 SVCEOF
@@ -929,7 +955,7 @@ calc_screen_state() {
 
 # Wi-Fi 启动段：窗内边沿说明/门控筛选/两类启动执行。$1=组名 $2=清洗后名单
 wifi_sync_starts() {
-	local group=$1 names_list=$2 name row port extra auto cmd reason
+	local group=$1 names_list=$2 name row port auto cmd reason
 	local t_start="" b_start="" missing="" blocked=""
 	if [ "$SCHED_IN_WINDOW" = "1" ]; then
 		# 定时窗优先级高于 Wi-Fi 启动：窗内不启动，仅首次说明（边沿化防刷屏）
@@ -963,17 +989,17 @@ wifi_sync_starts() {
 	fi
 	for name in $t_start; do
 		row=$(pick_termux "$name")
-		IFS='|' read -r _ port extra auto cmd <<EOF
+		IFS='|' read -r _ port auto cmd <<EOF
 $row
 EOF
-		launch_svc termux "$name" "$extra" "$cmd"
+		launch_svc termux "$name" "$cmd"
 	done
 	for name in $b_start; do
 		row=$(pick_binary "$name")
-		IFS='|' read -r _ port extra auto cmd <<EOF
+		IFS='|' read -r _ port auto cmd <<EOF
 $row
 EOF
-		launch_svc binary "$name" "$extra" "$cmd"
+		launch_svc binary "$name" "$cmd"
 	done
 	[ -n "$missing" ] && wifi_log "不在服务配置中，跳过：$(wifi_trim_list "$missing")"
 	return 0

@@ -59,9 +59,9 @@ wait_boot_stages() {
 # 正常模式：仅 auto=start 且未运行才启动；Wi-Fi 策略兜底统一由 wifi_should_skip 判定
 # （定时停止窗已在轮首整轮跳过，此处不再重复判断）。
 patrol_start_rows() {
-	local kind=$1 rows=$2 runset=$3 allow_names=$4 name port extra auto cmd reason
-	# 两类行统一 5 段 name|port|extra|auto|cmd（含 binary 空 extra），read 变量名列表一致
-	set -- name port extra auto cmd
+	local kind=$1 rows=$2 runset=$3 allow_names=$4 name port auto cmd reason
+	# 两类行统一 4 段 name|port|auto|cmd，read 变量名列表一致
+	set -- name port auto cmd
 	while IFS='|' read -r "$@"; do
 		[ -n "$name" ] || continue
 		if [ -n "$allow_names" ]; then
@@ -88,7 +88,7 @@ patrol_start_rows() {
 			[ -z "$allow_names" ] && sup_log_bare "    已运行 $name"
 			continue
 		fi
-		if launch_svc "$kind" "$name" "${extra:-}" "$cmd"; then
+		if launch_svc "$kind" "$name" "$cmd"; then
 			sleep 0.3
 			svc_running "$name" && sup_log_bare "    已启动 $name" || sup_log_bare "    启动未生效 $name（请检查该服务日志/命令）"
 		else

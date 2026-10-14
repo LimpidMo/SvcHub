@@ -364,17 +364,12 @@
                         <input type="text" class="form-input" id="input-svc-port" placeholder="用于打开 Web 页">
                     </div>
                 </div>
-                <div class="form" id="extra-wrap" style="padding:0 0 10px 0;border:none;display:none;">
-                    <label class="form-label">附加参数 <span class="form-hint" style="display:inline;margin-left:6px;">（一般不须填写，仅对用户、权限敏感的程序使用）</span></label>
-                    <input type="text" class="form-input" id="input-svc-extra" placeholder="-G 3003 网络权限、uid值 10123 指定用户运行">
-                </div>
                 <div class="form" style="padding:0;border:none;">
                     <label class="form-label">启动命令 *（必须）</label>
                     <textarea class="form-input form-textarea" id="input-svc-cmd" placeholder="并行多服务用 & 分隔，如 a & b ，nginx 等守护进程需前台运行：nginx -g 'daemon off;'"></textarea>
                 </div>
             </div>
             <div class="modal-ft">
-                <button class="btn" id="extra-toggle-btn" onclick="toggleExtra()">附加参数</button>
                 <span style="flex:1;"></span>
                 <button class="btn" onclick="closeModal()">取消</button>
                 <button class="btn btn-primary" onclick="saveService()">保存</button>
@@ -460,7 +455,6 @@
 
     <script>
         const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-        const EXTRA_RE = /^[A-Za-z0-9 ._-]*$/;
         // 系统进程保留名：进程按 cmdline 子串匹配，此类通用短名会误伤系统进程
         const SYS_NAME_RE = new RegExp('^(init|sh|su|root|shell|system|kernel|logd|logcat|netd|vold|adbd|zygote|servicemanager|surfaceflinger|audioserver|cameraserver|mediaserver|installd|lmkd|keystore|system_server)$');
 
@@ -995,7 +989,7 @@
             return n === null ? escapeHtml(p) : 'port:' + n;
         }
 
-        // 状态页/配置页共用条目信息（名称 + 端口 + extra + auto 标签，extra 为空不占位）
+        // 状态页/配置页共用条目信息（名称 + 端口 + auto 标签）
         function svcItemInfo(s) {
             return `
                     <div class="item-info">
@@ -1043,7 +1037,6 @@
                     </div>
                 </div>
                 <div class="expand" id="expand-${id}-${i}" style="display:none;">
-                    ${(s.extra || '') !== '' ? `<div class="expand-row"><span class="expand-label">附加参数</span><span style="font-family:monospace;font-size:11px;">${escapeHtml(s.extra)}</span></div>` : ''}
                     <textarea class="expand-textarea" readonly ondblclick="copyToClipboard(this)" oninput="autoResize(this)">${escapeHtml(displayCmd(s.cmd))}</textarea>
                 </div>`;
             }).join('');
@@ -1223,23 +1216,18 @@
         // type='termux' -> configData.termux_services；type='binary' -> configData.binary_services
         function svcArr(type) { return type === 'termux' ? configData.termux_services : configData.binary_services; }
 
-        // 管道行解析：两类内存统一 5 段 name|port|extra|auto|cmd（binary extra 恒空）；旧 4 段 binary 行兼容。
+        // 管道行解析：两类统一 4 段 name|port|auto|cmd（旧 5 段的 extra 由后端迁移丢弃，前端不兼容）
         function parseRows(str, type) {
             const arr = [];
             (str || '').split('\n').forEach(line => {
                 const p = line.trim().split('|');
-                if (p.length >= 5) {
-                    arr.push({ name: p[0], port: p[1], extra: p[2], auto: p[3], cmd: p.slice(4).join('|') });
-                } else if (p.length === 4) {
-                    // 旧 binary 4 段 name|port|auto|cmd：extra 补空
-                    arr.push({ name: p[0], port: p[1], extra: '', auto: p[2], cmd: p.slice(3).join('|') });
-                }
+                if (p.length >= 4) arr.push({ name: p[0], port: p[1], auto: p[2], cmd: p.slice(3).join('|') });
             });
             return arr;
         }
 
         function stringifyRows(arr, type) {
-            return arr.map(s => `${s.name}|${s.port || ''}|${s.extra || ''}|${s.auto}|${s.cmd}`).join('\n');
+            return arr.map(s => `${s.name}|${s.port || ''}|${s.auto}|${s.cmd}`).join('\n');
         }
 
         // 配置加载中：切页/刷新并发复用同一 promise，防串行双读拖慢实机。
@@ -1462,28 +1450,20 @@
             if (confirmCallback) confirmCallback();
         };
 
-        // 服务编辑弹窗（单弹窗复用，type 经隐藏域携带；extra 默认隐藏，有值或点按钮才显示）
+        // 服务编辑弹窗（单弹窗复用，type 经隐藏域携带）
         function openModal(type, idx) {
             const editing = typeof idx === 'number' && idx >= 0;
             const s = editing ? svcArr(type)[idx]
-                : { name: '', port: '', extra: '', auto: 'start', cmd: '' };
+                : { name: '', port: '', auto: 'start', cmd: '' };
             const label = type === 'termux' ? 'Termux' : '二进制';
             document.getElementById('edit-svc-type').value = type;
             document.getElementById('modal-svc-title').textContent = editing ? `编辑 ${label} 服务` : `添加 ${label} 服务`;
             document.getElementById('edit-svc-idx').value = editing ? idx : -1;
             document.getElementById('input-svc-name').value = s.name;
             document.getElementById('input-svc-port').value = s.port || '';
-            document.getElementById('input-svc-extra').value = s.extra || '';
-            // extra 有值则展开，无值默认收起（binary 老数据无 extra 字段即 ''，同样收起）
-            document.getElementById('extra-wrap').style.display = (s.extra || '') !== '' ? '' : 'none';
             document.getElementById('input-svc-auto').checked = s.auto !== 'stop';
             document.getElementById('input-svc-cmd').value = displayCmd(s.cmd);
             showAnyModal('modal-svc');
-        }
-
-        function toggleExtra() {
-            const w = document.getElementById('extra-wrap');
-            w.style.display = w.style.display === 'none' ? '' : 'none';
         }
 
         function closeModal() { hideAnyModal('modal-svc'); }
@@ -1501,15 +1481,12 @@
                 auto: el('input-svc-auto').checked ? 'start' : 'stop',
                 cmd: normalizeCmd(el('input-svc-cmd').value)
             };
-            const extra = el('input-svc-extra').value.trim();
-            if (type === 'termux') s.extra = extra;
             if (!s.name || !s.cmd) { toast('请填写必填项', true); return; }
             const nameErr = checkServiceName(s.name);
             if (nameErr) { toast(nameErr, true); return; }
             // 全服务项查重：pid/日志/Wi-Fi 选择均按 name 索引，跨类同名必冲突（编辑排除自身）
             const self = idx >= 0 ? svcArr(type)[idx] : null;
             if (svcArr('termux').concat(svcArr('binary')).some(x => x !== self && x.name === s.name)) { toast('已存在同名配置项', true); return; }
-            if (type === 'termux' && extra !== '' && !EXTRA_RE.test(extra)) { toast('附加参数不合法', true); return; }
             if (idx === -1) svcArr(type).push(s);
             else svcArr(type)[idx] = s;
             svcSaving = true;

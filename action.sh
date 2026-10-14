@@ -40,23 +40,16 @@ validate_name_list() {
 
 # 服务行校验：合法输出空，非法输出首个非法行号（saveservices 指明行号共用）。
 validate_rows() {
-	# $1=kind(termux_services|binary_services)；从 stdin 逐行校验 5 段 name|port|extra|auto|cmd
-	local kind=$1 r=0 line name port extra auto cmd
+	# 两类校验规则一致，无需按 kind 分支；$1 保留供调用方传键名
+	local r=0 line name port auto cmd
 	while IFS= read -r line; do
 		[ -z "$line" ] && continue
 		r=$((r + 1))
 		if [ "$r" -gt 500 ]; then printf '%s' "$r"; return 0; fi
-		IFS='|' read -r name port extra auto cmd <<EOF
+		IFS='|' read -r name port auto cmd <<EOF
 $line
 EOF
-		if [ "$kind" = binary_services ]; then
-			# binary 的 extra 段恒空
-			[ -z "$extra" ] || { printf '%s' "$r"; return 0; }
-		else
-			case "$extra" in
-			*'$'*|*'`'*|*';'*|*'&'*|*'|'*|*'('*|*')'*|*'<'*|*'>'*|*'"'*|*"'"'*|*'\'*) printf '%s' "$r"; return 0 ;;
-			esac
-		fi
+		# 段数不足时 cmd 为空，由下方非空校验拦住（cmd 可含 | ，末变量保留原始分隔符）
 		valid_name "$name" || { printf '%s' "$r"; return 0; }
 		[ -n "$cmd" ] || { printf '%s' "$r"; return 0; }
 		case "$auto" in start|stop) ;; *) printf '%s' "$r"; return 0 ;; esac
@@ -73,7 +66,7 @@ clear_log() {
 }
 
 # 行列表 -> JSON 对象数组：单个 awk 完成字段转义与运行状态注入，避免逐字段 fork。
-# 运行名单经环境变量 RUNSET 传入（$1）；行列表从 stdin 读。两类内存统一 5 段，输出结构相同。
+# 运行名单经环境变量 RUNSET 传入（$1）；行列表从 stdin 读。两类内存统一 4 段，输出结构相同。
 rows_to_json() {
 	RUNSET=$1 awk '
 BEGIN { FS = "|"; runset = ENVIRON["RUNSET"] }
@@ -91,11 +84,11 @@ function esc(s,   o, i, n, c) {
 }
 $1 != "" {
 	st = index("\n" runset "\n", "\n" $1 "\n") > 0 ? "running" : "stopped"
-	# cmd 是末段，含 | 的管道命令需从第 5 段起重拼（$5 会截断）
-	cmd = $5
-	for (i = 6; i <= NF; i++) cmd = cmd "|" $i
+	# cmd 是末段，含 | 的管道命令需从第 4 段起重拼（$4 会截断）
+	cmd = $4
+	for (i = 5; i <= NF; i++) cmd = cmd "|" $i
 	if (n++) printf ","
-	printf "{\"name\":\"%s\",\"port\":\"%s\",\"status\":\"%s\",\"extra\":\"%s\",\"auto\":\"%s\",\"cmd\":\"%s\"}", esc($1), esc($2), st, esc($3), esc($4), esc(cmd)
+	printf "{\"name\":\"%s\",\"port\":\"%s\",\"status\":\"%s\",\"auto\":\"%s\",\"cmd\":\"%s\"}", esc($1), esc($2), st, esc($3), esc(cmd)
 }
 '
 }
@@ -118,17 +111,17 @@ EOF
 }
 
 api_start_service() {
-	local type=$1 name=$2 row port extra auto cmd
+	local type=$1 name=$2 row port auto cmd
 	valid_name "$name" || { echo '{"success":false,"error":"名称不合法"}'; exit 0; }
 	load_cfg_sh
 	case "$type" in termux|auto|binary) ;; *) echo '{"success":false,"error":"不支持的服务类型"}'; exit 0 ;; esac
 	row=$(pick_termux "$name")
 	if [ -n "$row" ]; then
-		IFS='|' read -r _ port extra auto cmd <<EOF
+		IFS='|' read -r _ port auto cmd <<EOF
 $row
 EOF
 		stop_svc "$name"
-		if launch_svc termux "$name" "$extra" "$cmd"; then
+		if launch_svc termux "$name" "$cmd"; then
 			echo '{"success":true}'
 		else
 			echo '{"success":false,"error":"启动失败（可能是 Termux 目录不存在或命令错误）"}'
@@ -141,11 +134,11 @@ EOF
 	fi
 	row=$(pick_binary "$name")
 	if [ -n "$row" ]; then
-		IFS='|' read -r _ port extra auto cmd <<EOF
+		IFS='|' read -r _ port auto cmd <<EOF
 $row
 EOF
 		stop_svc "$name"
-		if launch_svc binary "$name" "$extra" "$cmd"; then
+		if launch_svc binary "$name" "$cmd"; then
 			echo '{"success":true}'
 		else
 			echo '{"success":false,"error":"启动失败（服务目录不存在或命令错误）"}'
@@ -630,13 +623,13 @@ open)
 	echo "SvcHub 状态摘要"
 	echo "保活间隔: ${SLEEP_INTERVAL}s | Termux 服务: $(count_rows "$TERMUX_SERVICES") | 二进制服务: $(count_rows "$BINARY_SERVICES")"
 	printf 'Termux 服务:\n'
-	printf '%s\n' "$TERMUX_SERVICES" | while IFS='|' read -r name port extra auto cmd; do
+	printf '%s\n' "$TERMUX_SERVICES" | while IFS='|' read -r name port auto cmd; do
 		[ -n "$name" ] || continue
 		name_in_set "$name" "$runset" && st=running || st=stopped
 		echo "  $name [$st] auto=$auto"
 	done
 	printf '二进制服务:\n'
-	printf '%s\n' "$BINARY_SERVICES" | while IFS='|' read -r name port extra auto cmd; do
+	printf '%s\n' "$BINARY_SERVICES" | while IFS='|' read -r name port auto cmd; do
 		[ -n "$name" ] || continue
 		name_in_set "$name" "$runset" && st=running || st=stopped
 		echo "  $name [$st] auto=$auto"
