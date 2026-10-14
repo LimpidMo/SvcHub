@@ -14,6 +14,7 @@ README.md export-ignore
 AGENTS.md export-ignore
 CHANGELOG.md export-ignore
 LICENSE export-ignore
+module.yaml export-ignore
 .gitignore export-ignore
 .gitattributes export-ignore
 .github export-ignore
