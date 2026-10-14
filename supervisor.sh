@@ -100,14 +100,18 @@ EOF
 }
 
 # 单轮巡检：定时停止窗内只做 Wi-Fi 同步的停止分支（禁启由 lib.sh 守卫）；
-# 自动巡检禁用时静默跳过周期拉起（零输出）——出停止窗/亮屏解锁的边沿恢复经 PATROL_RESUME 放行一次，
+# 自动巡检禁用时静默跳过周期拉起（零输出）——开机首轮、出停止窗/亮屏解锁的边沿恢复仍放行一次，
 # Wi-Fi 条件启停在 sleep_slice 分片里照常执行，不经此处；
 # "巡检开始/完成"头日志在此输出（禁用静默轮不出，避免刷屏）；
 # 窗外先算 Wi-Fi 策略并同步（在计算 runset 之前执行，确保新启动的服务能被正确识别为已运行），
 # 再按配置巡检启动 auto=start 且未运行的服务。
 patrol_once() {
 	local runset resume_kind="" resume_allow=""
-	# 边沿恢复放行标记（一次性消费）：sched=出停止窗恢复(全量)；screen=亮屏解锁恢复(受亮屏白名单约束)
+	# 放行标记（一次性消费）：sched=出停止窗恢复(全量)；screen=亮屏解锁恢复(受亮屏白名单约束)；
+	# boot=开机首轮——不受自动巡检开关管辖
+	if [ -n "$PATROL_BOOT" ]; then
+		resume_kind=boot
+	fi
 	case "$PATROL_RESUME" in
 	sched) resume_kind=sched ;;
 	screen) resume_kind=screen ;;
@@ -132,12 +136,16 @@ patrol_once() {
 	fi
 	# 窗外即清窗内已说明标记（下次进窗再说明一次）
 	SCHED_LOGGED=""
-	# 自动巡检禁用且非边沿恢复轮：静默跳过零输出（httpd 保活/日志轮转/边沿检测照常）
+	# 自动巡检禁用且非放行轮：静默跳过零输出（httpd 保活/日志轮转/边沿检测照常）
 	if [ "$PATROL_ENABLED" != "1" ] && [ -z "$resume_kind" ]; then
 		return 0
 	fi
+	# 已实际执行到此处才消费开机标记：开机落在定时窗内时不消费，留给出窗后的 sched 边沿放行
+	PATROL_BOOT=""
 	# 边沿恢复轮头部标明"启停功能策略"，避免 interval 让用户误以为周期巡检仍在跑
-	if [ -n "$resume_kind" ]; then
+	if [ "$resume_kind" = boot ]; then
+		sup_log "巡检开始 开机启动"
+	elif [ -n "$resume_kind" ]; then
 		sup_log "巡检开始 启停功能策略"
 	else
 		sup_log "巡检开始 interval=${SLEEP_INTERVAL}s"
@@ -307,6 +315,8 @@ SCHED_WARNED=""
 SCHED_LOGGED=""
 # 边沿恢复放行标记：出停止窗(sched)/亮屏解锁(screen)的立即巡检不受自动巡检禁用影响
 PATROL_RESUME=""
+# 开机首轮放行标记：自动巡检关闭时也要拉起一次 auto=start 服务（关巡检≠不开机自启）
+PATROL_BOOT="1"
 if [ "$SCHEDULE_ENABLED" = "1" ] && [ -n "$SCHEDULE_STOP" ] && [ -n "$SCHEDULE_START" ]; then
 	if sched_in_window "$SCHEDULE_STOP" "$SCHEDULE_START" "$(date '+%H:%M')"; then
 		SCHED_IN_WINDOW="1"
