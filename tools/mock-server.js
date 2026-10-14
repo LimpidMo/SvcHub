@@ -107,7 +107,7 @@ function writeFakebin() {
     fs.writeFileSync(path.join(fakebin, 'setsid'), '#!/bin/sh\nexec "$@"\n');
 }
 
-// 首次运行写演示配置（循环打日志的 demo 服务，覆盖 start/stop/端口/extra 形态），已有则保留
+// 首次运行写演示配置（循环打日志的 demo 服务，覆盖 start/stop/端口形态），已有则保留
 function writeSampleConfig() {
     const setting = path.join(sandbox, 'config', 'setting.conf');
     const services = path.join(sandbox, 'config', 'services.conf');
@@ -131,15 +131,16 @@ function writeSampleConfig() {
     ];
     fs.writeFileSync(setting, settingLines.join('\n') + '\n');
     const svcLines = [
-        'termux|demo-termux|8080||start|' + demoCmd('demo-termux'),
-        'termux|termux-web|3000|-g 3003|start|' + demoCmd('termux-web'),
-        'termux|termux-idle|||stop|' + demoCmd('termux-idle'),
-        'termux|termux-db|5432|-g 3003|stop|' + demoCmd('termux-db'),
+        '# svc-v1.3.6',
+        'termux|demo-termux|8080|start|' + demoCmd('demo-termux'),
+        'termux|termux-web|3000|start|' + demoCmd('termux-web'),
+        'termux|termux-idle||stop|' + demoCmd('termux-idle'),
+        'termux|termux-db|5432|stop|' + demoCmd('termux-db'),
         '# binary',
-        'binary|demo-bin|9090||start|' + demoCmd('demo-bin'),
-        'binary|bin-api|9000||start|' + demoCmd('bin-api'),
-        'binary|bin-worker|||stop|' + demoCmd('bin-worker'),
-        'binary|bin-cron|9100||stop|' + demoCmd('bin-cron'),
+        'binary|demo-bin|9090|start|' + demoCmd('demo-bin'),
+        'binary|bin-api|9000|start|' + demoCmd('bin-api'),
+        'binary|bin-worker||stop|' + demoCmd('bin-worker'),
+        'binary|bin-cron|9100|stop|' + demoCmd('bin-cron'),
     ];
     fs.writeFileSync(services, svcLines.join('\n') + '\n');
     return true;

@@ -215,6 +215,8 @@ api_get_settings() {
 		printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js
 		printf '","screen_resume_names":"'
 		printf '%s' "$SCREEN_RESUME_NAMES" | enc_js
+		printf '","termux_root_names":"'
+		printf '%s' "$TERMUX_ROOT_NAMES" | enc_js
 		printf '","patrol_enabled":"'
 		printf '%s' "$PATROL_ENABLED" | enc_js
 		printf '","webui_enabled":"'
@@ -474,6 +476,15 @@ cfg_apply_one() {
 			exit 1
 		fi
 		SCREEN_RESUME_NAMES=$val
+		;;
+	termux_root_names)
+		invalid_name=$(validate_name_list "$val")
+		if [ -n "$invalid_name" ]; then
+			err=$(printf '%s' "$invalid_name" | tr -d '\r' | cut -c1-60 | tr -d '"\\')
+			echo "{\"success\":false,\"error\":\"root 运行服务名不合法: $err\"}"
+			exit 1
+		fi
+		TERMUX_ROOT_NAMES=$val
 		;;
 	patrol_enabled)
 		case "$val" in

@@ -66,7 +66,7 @@ mkdir -p "$RUNDIR" "$LOG_DIR" "$RUNDIR/session"
 # ---------- 配置（config/setting.conf 设置项 + config/services.conf 服务项） ----------
 # 配置 schema 唯一定义全键：新增设置键需同步补全 load_settings / write_settings / action.sh cfg_apply_one 及前端字段；
 # 新增服务类型只需在 load_services / write_services 加一个 type 分支。
-SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names patrol_enabled webui_enabled webui_password_hash webui_token'
+SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names termux_root_names patrol_enabled webui_enabled webui_password_hash webui_token'
 
 # JSON 字符串编码：\ " tab CR 转义、换行转字面 \n；逐字符拼接（gsub 替换串反斜杠 busybox/gawk 语义不一致，禁用）
 enc_js() {
@@ -112,8 +112,9 @@ write_settings() {
 		printf 'schedule_start=%s\n'          "$(printf '%s' "$SCHEDULE_START" | enc_js)"
 		printf 'screen_service_enabled=%s\n'  "$(printf '%s' "$SCREEN_SERVICE_ENABLED" | enc_js)"
 		printf 'screen_service_names=%s\n'    "$(printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js)"
-		printf 'screen_resume_names=%s\n'     "$(printf '%s' "$SCREEN_RESUME_NAMES" | enc_js)"
-		printf 'patrol_enabled=%s\n'          "$(printf '%s' "$PATROL_ENABLED" | enc_js)"
+	printf 'screen_resume_names=%s\n'     "$(printf '%s' "$SCREEN_RESUME_NAMES" | enc_js)"
+	printf 'termux_root_names=%s\n'       "$(printf '%s' "$TERMUX_ROOT_NAMES" | enc_js)"
+	printf 'patrol_enabled=%s\n'          "$(printf '%s' "$PATROL_ENABLED" | enc_js)"
 		printf 'webui_enabled=%s\n'           "$(printf '%s' "$WEBUI_ENABLED" | enc_js)"
 		printf 'webui_password_hash=%s\n'     "$(printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js)"
 		printf 'webui_token=%s\n'             "$(printf '%s' "$WEBUI_TOKEN" | enc_js)"
@@ -312,12 +313,19 @@ compute_runset() {
 }
 
 # 按服务类型启动：$1=kind(termux|binary) $2=名称 $3=命令文本。
-# 统一启动收口（巡检/Wi-Fi/WebUI）：termux 固定以完整 Termux 用户身份运行；cmd 库存字面 \n，执行前还原为真换行。
+# 统一启动收口（巡检/Wi-Fi/WebUI）：termux 默认以完整 Termux 用户身份运行，命中 termux_root_names 名单则
+# 不注入 su 参数改以 root 运行（工作目录与 TERMUX_ENV 不变）；cmd 库存字面 \n，执行前还原为真换行。
 launch_svc() {
 	local cmdtext=$3
 	case "$cmdtext" in *\\*) cmdtext=$(printf '%s' "$cmdtext" | dec_js) ;; esac
 	case "$1" in
-		termux) start_svc "$2" "$TERMUX_HOME" "$(termux_user_args)" "$TERMUX_ENV $cmdtext" ;;
+		termux)
+			if name_in_set "$2" "$TERMUX_ROOT_NAMES"; then
+				start_svc "$2" "$TERMUX_HOME" "" "$TERMUX_ENV $cmdtext"
+			else
+				start_svc "$2" "$TERMUX_HOME" "$(termux_user_args)" "$TERMUX_ENV $cmdtext"
+			fi
+			;;
 		binary) start_svc "$2" "$SERVER_DIR" "" "$cmdtext" ;;
 	esac
 }
@@ -429,6 +437,7 @@ load_settings() {
 	WIFI_SERVICE_ENABLED=""; WIFI_SERVICE_NAMES=""; WIFI_SERVICE_NAMES_OFF=""; WIFI_SSIDS=""
 	SCHEDULE_ENABLED=""; SCHEDULE_STOP=""; SCHEDULE_START=""
 	SCREEN_SERVICE_ENABLED=""; SCREEN_SERVICE_NAMES=""; SCREEN_RESUME_NAMES=""
+	TERMUX_ROOT_NAMES=""
 	PATROL_ENABLED=""
 	WEBUI_ENABLED=""; WEBUI_PASSWORD_HASH=""; WEBUI_TOKEN=""
 	[ -f "$f" ] || return 0
@@ -437,7 +446,7 @@ load_settings() {
 		case "$line" in ''|'#'*) continue ;; esac
 		k=${line%%=*}
 		case "$k" in
-		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|screen_service_enabled|screen_service_names|screen_resume_names|patrol_enabled|webui_enabled|webui_password_hash|webui_token) ;;
+		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|screen_service_enabled|screen_service_names|screen_resume_names|termux_root_names|patrol_enabled|webui_enabled|webui_password_hash|webui_token) ;;
 		*) continue ;;
 		esac
 		v=${line#*=}
@@ -457,6 +466,7 @@ load_settings() {
 		screen_service_enabled) SCREEN_SERVICE_ENABLED=$v ;;
 		screen_service_names) SCREEN_SERVICE_NAMES=$v ;;
 		screen_resume_names) SCREEN_RESUME_NAMES=$v ;;
+		termux_root_names) TERMUX_ROOT_NAMES=$v ;;
 		patrol_enabled) PATROL_ENABLED=$v ;;
 		webui_enabled) WEBUI_ENABLED=$v ;;
 		webui_password_hash) WEBUI_PASSWORD_HASH=$v ;;

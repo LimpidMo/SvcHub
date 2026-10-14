@@ -24,14 +24,17 @@
         .item { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); gap: 12px; cursor: pointer; }
         .item:last-child { border-bottom: none; }
         .item-info { flex: 1; min-width: 0; }
-        .item-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+        /* 长服务名单行省略：min-width:0 让 flex 子项可收缩，否则按钮挤压会把名字顶成两行 */
+        .item-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .item-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
         .dot-on { background: #22c55e; }
         .dot-off { background: #d4d4d4; }
-        .tag { font-size: 9px; padding: 2px 6px; border-radius: 2px; letter-spacing: 0.5px; }
+        .tag { font-size: 9px; padding: 2px 6px; border-radius: 2px; letter-spacing: 0.5px; flex-shrink: 0; }
         .tag-on { background: #f0fdf4; color: #16a34a; }
         .tag-off { background: #fef2f2; color: #dc2626; }
-        .port { font-size: 9px; padding: 2px 6px; border-radius: 2px; background: #f3f4f6; color: #6b7280; font-family: monospace; }
+        .tag-root { background: #fff7ed; color: #c2410c; }
+        .port { font-size: 9px; padding: 2px 6px; border-radius: 2px; background: #f3f4f6; color: #6b7280; font-family: monospace; flex-shrink: 0; }
         .btn { padding: 6px 12px; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; font-size: 11px; background: #fff; color: var(--text); letter-spacing: 0.5px; }
         .btn:hover { background: var(--bg); }
         .btn:active { transform: scale(0.98); }
@@ -365,7 +368,16 @@
                     </div>
                 </div>
                 <div class="form" style="padding:0;border:none;">
-                    <label class="form-label">启动命令 *（必须）</label>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">
+                        <label class="form-label" style="margin:0;">启动命令 *（必须）</label>
+                        <div id="svc-root-wrap" style="display:flex;align-items:center;gap:6px;">
+                            <span style="font-size:11px;color:var(--muted);">root 运行</span>
+                            <label class="switch">
+                                <input type="checkbox" id="input-svc-root">
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                    </div>
                     <textarea class="form-input form-textarea" id="input-svc-cmd" placeholder="并行多服务用 & 分隔，如 a & b ，nginx 等守护进程需前台运行：nginx -g 'daemon off;'"></textarea>
                 </div>
             </div>
@@ -480,6 +492,7 @@
             wifi_ssids: '',
             schedule_enabled: false, schedule_stop: '', schedule_start: '',
             screen_service_enabled: false, screen_service_names: new Set(), screen_resume_names: new Set(),
+            termux_root_names: new Set(),
             patrol_enabled: false,
             webui_enabled: false, webui_port: 5555
         };
@@ -989,14 +1002,21 @@
             return n === null ? escapeHtml(p) : 'port:' + n;
         }
 
-        // 状态页/配置页共用条目信息（名称 + 端口 + auto 标签）
-        function svcItemInfo(s) {
+        // 条目信息（名称 + 端口 + auto 标签 + root 标签，Termux 命中 root 名单才加）。
+        // showAuto：状态页不显示 auto——左侧圆点已是当前运行状态，再给绿 start/红 stop 会与之混淆；
+        // 配置页保留，那里无状态圆点，auto 标签是「是否自动启动」的唯一表达。
+        function svcItemInfo(s, isTermux, showAuto) {
+            const autoTag = showAuto
+                ? `<span class="tag ${s.auto === 'start' ? 'tag-on' : 'tag-off'}">${escapeHtml(s.auto)}</span>` : '';
+            const rootTag = (isTermux && configData.termux_root_names.has(s.name))
+                ? `<span class="tag tag-root">root</span>` : '';
             return `
                     <div class="item-info">
-                        <div class="item-name">${escapeHtml(s.name)}</div>
-                        <div class="item-meta" style="display:flex;align-items:center;gap:3px;">
+                        <div class="item-name"><span title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span></div>
+                        <div class="item-meta" style="display:flex;align-items:center;gap:3px;min-width:0;">
                             <span class="port">${formatPort(s.port)}</span>
-                            <span class="tag ${s.auto === 'start' ? 'tag-on' : 'tag-off'}">${escapeHtml(s.auto)}</span>
+                            ${autoTag}
+                            ${rootTag}
                         </div>
                     </div>`;
         }
@@ -1029,7 +1049,7 @@
                 return `
                 <div class="item" onclick="toggleExpand('${id}', ${i}, event)">
                     <span class="dot ${running ? 'dot-on' : 'dot-off'}"></span>
-                    ${svcItemInfo(s)}
+                    ${svcItemInfo(s, isTermux, false)}
                     <div class="actions" onclick="event.stopPropagation()">
                         ${running
                             ? openBtn + `<button class="btn btn-md btn-restart" onclick="restartSvc('${s.name}')">重启</button><button class="btn btn-md btn-danger" onclick="stopSvc('${s.name}')">停止</button><button class="btn btn-md" onclick="showLog('${s.name}')">日志</button>`
@@ -1281,6 +1301,7 @@
                     configData.screen_service_enabled = d.screen_service_enabled === '1';
                     configData.screen_service_names = new Set((d.screen_service_names || '').split('\n').map(s => s.trim()).filter(Boolean));
                     configData.screen_resume_names = new Set((d.screen_resume_names || '').split('\n').map(s => s.trim()).filter(Boolean));
+                    configData.termux_root_names = new Set((d.termux_root_names || '').split('\n').map(s => s.trim()).filter(Boolean));
                     configData.patrol_enabled = d.patrol_enabled === '1';
                     configData.webui_enabled = d.webui_enabled === '1';
                     isSettingsLoaded = true;
@@ -1369,19 +1390,19 @@
                        <button class="btn btn-lg btn-danger" onclick="confirmDelete('${type}', ${i})">删除</button>`;
                 return `
                 <div class="item" ${sorting ? '' : `onclick="openModal('${type}', ${i})"`}>
-                    ${svcItemInfo(s)}
+                    ${svcItemInfo(s, isTermux, true)}
                     <div class="actions" onclick="event.stopPropagation()">${actions}</div>
                 </div>`;
             };
 
             const tEl = document.getElementById('config-termux-list');
             if (configData.termux_services.length) {
-                tEl.innerHTML = configData.termux_services.map((s, i) => renderRow('termux', s, i)).join('');
+                tEl.innerHTML = configData.termux_services.map((s, i) => renderRow('termux', s, i, true)).join('');
             } else { tEl.innerHTML = '<div class="empty">暂无服务</div>'; }
 
             const bEl = document.getElementById('config-binary-list');
             if (configData.binary_services.length) {
-                bEl.innerHTML = configData.binary_services.map((s, i) => renderRow('binary', s, i)).join('');
+                bEl.innerHTML = configData.binary_services.map((s, i) => renderRow('binary', s, i, false)).join('');
             } else { bEl.innerHTML = '<div class="empty">暂无服务</div>'; }
         }
 
@@ -1428,12 +1449,17 @@
                 configData.wifi_service_names_off.delete(name);
                 configData.screen_service_names.delete(name);
                 configData.screen_resume_names.delete(name);
+                configData.termux_root_names.delete(name);
                 renderConfigLists();
                 updateWifiPickBtn();
                 updateScreenPickBtn();
                 updateScreenOnPickBtn();
                 toast('保存中...');
-                saveServicesOnly(type);
+                await saveServicesOnly(type);
+                // 名单清理独立落盘（saveservices 不写设置键）
+                const names = [...configData.termux_root_names].join('\n');
+                const rs = await runAction('savesettings', 'termux_root_names=' + toB64(names));
+                if (rs.errno !== 0) toast('名单清理保存失败', true);
                 closeConfirm();
             };
         }
@@ -1462,6 +1488,9 @@
             document.getElementById('input-svc-name').value = s.name;
             document.getElementById('input-svc-port').value = s.port || '';
             document.getElementById('input-svc-auto').checked = s.auto !== 'stop';
+            // root 运行仅 Termux 服务可选：binary 本身就是 root，开关无意义
+            document.getElementById('svc-root-wrap').style.display = type === 'termux' ? 'flex' : 'none';
+            document.getElementById('input-svc-root').checked = type === 'termux' && configData.termux_root_names.has(s.name);
             document.getElementById('input-svc-cmd').value = displayCmd(s.cmd);
             showAnyModal('modal-svc');
         }
@@ -1470,7 +1499,7 @@
 
         // 保存服务编辑：读表单 -> 校验 -> 写回数组 -> 只发本类键（saveservices，不碰设置与另一类）
         let svcSaving = false;
-        function saveService() {
+        async function saveService() {
             if (svcSaving) return;
             const el = id => document.getElementById(id);
             const type = el('edit-svc-type').value === 'binary' ? 'binary' : 'termux';
@@ -1487,26 +1516,49 @@
             // 全服务项查重：pid/日志/Wi-Fi 选择均按 name 索引，跨类同名必冲突（编辑排除自身）
             const self = idx >= 0 ? svcArr(type)[idx] : null;
             if (svcArr('termux').concat(svcArr('binary')).some(x => x !== self && x.name === s.name)) { toast('已存在同名配置项', true); return; }
+            const oldName = self ? self.name : '';
             if (idx === -1) svcArr(type).push(s);
             else svcArr(type)[idx] = s;
+            // 服务行与 root 名单分属两个后端接口：先落服务行，成功后再落名单
             svcSaving = true;
             closeModal();
             renderConfigLists();
             toast('保存中...');
-            saveServicesOnly(type).finally(() => { svcSaving = false; });
+            try {
+                const svcOk = await saveServicesOnly(type);
+                // 服务行失败已回读纠正，不再写名单，免名单指向不存在的服务
+                if (svcOk && type === 'termux') await saveRootNames(el('input-svc-root').checked, s.name, oldName);
+            } finally { svcSaving = false; }
         }
 
-        // 只存本类服务：saveservices 单键（另一类不动，设置不动）；失败回读刷新。
+        // root 运行名单独立存设置键：服务行保存成功后才写，失败回读防“显示开、实际没开”
+        async function saveRootNames(on, name, oldName) {
+            if (oldName && oldName !== name) configData.termux_root_names.delete(oldName); // 改名清旧名，免留孤儿
+            if (on) configData.termux_root_names.add(name);
+            else configData.termux_root_names.delete(name);
+            const payload = 'termux_root_names=' + toB64([...configData.termux_root_names].join('\n'));
+            const r = await runAction('savesettings', payload);
+            let ok = false;
+            if (r.errno === 0) {
+                try { ok = JSON.parse(r.stdout || '{}').success === true; } catch (e) { /* 视为失败 */ }
+            }
+            if (ok) { renderConfigLists(); return; }
+            toast('root 运行开关保存失败', true);
+            try { await loadConfigSettings(true, true); } catch (e) { /* 下次刷新纠正 */ }
+            renderConfigLists();
+        }
+
+        // 只存本类服务：saveservices 单键（另一类不动，设置不动）；失败回读刷新。返回是否成功。
         async function saveServicesOnly(type) {
-            if (!backendReady()) { toast('请先初始化', true); return; }
-            if (!isServicesLoaded) { toast('配置未加载完成，已取消保存', true); return; }
+            if (!backendReady()) { toast('请先初始化', true); return false; }
+            if (!isServicesLoaded) { toast('配置未加载完成，已取消保存', true); return false; }
             const key = type === 'binary' ? 'binary_services' : 'termux_services';
             const payload = key + '=' + toB64(stringifyRows(svcArr(type), type));
             const r = await runAction('saveservices', payload);
             if (r.errno === 0) {
                 try {
                     const d = JSON.parse(r.stdout || '{}');
-                    if (d.success) { toast('已保存'); return; }
+                    if (d.success) { toast('已保存'); return true; }
                     toast(d.error || '保存失败', true);
                 } catch (e) { toast('保存失败', true); }
             } else {
@@ -1520,6 +1572,7 @@
                 else configData.termux_services = parseRows(v.termux_services || '', 'termux');
                 renderConfigLists();
             } catch (e) { /* 保持本地显示，下次刷新纠正 */ }
+            return false;
         }
 
         function validateBasic() {
