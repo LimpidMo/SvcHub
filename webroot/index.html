@@ -8,17 +8,86 @@
     <link rel="icon" type="image/png" href="img/icon-192x192.png">
     <link rel="apple-touch-icon" href="img/icon-192x192.png">
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#2d2d2d">
+    <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="SvcHub">
     <title>SvcHub 服务管理</title>
     <style>
-        :root { --line: rgba(0,0,0,0.08); --text: #1a1a1a; --muted: #888; --accent: #2d2d2d; --bg: #fafafa; }
+        /* 主题变量：浅色为默认值，深色经 html[data-theme=dark] 覆盖（head 内联脚本首屏前定主题） */
+        :root {
+            --line: rgba(0,0,0,0.08);
+            --text: #1a1a1a;
+            --muted: #888;
+            --accent: #2d2d2d;
+            --accent-hover: #404040;
+            --accent-fg: #fff;
+            --bg: #fafafa;
+            --surface: #fff;
+            --mask: rgba(0,0,0,0.4);
+            --placeholder: #aaa;
+            --on: #22c55e;
+            --off: #d4d4d4;
+            --danger: #dc2626;
+            --danger-bg: #fef2f2;
+            --danger-line: #fecaca;
+            --danger-hover: #fee2e2;
+            --ok: #16a34a;
+            --ok-bg: #f0fdf4;
+            --root-bg: #fff7ed;
+            --root-fg: #c2410c;
+            --port-bg: #f3f4f6;
+            --port-fg: #6b7280;
+            --warn-fg: #b45309;
+            --warn-bg: #fefce8;
+            --warn-line: #eab308;
+            --warn-hover: #fef3c7;
+            --info-fg: #2563eb;
+            --info-bg: #eff6ff;
+            --info-line: #3b82f6;
+            --info-hover: #dbeafe;
+        }
+        html[data-theme="dark"] {
+            --line: rgba(255,255,255,0.1);
+            --text: #e6e6e6;
+            --muted: #8c8c8c;
+            --accent: #e6e6e6;
+            --accent-hover: #fff;
+            --accent-fg: #161616;
+            --bg: #121212;
+            --surface: #1c1c1c;
+            --mask: rgba(0,0,0,0.6);
+            --placeholder: #5c5c5c;
+            --off: #4d4d4d;
+            --danger: #f87171;
+            --danger-bg: rgba(248,113,113,0.14);
+            --danger-line: rgba(248,113,113,0.4);
+            --danger-hover: rgba(248,113,113,0.24);
+            --ok: #4ade80;
+            --ok-bg: rgba(74,222,128,0.14);
+            --root-bg: rgba(251,146,60,0.16);
+            --root-fg: #fb923c;
+            --port-bg: rgba(255,255,255,0.08);
+            --port-fg: #8c8c8c;
+            --warn-fg: #fbbf24;
+            --warn-bg: rgba(251,191,36,0.12);
+            --warn-line: rgba(251,191,36,0.4);
+            --warn-hover: rgba(251,191,36,0.22);
+            --info-fg: #60a5fa;
+            --info-bg: rgba(96,165,250,0.12);
+            --info-line: rgba(96,165,250,0.4);
+            --info-hover: rgba(96,165,250,0.22);
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        /* 表单控件 UA 样式自带黑色 color 且不继承 body，深色下会黑底黑字；
+           color-scheme 让滚动条/下拉/自动填充跟随主题，input 显式取 --text */
+        html[data-theme="dark"] { color-scheme: dark; }
+        html[data-theme="light"] { color-scheme: light; }
+        input, textarea, select { color: var(--text); }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; line-height: 1.5; }
-        .nav { display: flex; border-bottom: 1px solid var(--line); background: #fff; position: sticky; top: 0; z-index: 100; }
+        .nav { display: flex; border-bottom: 1px solid var(--line); background: var(--surface); position: sticky; top: 0; z-index: 100; }
         .nav-item { flex: 1; padding: 14px; text-align: center; cursor: pointer; border: none; background: none; font-size: 12px; color: var(--muted); letter-spacing: 1px; position: relative; }
         .nav-item.active { color: var(--text); font-weight: 500; }
         .nav-item.active::after { content: ''; position: absolute; bottom: -1px; left: 50%; transform: translateX(-50%); width: 24px; height: 2px; background: var(--accent); }
@@ -28,7 +97,7 @@
         .section { margin-bottom: 24px; }
         .section-hd { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); margin-bottom: 1px; }
         .section-title { font-size: 14px; color: var(--text); letter-spacing: 1px; font-weight: 600; }
-        .section-body { background: #fff; border: 1px solid var(--line); }
+        .section-body { background: var(--surface); border: 1px solid var(--line); }
         .item { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); gap: 12px; cursor: pointer; }
         .item:last-child { border-bottom: none; }
         .item-info { flex: 1; min-width: 0; }
@@ -36,54 +105,54 @@
         .item-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; min-width: 0; }
         .item-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-        .dot-on { background: #22c55e; }
-        .dot-off { background: #d4d4d4; }
+        .dot-on { background: var(--on); }
+        .dot-off { background: var(--off); }
         .tag { font-size: 9px; padding: 2px 6px; border-radius: 2px; letter-spacing: 0.5px; flex-shrink: 0; }
-        .tag-on { background: #f0fdf4; color: #16a34a; }
-        .tag-off { background: #fef2f2; color: #dc2626; }
-        .tag-root { background: #fff7ed; color: #c2410c; }
-        .port { font-size: 9px; padding: 2px 6px; border-radius: 2px; background: #f3f4f6; color: #6b7280; font-family: monospace; flex-shrink: 0; }
-        .btn { padding: 6px 12px; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; font-size: 11px; background: #fff; color: var(--text); letter-spacing: 0.5px; }
+        .tag-on { background: var(--ok-bg); color: var(--ok); }
+        .tag-off { background: var(--danger-bg); color: var(--danger); }
+        .tag-root { background: var(--root-bg); color: var(--root-fg); }
+        .port { font-size: 9px; padding: 2px 6px; border-radius: 2px; background: var(--port-bg); color: var(--port-fg); font-family: monospace; flex-shrink: 0; }
+        .btn { padding: 6px 12px; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; font-size: 11px; background: var(--surface); color: var(--text); letter-spacing: 0.5px; }
         .btn:hover { background: var(--bg); }
         .btn:active { transform: scale(0.98); }
         .btn-sm { padding: 4px 8px; font-size: 10px; }
         .btn-md { padding: 5px 10px; font-size: 12px; }
         .btn-lg { padding: 6px 12px; font-size: 13px; }
-        .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-        .btn-primary:hover { background: #404040; }
-        .btn-danger { color: #dc2626; border-color: #fecaca; background: #fef2f2; }
-        .btn-danger:hover { background: #fee2e2; }
-        .btn-open { border-color: #3b82f6; color: #2563eb; background: #eff6ff; }
-        .btn-open:hover { background: #dbeafe; }
-        .btn-restart { border-color: #eab308; color: #b45309; background: #fefce8; }
-        .btn-restart:hover { background: #fef3c7; }
+        .btn-primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-danger { color: var(--danger); border-color: var(--danger-line); background: var(--danger-bg); }
+        .btn-danger:hover { background: var(--danger-hover); }
+        .btn-open { border-color: var(--info-line); color: var(--info-fg); background: var(--info-bg); }
+        .btn-open:hover { background: var(--info-hover); }
+        .btn-restart { border-color: var(--warn-line); color: var(--warn-fg); background: var(--warn-bg); }
+        .btn-restart:hover { background: var(--warn-hover); }
         .actions { display: flex; gap: 6px; flex-shrink: 0; }
-        #status-filter option { background: #fff; color: var(--text); font-size: 12px; padding: 5px 10px; }
+        #status-filter option { background: var(--surface); color: var(--text); font-size: 12px; padding: 5px 10px; }
         #status-filter option:checked { background: var(--bg); font-weight: 600; }
         .empty { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 12px; }
         .form { padding: 16px; border-bottom: 1px solid var(--line); }
         .form:last-child { border-bottom: none; }
         .form-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: block; letter-spacing: 0.5px; }
         .form-label-strong { font-size: 12px; color: var(--text); font-weight: 600; margin-bottom: 6px; display: block; letter-spacing: 0.5px; }
-        .form-input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; font-size: 13px; background: #fff; }
+        .form-input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; font-size: 13px; background: var(--surface); }
         .form-input:focus { outline: none; border-color: var(--accent); }
-        .form-input::placeholder { font-size: 11px; color: #aaa; }
-        .form-input.error { border-color: #dc2626; }
+        .form-input::placeholder { font-size: 11px; color: var(--placeholder); }
+        .form-input.error { border-color: var(--danger); }
         .form-row { display: flex; align-items: center; gap: 8px; }
         .form-row .form-input { flex: 1; min-width: 0; }
         .form-textarea { min-height: 100px; resize: vertical; font-family: monospace; font-size: 11px; line-height: 1.6; }
         .form-hint { font-size: 10px; color: var(--muted); margin-top: 4px; }
-        .form-error { font-size: 10px; color: #dc2626; margin-top: 4px; }
-        .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #fff; padding: 10px 20px; border-radius: 4px; font-size: 12px; z-index: 1000; opacity: 0; transition: opacity 0.2s; letter-spacing: 0.5px; }
+        .form-error { font-size: 10px; color: var(--danger); margin-top: 4px; }
+        .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--accent-fg); padding: 10px 20px; border-radius: 4px; font-size: 12px; z-index: 1000; opacity: 0; transition: opacity 0.2s; letter-spacing: 0.5px; }
         .run-bar { display: flex; gap: 8px; flex-shrink: 0; }
         .form-hint-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
         .form-hint-row .form-hint { margin-top: 0; flex: 1; }
         .toast.show { opacity: 1; }
-        .toast.error { background: #dc2626; }
-        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: none; justify-content: center; align-items: center; z-index: 200; }
+        .toast.error { background: var(--danger); }
+        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--mask); display: none; justify-content: center; align-items: center; z-index: 200; }
         .modal.show { display: flex; }
         body.modal-open { overflow: hidden; }
-        .modal-box { background: #fff; border-radius: 8px; width: 90%; max-width: 400px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; }
+        .modal-box { background: var(--surface); border-radius: 8px; width: 90%; max-width: 400px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; }
         .modal-hd { padding: 16px; border-bottom: 1px solid var(--line); font-weight: 500; font-size: 14px; }
         .modal-bd { padding: 16px; overflow-y: auto; flex: 1; }
         .modal-ft { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
@@ -92,21 +161,21 @@
         .log-content { white-space: pre-wrap; word-break: break-all; padding: 12px; height: 100%; overflow-y: auto; }
         .log-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
         .log-title { font-weight: 500; font-size: 13px; }
-        .debug { background: #fef3c7; border: 1px solid #fcd34d; border-radius: 4px; padding: 12px; margin: 16px; font-size: 11px; max-height: 50vh; box-sizing: border-box; overflow: hidden; }
+        .debug { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 4px; padding: 12px; margin: 16px; font-size: 11px; max-height: 50vh; box-sizing: border-box; overflow: hidden; }
         .debug pre { white-space: pre-wrap; word-break: break-all; margin-top: 8px; max-height: calc(50vh - 60px); overflow-y: auto; }
-        .expand { padding: 12px 16px; background: #fafafa; border-bottom: 1px solid var(--line); }
+        .expand { padding: 12px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
         .expand-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
         .expand-row:last-child { margin-bottom: 0; }
         .expand-label { font-size: 10px; color: var(--muted); width: 60px; flex-shrink: 0; }
         .expand-input { flex: 1; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-family: monospace; }
         .expand-input:focus { outline: none; border-color: var(--accent); }
-        .expand-textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-family: monospace; min-height: 40px; height: auto; resize: none; background: #fff; overflow: hidden; cursor: text; }
+        .expand-textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-family: monospace; min-height: 40px; height: auto; resize: none; background: var(--surface); overflow: hidden; cursor: text; }
         .expand-textarea:focus { outline: none; border-color: var(--accent); }
         .switch { position: relative; width: 44px; height: 22px; flex-shrink: 0; }
         .switch input { opacity: 0; width: 0; height: 0; }
         .switch-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #d4d4d4; border-radius: 11px; transition: 0.2s; }
         .switch-slider::before { position: absolute; content: ''; height: 16px; width: 16px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
-        .switch input:checked + .switch-slider { background: #22c55e; }
+        .switch input:checked + .switch-slider { background: var(--on); }
         .switch input:checked + .switch-slider::before { transform: translateX(22px); }
         .wifi-group-title { font-size: 11px; color: var(--muted); letter-spacing: 0.5px; margin: 10px 0 6px; }
         .wifi-group-title:first-child { margin-top: 0; }
@@ -118,8 +187,23 @@
         .wifi-grid label:active { background: var(--bg); }
         .wifi-grid .port { margin-left: auto; }
         .confirm-msg { font-size: 13px; color: var(--text); line-height: 1.6; }
-        .confirm-msg strong { color: #dc2626; }
+        .confirm-msg strong { color: var(--danger); }
+        #theme-select { appearance: none; -webkit-appearance: none; padding-right: 20px; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: right 8px center, right 4px center; background-size: 4px 4px; background-repeat: no-repeat; }
+        #theme-select option { background: var(--surface); color: var(--text); }
     </style>
+    <script>
+        // 主题首屏前定参：与下方 applyTheme 同一 key，避免刷新瞬间闪白/闪黑
+        (function () {
+            try {
+                var m = localStorage.getItem('svcbox_theme_v1');
+                if (m === 'dark' || m === 'light') {
+                    document.documentElement.setAttribute('data-theme', m);
+                } else if (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) {
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                }
+            } catch (e) { /* 存储不可用时按系统默认 */ }
+        })();
+    </script>
 </head>
 <body>
     <div class="debug" id="debug-info" style="display:none;">
@@ -195,6 +279,11 @@
                 <div class="section-hd">
                     <span class="section-title">基本设置</span>
                     <div class="actions">
+                        <select class="btn btn-lg" id="theme-select" onchange="setTheme(this.value)" title="主题外观，默认跟随设备">
+                            <option value="auto">跟随设备</option>
+                            <option value="dark">深色主题</option>
+                            <option value="light">浅色主题</option>
+                        </select>
                         <button class="btn btn-lg" onclick="toggleDebugPanel()">调试</button>
                         <button class="btn btn-lg" onclick="loadConfigSettings(true)">刷新</button>
                     </div>
@@ -323,7 +412,7 @@
                                 <button class="btn btn-lg" id="screen-pick-btn" style="flex:1;" onclick="openWifiModal('screen')">锁屏白名单 (0)</button>
                                 <button class="btn btn-lg" onclick="showLog('screen')">日志</button>
                             </div>
-                            <div class="form-hint">亮屏解锁后启动亮屏白名单服务（为空则恢复 start 项服务）；锁屏后停止全部（锁屏白名单除外）</div>
+                            <div class="form-hint">亮屏解锁后启动（为空启动start项）；锁屏后全停（除白名单外）</div>
                             <div class="form-error" id="error-screen"></div>    
                         </div>
                     </div>
@@ -390,7 +479,7 @@
                 </div>
                 <div class="form" id="svc-stop-box" style="padding:0;border:none;display:none;">
                     <label class="form-label">收尾命令（服务停止后执行一次）</label>
-                    <textarea class="form-input form-textarea" id="input-svc-stop" placeholder="可放如：清理注入的 iptables 规则、清理  可能的进程残留、删临时文件等命令"></textarea>
+                    <textarea class="form-input form-textarea" id="input-svc-stop" placeholder="可放如：清理注入的 iptables 规则、清理可能的进程残留、删临时文件等命令"></textarea>
                     <div class="form-hint">若放同步命令执行会阻塞停止操作，请避免长时间命令</div>
                 </div>
             </div>
@@ -586,6 +675,48 @@
         const STATUS_CACHE_KEY = 'svcbox_status_cache_v1';
         const STATUS_BOOT_KEY = 'svcbox_status_boot_v1';
         const STATUS_CACHE_TTL = 5 * 60 * 1000;
+        // 主题：auto 跟随设备，dark/light 固定；仅存本机 localStorage，不随配置同步
+        const THEME_KEY = 'svcbox_theme_v1';
+        let themeMedia = null;
+
+        // 落地主题到 DOM：auto 按系统偏好，深色浅色按用户选择；顺带刷新下拉选中态
+        function applyTheme(mode) {
+            const html = document.documentElement;
+            if (mode === 'dark' || mode === 'light') {
+                html.setAttribute('data-theme', mode);
+            } else {
+                html.removeAttribute('data-theme');
+                // auto 且系统为深色：head 内联脚本已定过参，这里兜底补一次
+                if (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) html.setAttribute('data-theme', 'dark');
+            }
+            const sel = document.getElementById('theme-select');
+            if (sel) sel.value = mode;
+        }
+
+        function setTheme(mode) {
+            try { localStorage.setItem(THEME_KEY, mode); } catch (e) { /* 存储不可用仅本次会话生效 */ }
+            applyTheme(mode);
+            toast(mode === 'auto' ? '主题：跟随设备' : (mode === 'dark' ? '主题：深色' : '主题：浅色'));
+        }
+
+        // 读取已存主题并生效；auto 模式下注册系统偏好监听，切换设备主题即时联动
+        function initTheme() {
+            let mode = 'auto';
+            try {
+                const v = localStorage.getItem(THEME_KEY);
+                if (v === 'dark' || v === 'light') mode = v;
+            } catch (e) { /* 存储不可用按 auto */ }
+            applyTheme(mode);
+            if (window.matchMedia) {
+                if (themeMedia) { themeMedia.onchange = null; themeMedia = null; }
+                themeMedia = matchMedia('(prefers-color-scheme: dark)');
+                themeMedia.onchange = () => {
+                    let cur = 'auto';
+                    try { cur = localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) { /* 按 auto */ }
+                    if (cur === 'auto') applyTheme('auto');
+                };
+            }
+        }
 
         function clearStatusCache() {
             try { localStorage.removeItem(STATUS_CACHE_KEY); } catch (e) { /* 存储不可用时忽略 */ }
@@ -2082,8 +2213,8 @@
         const SERVICES_PICK_DEFS = {
             on:       { title: '选择连接组服务（连上时运行，断开则停止）', key: 'wifi_service_names', peer: 'wifi_service_names_off', upd: updateWifiPickBtn },
             off:      { title: '选择断开组服务（断开则运行，连上则停止）', key: 'wifi_service_names_off', peer: 'wifi_service_names', upd: updateWifiPickBtn },
-            screen:   { title: '选择锁屏白名单服务（若已运行，锁屏时保持运行）', key: 'screen_service_names', peer: 'screen_resume_names', upd: updateScreenPickBtn },
-            screenon: { title: '选择亮屏白名单服务（亮屏解锁后启动的服务，空则启动start项）', key: 'screen_resume_names', peer: 'screen_service_names', upd: updateScreenOnPickBtn }
+            screen:   { title: '选择锁屏白名单服务（若已运行，锁屏时不停止）', key: 'screen_service_names', peer: 'screen_resume_names', upd: updateScreenPickBtn },
+            screenon: { title: '选择亮屏白名单服务（亮屏解锁后需启动的服务）', key: 'screen_resume_names', peer: 'screen_service_names', upd: updateScreenOnPickBtn }
         };
 
         // 清空当前弹窗已勾选项（另一组锁定项不动）
@@ -2182,6 +2313,7 @@
 
         async function init() {
             registerSW();
+            initTheme();
             if (!initRootApi()) {
                 // 无 API 且经 http(s) 加载即直连模式，走登录页。
                 if (/^https?:/.test(location.protocol)) {
