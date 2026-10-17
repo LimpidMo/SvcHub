@@ -122,14 +122,14 @@ write_settings() {
 	LOAD_CFG_DONE=""
 }
 
-# 服务项写成 services.conf（统一 5 段 type|name|port|auto|cmd，先全部 termux 再 # binary + 全部 binary；原子替换）。
-# 首行 # svc-v1.3.6 为格式标记：无标记按旧 6 段解析并丢弃 extra 段，写回即升级。
-# 无参：直接从 load_cfg_sh 的 TERMUX_SERVICES / BINARY_SERVICES（内存统一 4 段 name|port|auto|cmd）读取。
+# 服务项写成 services.conf（统一 6 段 type|name|port|auto|cmd|end_cmd，先全部 termux 再 # binary + 全部 binary；原子替换）。
+# 首行 # svc-v1.4.0 为格式标记（附段序说明）：无标记按旧格式解析（旧 5 段补空 end_cmd、更旧 6 段丢 extra），写回即升级。
+# 无参：直接从 load_cfg_sh 的 TERMUX_SERVICES / BINARY_SERVICES（内存统一 5 段 name|port|auto|cmd|end_cmd）读取。
 write_services() {
 	local tmp="$SERVICES_FILE.tmp" line
 	mkdir -p "$CONFIG_DIR" 2>/dev/null
 	{
-		echo '# svc-v1.3.6'
+		echo '# svc-v1.4.0 type|name|port|auto|cmd|end_cmd'
 		printf '%s\n' "$TERMUX_SERVICES" | while IFS= read -r line || [ -n "$line" ]; do
 			[ -n "$line" ] || continue
 			printf 'termux|%s\n' "$line"
@@ -381,10 +381,13 @@ kill_by_name() {
 }
 
 
-# 停止服务：按 pid 文件终止进程组，清理 pid 文件与该服务日志
+# 停止服务：按 pid 文件终止进程组，清理 pid 文件与该服务日志；
+# 停止前确在运行（was_running）才执行该服务配置的收尾命令。
 stop_svc() {
-	local name=$1 pidf="$RUNDIR/$1.pid" i=0
+	local name=$1 pidf="$RUNDIR/$1.pid" was_running=1 i=0
 	valid_name "$name" || return 0
+	# 布尔判定须吞 stdout（pidfile_alive 成功输出 pid）
+	pidfile_alive "$pidf" >/dev/null || was_running=""
 	kill_by_name "$name"
 	rm -f "$LOG_DIR/$1.log"
 	# 短等待直至进程消失（防 fork 竞争残留）
@@ -394,6 +397,40 @@ stop_svc() {
 		i=$((i + 1))
 	done
 	rm -f "$pidf"
+	[ -n "$was_running" ] && run_end_cmd "$name"
+	return 0
+}
+
+# 服务停止后执行收尾命令：查服务行末段 end_cmd，整段 dec_js 还原真换行后一次 su -c 执行
+# （与启动 cmd 同模型，函数/while/if 多行块合法；非常驻不追加 ; wait），身份与工作目录同 launch_svc。
+run_end_cmd() {
+	local name=$1 row endcmd="" extra="" su_bin rc
+	[ -n "$LOAD_CFG_DONE" ] || load_cfg_sh
+	row=$(pick_termux "$name")
+	[ -n "$row" ] || row=$(pick_binary "$name")
+	[ -n "$row" ] || return 0
+	# 取末段：heredoc read 末变量保留原始分隔符（end_cmd 可含 |）
+	IFS='|' read -r _ _ _ _ endcmd <<EOF
+$row
+EOF
+	[ -n "$endcmd" ] || return 0
+	case "$endcmd" in *\\*) endcmd=$(printf '%s' "$endcmd" | dec_js) ;; esac
+	printf '%s\n' "$endcmd" | grep -q '[^[:space:]]' || return 0
+	# 非 root 名单的 termux 服务降权至 Termux 用户（binary 与 root 名单服务本就是 root）
+	if printf '%s\n' "$row" | grep -q '^termux|' && ! name_in_set "$name" "$TERMUX_ROOT_NAMES"; then
+		extra=$(termux_user_args)
+	fi
+	su_bin=$(get_su_bin) || { echo "[$(date '+%F %T')] 收尾 $name 跳过：su 不可用" >> "$LOG_DIR/stop.log"; return 0; }
+	{
+		echo "=== 执行 $name 收尾命令 $(date '+%F %T') ==="
+		if printf '%s\n' "$row" | grep -q '^termux|'; then
+			"$su_bin" $extra -c "$TERMUX_ENV cd $TERMUX_HOME; $endcmd" 2>&1
+		else
+			"$su_bin" -c "cd \"$SERVER_DIR\" 2>/dev/null; $endcmd" 2>&1
+		fi
+		rc=$?
+		echo "[exit=$rc]"
+	} >> "$LOG_DIR/stop.log" 2>&1
 	return 0
 }
 
@@ -415,12 +452,12 @@ stop_removed_services() {
 stop_all() {
 	local ex=$1 name
 	[ -n "$LOAD_CFG_DONE" ] || load_services
-	printf '%s\n' "$TERMUX_SERVICES" | while IFS='|' read -r name port auto cmd; do
+	printf '%s\n' "$TERMUX_SERVICES" | while IFS='|' read -r name port auto cmd endcmd; do
 		[ -n "$name" ] || continue
 		[ -n "$ex" ] && name_in_set "$name" "$ex" && continue
 		stop_svc "$name"
 	done
-	printf '%s\n' "$BINARY_SERVICES" | while IFS='|' read -r name port auto cmd; do
+	printf '%s\n' "$BINARY_SERVICES" | while IFS='|' read -r name port auto cmd endcmd; do
 		[ -n "$name" ] || continue
 		[ -n "$ex" ] && name_in_set "$name" "$ex" && continue
 		stop_svc "$name"
@@ -493,7 +530,7 @@ setting_get() {
 	done < "$f"
 }
 
-# 校验后的行（4 段 name|port|auto|cmd）追加到对应内存变量；binary 段数不足视为非法
+# 校验后的行（5 段 name|port|auto|cmd|end_cmd）追加到对应内存变量；binary 段数不足视为非法
 append_row() {
 	local rest=$2
 	case "$1" in
@@ -503,7 +540,7 @@ $rest"; else TERMUX_SERVICES=$rest; fi
 		;;
 	binary)
 		case "$rest" in
-		*\|*\|*\|*) : ;;
+		*\|*\|*\|*\|*) : ;;
 		*) sup_log "services.conf 非法行(binary段数不足)：$rest"; return 1 ;;
 		esac
 		if [ -n "$BINARY_SERVICES" ]; then BINARY_SERVICES="$BINARY_SERVICES
@@ -513,19 +550,21 @@ $rest"; else BINARY_SERVICES=$rest; fi
 }
 
 # 读 services.conf 到 TERMUX_SERVICES / BINARY_SERVICES（去首段 type；非法行跳过记日志）。
-# 首行 # svc-v1.3.6 为格式标记：无标记按旧 6 段解析并丢弃 extra 段（下次写回自动升级）。
+# 首行 # svc-v1.4.0 为格式标记（end_cmd 恒末段，cmd 禁 |）：
+#   新 6 段 type|name|port|auto|cmd|end_cmd 原样入内存 5 段；
+#   旧 5 段（标记 v1.3.6）补空 end_cmd；更旧 6 段（无标记，第 3 段 extra）丢 extra 补空 end_cmd，写回自动升级。
 load_services() {
-	local f="$SERVICES_FILE" line type rest name _r1 CR BOM TAB first v2 n1 n2 n3 n4 n5
+	local f="$SERVICES_FILE" line type rest name _r1 CR BOM TAB first fmt n1 n2 n3 n4 n5
 	CR=$(printf '\r')
 	BOM=$(printf '\357\273\277')
 	TAB=$(printf '\t')
 	TERMUX_SERVICES=""; BINARY_SERVICES=""
 	[ -f "$f" ] || return 0
-	v2=""
+	fmt=""
 	IFS= read -r first < "$f"
 	case "$first" in *"$CR") first=${first%"$CR"} ;; esac
 	case "$first" in "$BOM"*) first=${first#"$BOM"} ;; esac
-	case "$first" in '# svc-v1.3.6'*) v2=1 ;; esac
+	case "$first" in '# svc-v1.4.0'*) fmt=v14 ;; '# svc-v1.3.6'*) fmt=v136 ;; esac
 	while IFS= read -r line || [ -n "$line" ]; do
 		case "$line" in *"$CR") line=${line%"$CR"} ;; esac
 		# 清行首 BOM/空格/Tab，否则 type 带前缀全量判非法
@@ -545,17 +584,33 @@ load_services() {
 		IFS='|' read -r type rest <<SVCEOF
 $line
 SVCEOF
-		# 旧 6 段（含 extra）：够 5 段才转换，丢弃第 3 段 extra 重拼为 4 段
-		if [ -z "$v2" ]; then
+		case "$fmt" in
+		v14)
+			# 新 6 段：rest = name|port|auto|cmd|end_cmd 原样保留（end_cmd 恒末段可含 |）
+			;;
+		v136)
+			# 旧 5 段（cmd 为末段）：补空 end_cmd；够 4 段才迁移
+			case "$rest" in
+			*\|*\|*\|*)
+				IFS='|' read -r n1 n2 n3 n4 <<SVCEOF
+$rest
+SVCEOF
+				rest="$n1|$n2|$n3|$n4|"
+				;;
+			esac
+			;;
+		*)
+			# 更旧 6 段（第 3 段 extra）：丢 extra，补空 end_cmd
 			case "$rest" in
 			*\|*\|*\|*\|*)
 				IFS='|' read -r n1 n2 n3 n4 n5 <<SVCEOF
 $rest
 SVCEOF
-				rest="$n1|$n2|$n4|$n5"
+				rest="$n1|$n2|$n4|$n5|"
 				;;
 			esac
-		fi
+			;;
+		esac
 		IFS='|' read -r name _r1 <<SVCEOF
 $rest
 SVCEOF
@@ -999,14 +1054,14 @@ wifi_sync_starts() {
 	fi
 	for name in $t_start; do
 		row=$(pick_termux "$name")
-		IFS='|' read -r _ port auto cmd <<EOF
+		IFS='|' read -r _ port auto cmd endcmd <<EOF
 $row
 EOF
 		launch_svc termux "$name" "$cmd"
 	done
 	for name in $b_start; do
 		row=$(pick_binary "$name")
-		IFS='|' read -r _ port auto cmd <<EOF
+		IFS='|' read -r _ port auto cmd endcmd <<EOF
 $row
 EOF
 		launch_svc binary "$name" "$cmd"

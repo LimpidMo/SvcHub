@@ -378,11 +378,16 @@
                             </label>
                         </div>
                     </div>
-                    <textarea class="form-input form-textarea" id="input-svc-cmd" placeholder="并行多服务用 & 分隔，如 a & b ，nginx 等守护进程需前台运行：nginx -g 'daemon off;'"></textarea>
+                    <textarea class="form-input form-textarea" id="input-svc-cmd" placeholder="并行多服务用 & 分隔，如 a & b ，nginx 等守护进程需前台运行：nginx -g 'daemon off;'；且命令中不含管道符 | "></textarea>
+                </div>
+                <div class="form" id="svc-stop-box" style="padding:0;border:none;display:none;">
+                    <label class="form-label">收尾命令（服务停止后执行一次）</label>
+                    <textarea class="form-input form-textarea" id="input-svc-stop" placeholder="可放如：清理注入的 iptables 规则、清理  可能的进程残留、删临时文件等命令"></textarea>
+                    <div class="form-hint">若放同步命令执行会阻塞停止操作，请避免长时间命令</div>
                 </div>
             </div>
             <div class="modal-ft">
-                <span style="flex:1;"></span>
+                <button class="btn" style="margin-right:auto;" onclick="toggleStopCmdBox()">收尾命令</button>
                 <button class="btn" onclick="closeModal()">取消</button>
                 <button class="btn btn-primary" onclick="saveService()">保存</button>
             </div>
@@ -1236,18 +1241,18 @@
         // type='termux' -> configData.termux_services；type='binary' -> configData.binary_services
         function svcArr(type) { return type === 'termux' ? configData.termux_services : configData.binary_services; }
 
-        // 管道行解析：两类统一 4 段 name|port|auto|cmd（旧 5 段的 extra 由后端迁移丢弃，前端不兼容）
+        // 管道行解析：两类统一 5 段 name|port|auto|cmd|end_cmd（旧格式由后端迁移补空 end_cmd，前端不兼容）
         function parseRows(str, type) {
             const arr = [];
             (str || '').split('\n').forEach(line => {
                 const p = line.trim().split('|');
-                if (p.length >= 4) arr.push({ name: p[0], port: p[1], auto: p[2], cmd: p.slice(3).join('|') });
+                if (p.length >= 5) arr.push({ name: p[0], port: p[1], auto: p[2], cmd: p[3], end: p.slice(4).join('|') });
             });
             return arr;
         }
 
         function stringifyRows(arr, type) {
-            return arr.map(s => `${s.name}|${s.port || ''}|${s.auto}|${s.cmd}`).join('\n');
+            return arr.map(s => `${s.name}|${s.port || ''}|${s.auto}|${s.cmd}|${s.end || ''}`).join('\n');
         }
 
         // 配置加载中：切页/刷新并发复用同一 promise，防串行双读拖慢实机。
@@ -1456,7 +1461,7 @@
                 updateScreenOnPickBtn();
                 toast('保存中...');
                 await saveServicesOnly(type);
-                // 名单清理独立落盘（saveservices 不写设置键）
+                // 名单清理独立落盘（saveservices 不写设置键）；收尾命令随服务行已同步删除
                 const names = [...configData.termux_root_names].join('\n');
                 const rs = await runAction('savesettings', 'termux_root_names=' + toB64(names));
                 if (rs.errno !== 0) toast('名单清理保存失败', true);
@@ -1480,7 +1485,7 @@
         function openModal(type, idx) {
             const editing = typeof idx === 'number' && idx >= 0;
             const s = editing ? svcArr(type)[idx]
-                : { name: '', port: '', auto: 'start', cmd: '' };
+                : { name: '', port: '', auto: 'start', cmd: '', end: '' };
             const label = type === 'termux' ? 'Termux' : '二进制';
             document.getElementById('edit-svc-type').value = type;
             document.getElementById('modal-svc-title').textContent = editing ? `编辑 ${label} 服务` : `添加 ${label} 服务`;
@@ -1491,8 +1496,17 @@
             // root 运行仅 Termux 服务可选：binary 本身就是 root，开关无意义
             document.getElementById('svc-root-wrap').style.display = type === 'termux' ? 'flex' : 'none';
             document.getElementById('input-svc-root').checked = type === 'termux' && configData.termux_root_names.has(s.name);
+            const endVal = displayCmd(s.end || '');
+            document.getElementById('input-svc-stop').value = endVal;
+            document.getElementById('svc-stop-box').style.display = endVal ? 'block' : 'none';
             document.getElementById('input-svc-cmd').value = displayCmd(s.cmd);
             showAnyModal('modal-svc');
+        }
+
+        // 收尾命令输入区显隐切换（纯视觉，值随弹窗复用保留）
+        function toggleStopCmdBox() {
+            const box = document.getElementById('svc-stop-box');
+            box.style.display = box.style.display === 'none' ? 'block' : 'none';
         }
 
         function closeModal() { hideAnyModal('modal-svc'); }
@@ -1508,9 +1522,11 @@
                 name: el('input-svc-name').value.trim(),
                 port: el('input-svc-port').value.trim(),
                 auto: el('input-svc-auto').checked ? 'start' : 'stop',
-                cmd: normalizeCmd(el('input-svc-cmd').value)
+                cmd: normalizeCmd(el('input-svc-cmd').value),
+                end: normalizeCmd(el('input-svc-stop').value)
             };
             if (!s.name || !s.cmd) { toast('请填写必填项', true); return; }
+            if (/[|]/.test(s.cmd)) { toast('启动命令不支持竖线「|」，管道可写 sh -c \'命令1 | 命令2\'', true); return; }
             const nameErr = checkServiceName(s.name);
             if (nameErr) { toast(nameErr, true); return; }
             // 全服务项查重：pid/日志/Wi-Fi 选择均按 name 索引，跨类同名必冲突（编辑排除自身）
