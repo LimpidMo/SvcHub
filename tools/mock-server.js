@@ -90,6 +90,19 @@ function copyScripts() {
     fs.copyFileSync(path.join(REPO, 'config', 'web.conf'), path.join(sandbox, 'config', 'web.conf'));
     fs.copyFileSync(path.join(REPO, 'webroot', 'index.html'), path.join(sandbox, 'webroot', 'index.html'));
     fs.copyFileSync(path.join(REPO, 'webroot', 'cgi-bin', 'api.cgi'), path.join(sandbox, 'webroot', 'cgi-bin', 'api.cgi'));
+    // 沙盒专用：api.cgi shebang 换成 Git Bash 的 Windows 路径。busybox httpd 在 Windows 上按
+    // shebang exec CGI，#!/bin/sh 落到 busybox 自身 sh（Windows pid 空间），与 supervisor
+    // （Git Bash/MSYS）fork 的服务进程 pid 空间错位，status/kill 全部失配。真机单一 sh 无此问题。
+    const cgiPath = path.join(sandbox, 'webroot', 'cgi-bin', 'api.cgi');
+    const BASH_WIN = BASH.replace(/\//g, '\\');
+    fs.writeFileSync(cgiPath, '#!' + BASH_WIN + '\n' + fs.readFileSync(cgiPath, 'utf8').replace(/^#!.*\n/, ''));
+    // PWA 外壳资源：icon/manifest/sw，供桥与沙盒 httpd 取用
+    fs.mkdirSync(path.join(sandbox, 'webroot', 'img'), { recursive: true });
+    for (const f of ['icon-192x192.png', 'maskable-icon-192x192.png']) {
+        fs.copyFileSync(path.join(REPO, 'webroot', 'img', f), path.join(sandbox, 'webroot', 'img', f));
+    }
+    fs.copyFileSync(path.join(REPO, 'webroot', 'manifest.json'), path.join(sandbox, 'webroot', 'manifest.json'));
+    fs.copyFileSync(path.join(REPO, 'webroot', 'sw.js'), path.join(sandbox, 'webroot', 'sw.js'));
 }
 
 // 生成 fakebin 垫片：假 su/dumpsys/getprop/setsid
@@ -131,16 +144,16 @@ function writeSampleConfig() {
     ];
     fs.writeFileSync(setting, settingLines.join('\n') + '\n');
     const svcLines = [
-        '# svc-v1.3.6',
-        'termux|demo-termux|8080|start|' + demoCmd('demo-termux'),
-        'termux|termux-web|3000|start|' + demoCmd('termux-web'),
-        'termux|termux-idle||stop|' + demoCmd('termux-idle'),
-        'termux|termux-db|5432|stop|' + demoCmd('termux-db'),
+        '# svc-v1.4.0',
+        'termux|demo-termux|8080|start|' + demoCmd('demo-termux')+'|echo end-demo-termux',
+        'termux|termux-web|3000|start|' + demoCmd('termux-web')+'|',
+        'termux|termux-idle||stop|' + demoCmd('termux-idle')+'|',
+        'termux|termux-db|5432|stop|' + demoCmd('termux-db')+'|echo end-termux-db',
         '# binary',
-        'binary|demo-bin|9090|start|' + demoCmd('demo-bin'),
-        'binary|bin-api|9000|start|' + demoCmd('bin-api'),
-        'binary|bin-worker||stop|' + demoCmd('bin-worker'),
-        'binary|bin-cron|9100|stop|' + demoCmd('bin-cron'),
+        'binary|demo-bin|9090|start|' + demoCmd('demo-bin')+'|echo end-demo-bin',
+        'binary|bin-api|9000|start|' + demoCmd('bin-api')+'|',
+        'binary|bin-worker||stop|' + demoCmd('bin-worker')+'|',
+        'binary|bin-cron|9100|stop|' + demoCmd('bin-cron')+'|echo end-bin-cron',
     ];
     fs.writeFileSync(services, svcLines.join('\n') + '\n');
     return true;
@@ -338,6 +351,20 @@ function runCmd(cmd, cb) {
 }
 
 const server = http.createServer((req, res) => {
+    // PWA 外壳资源直发（沙盒 webroot 下读）：manifest/sw.js/img，浏览器可注册 SW 与取图标（含 HEAD）
+    if (/^\/(manifest\.json|sw\.js|img\/[\w.-]+)$/.test(req.url)) {
+        const f = path.join(sandbox, 'webroot', decodeURIComponent(req.url));
+        if (!f.startsWith(sandbox) || !fs.existsSync(f) || !fs.statSync(f).isFile()) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('not found');
+            return;
+        }
+        const mime = /\.js$/.test(f) ? 'text/javascript' : /\.json$/.test(f) ? 'application/json' : /\.png$/.test(f) ? 'image/png' : 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' });
+        // readFile 而非流：HEAD 请求 pipe 不出 body 会 404（Node 已知行为），读全量发才稳
+        res.end(req.method === 'HEAD' ? undefined : fs.readFileSync(f));
+        return;
+    }
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
         const page = getPage();
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

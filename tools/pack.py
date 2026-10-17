@@ -12,7 +12,7 @@ import zipfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# 刷机必需文件（14 个）：脚本 + 配置 + 前端 + CGI + META-INF
+# 刷机必需文件（18 个）：脚本 + 配置 + 前端 + CGI + PWA + META-INF
 REQUIRED_FILES = [
     "module.prop",
     "customize.sh",
@@ -24,6 +24,10 @@ REQUIRED_FILES = [
     "httpd.sh",
     "config/web.conf",
     "webroot/index.html",
+    "webroot/manifest.json",
+    "webroot/sw.js",
+    "webroot/img/icon-192x192.png",
+    "webroot/img/maskable-icon-192x192.png",
     "webroot/cgi-bin/api.cgi",
     "system/etc/resolv.conf",
     "META-INF/com/google/android/update-binary",

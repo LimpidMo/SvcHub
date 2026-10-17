@@ -291,11 +291,18 @@ sleep_slice() {
 			sync_wifi_service_policy "$WIFI_POLICY" off
 		fi
 
-		# 外部访问保活：启用且有密码、httpd 未运行则拉起（被杀/异常退出 60 秒内恢复）
-		if [ "$WEBUI_ENABLED" = "1" ] && [ -n "$WEBUI_PASSWORD_HASH" ] && ! svc_running httpd; then
-			sh "$MODDIR/httpd.sh" start >/dev/null 2>&1 && \
-				webui_log "httpd 保活拉起（分片巡检）" || \
-				webui_log "httpd 保活拉起失败，见 webui.log"
+		# 外部访问保活：启用且有密码、httpd 未运行或端口无监听则拉起。
+		# 断网/省电后进程可能活着但监听 socket 被 ROM 摘除（pid 探活探不出），端口探活补盲区。
+		if [ "$WEBUI_ENABLED" = "1" ] && [ -n "$WEBUI_PASSWORD_HASH" ]; then
+			if ! svc_running httpd || ! webui_port_listening; then
+				if webui_port_listening || svc_running httpd; then
+					kill_by_name httpd 2>/dev/null
+					rm -f "$RUNDIR/httpd.pid"
+				fi
+				sh "$MODDIR/httpd.sh" start >/dev/null 2>&1 && \
+					webui_log "httpd 保活拉起（分片巡检）" || \
+					webui_log "httpd 保活拉起失败，见 webui.log"
+			fi
 		fi
 
 		# 新间隔已到或已过，立即结束本轮休眠进入巡检

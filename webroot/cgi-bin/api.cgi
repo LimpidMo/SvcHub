@@ -147,7 +147,7 @@ fail_sweep() {
     done
 }
 
-# 会话剩余秒数：$1=token，输出剩余秒（过期/无效输出空并顺手删文件，空读重试防并发续写中途）。
+# 会话剩余秒数：$1=token，输出剩余秒。空读只视为本次无效不删文件——并发续期下 mv 瞬间
 sess_left() {
 	local t=$1 f now exp i
 	[ "${#t}" -eq 64 ] || return 1
@@ -163,10 +163,10 @@ sess_left() {
 			i=$((i + 1))
 		done
 		now=$(date +%s)
-		if [ -z "$exp" ] || [ "$exp" -le "$now" ] 2>/dev/null; then
-			rm -f "$f"
-			return 1
-		fi
+		case "$exp" in
+		''|*[!0-9]*) return 1 ;;                       # 读半截/空：本次无效，文件留给后续请求
+		*) [ "$exp" -gt "$now" ] 2>/dev/null || { rm -f "$f"; return 1; } ;;
+		esac
 		printf '%s' "$((exp - now))"
 		return 0
 	done
@@ -179,7 +179,9 @@ sess_valid() {
 	left=$(sess_left "$1") && [ -n "$left" ]
 }
 
-# 滑动续期：有效则按同类 TTL 重写过期戳并输出新剩余秒，过期返回 1（空读重试+原子改名防并行续期竞写）。
+# 滑动续期：有效则按同类 TTL 重写过期戳并输出新剩余秒，过期返回 1。
+# 空读/读半截（并发 mv 瞬间）只按本次无效处理，绝不删文件——删错活会话=随机掉登录；
+# 写入失败也保留原文件，续期失败仅本请求不续期，下次请求再试。
 sess_touch() {
 	local t=$1 f now exp ttl tmp i
 	[ "${#t}" -eq 64 ] || return 1
@@ -195,16 +197,22 @@ sess_touch() {
 			sleep 0.1 2>/dev/null
 			i=$((i + 1))
 		done
-		[ -n "$exp" ] && [ "$exp" -gt "$now" ] 2>/dev/null || { rm -f "$f"; return 1; }
+		case "$exp" in
+		''|*[!0-9]*) return 1 ;;                       # 读半截：不删，留给下个请求正常续
+		*) [ "$exp" -gt "$now" ] 2>/dev/null || { rm -f "$f"; return 1; } ;;
+		esac
 		case "$f" in
 		*"tsess_"*) ttl=$((TOKEN_DAYS * 86400)) ;;
 		*) ttl=$SESS_TTL ;;
 		esac
 		exp=$((now + ttl))
 		tmp="$f.tmp.$$"
-		printf '%s' "$exp" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null || { rm -f "$tmp"; return 1; }
-		printf '%s' "$ttl"
-		return 0
+		if printf '%s' "$exp" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null; then
+			printf '%s' "$ttl"
+			return 0
+		fi
+		rm -f "$tmp"
+		return 1
 	done
 	return 1
 }

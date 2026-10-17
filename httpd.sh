@@ -23,7 +23,7 @@ start)
     # 端口被占直接失败（旧实例残留先关外部访问再重开）。
     # 精确匹配 local_address 字段（第 2 列），子串 grep 会误伤（如 555 命中 5555）。
     PORTHEX=$(printf '%04X' "$WEBUI_PORT" 2>/dev/null)
-    if [ -n "$PORTHEX" ] && awk 'NR>1 { split($2,a,":"); if (toupper(a[2]) == "'"$PORTHEX"'") exit 0 } END { exit 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
+    if [ -n "$PORTHEX" ] && awk 'NR>1 { split($2,a,":"); if (toupper(a[2]) == "'"$PORTHEX"'" && $4 == "0A") exit 0 } END { exit 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
         webui_log "启动失败：端口 $WEBUI_PORT 被占用（若为旧实例残留，先关闭外部访问再重开）"
         exit 3
     fi
@@ -32,10 +32,24 @@ start)
     /*) HTTPDIR="$MODDIR/webroot" ;;
     *) HTTPDIR=$(pwd)/"$MODDIR/webroot" ;;
     esac
-    if command -v setsid >/dev/null 2>&1; then
-        setsid "$BB" httpd -f -p "$WEBUI_LISTEN:$WEBUI_PORT" -h "$HTTPDIR" >>"$WEBUI_LOG" 2>&1 &
+    # mime 补丁：busybox httpd 默认不给 .json 出 Content-Type，浏览器拒绝解析 manifest → 不认 PWA。
+    # 写运行时 mime 配置挂 -c（放 run/，随模块卸载清理）；路径强制绝对化——httpd -h 会 chdir，
+    # 相对路径在 chdir 后解析必失败；失败仅退化成不能安装 PWA，不影响页面。
+    MIMECONF="$RUNDIR/httpd.mime"
+    case "$MIMECONF" in
+    /*) ;;
+    *) MIMECONF=$(pwd)/"$MIMECONF" ;;
+    esac
+    if printf '%s\n' '.json:application/manifest+json' > "$MIMECONF" 2>/dev/null; then
+        MIMEARG="-c $MIMECONF"
     else
-        "$BB" httpd -f -p "$WEBUI_LISTEN:$WEBUI_PORT" -h "$HTTPDIR" >>"$WEBUI_LOG" 2>&1 &
+        MIMEARG=""
+        rm -f "$MIMECONF"
+    fi
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$BB" httpd -f $MIMEARG -p "$WEBUI_LISTEN:$WEBUI_PORT" -h "$HTTPDIR" >>"$WEBUI_LOG" 2>&1 &
+    else
+        "$BB" httpd -f $MIMEARG -p "$WEBUI_LISTEN:$WEBUI_PORT" -h "$HTTPDIR" >>"$WEBUI_LOG" 2>&1 &
     fi
     echo "$!" > "$RUNDIR/httpd.pid"
     sleep 1

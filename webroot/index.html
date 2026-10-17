@@ -4,8 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="no-referrer">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'self'; form-action 'none'">
-    <title>服务管理</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'self'; img-src data: 'self'; manifest-src 'self'; connect-src 'self'; form-action 'none'">
+    <link rel="icon" type="image/png" href="img/icon-192x192.png">
+    <link rel="apple-touch-icon" href="img/icon-192x192.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2d2d2d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="SvcHub">
+    <title>SvcHub 服务管理</title>
     <style>
         :root { --line: rgba(0,0,0,0.08); --text: #1a1a1a; --muted: #888; --accent: #2d2d2d; --bg: #fafafa; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -744,7 +752,13 @@
             if (httpToken) init.headers['Authorization'] = 'Bearer ' + httpToken;
             if (method === 'POST') init.body = body;
             try {
-                const r = await fetchWithGetRetry(url, init);
+                let r = await fetchWithGetRetry(url, init);
+                // 并发滑动续期下偶发 401（会话竞态读半截）：先 whoami 复核，仍未登录才弹登录页
+                if (r.status === 401) {
+                    if (httpToken) return { errno: 401, stdout: '', stderr: '未登录' }; // Token 登录失配不复核
+                    const v = await fetch('cgi-bin/api.cgi?a=whoami', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                    if (v.status === 200) r = await fetchWithGetRetry(url, init);
+                }
                 if (r.status === 401 || r.status === 404) { showLogin(); return { errno: r.status, stdout: '', stderr: '未登录' }; }
                 return { errno: 0, stdout: await r.text(), stderr: '' };
             } catch (e) {
@@ -779,10 +793,11 @@
             document.getElementById('input-login-token').value = '';
         }
 
-        // 静默自检：Cookie 有效直接进页面。
+        // 静默自检：Cookie 有效直接进页面。偶发 401（并发续期竞态）复核一次再判。
         async function httpCheckAuth() {
             try {
-                const r = await fetch('cgi-bin/api.cgi?a=whoami', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                let r = await fetch('cgi-bin/api.cgi?a=whoami', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (r.status !== 200) r = await fetch('cgi-bin/api.cgi?a=whoami', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
                 if (r.status !== 200) { showLogin(); return; }
                 const d = JSON.parse(await r.text());
                 if (d.authed) {
@@ -2151,7 +2166,22 @@
         }
 
 
+        // PWA：仅 http(s) 环境注册（管理器内 file:// 下 SW 无效），失败静默不影响页面。
+        // 每次导航 SW 字节变了会自动 install 新版；这里再主动 update() 一次 + 传消息让激活的新 SW 立即接管，
+        // 模块升级后旧外壳缓存随 activate 清空，不会一直示旧 UI。
+        function registerSW() {
+            if (!/^https?:/.test(location.protocol)) return;
+            if (!('serviceWorker' in navigator)) return;
+            navigator.serviceWorker.register('sw.js')
+                .then((reg) => {
+                    reg.update().catch(() => { /* 离线时 update 失败无害 */ });
+                    navigator.serviceWorker.controller && navigator.serviceWorker.controller.postMessage('svchub-sw-version');
+                })
+                .catch(() => { /* 不支持则无离线壳 */ });
+        }
+
         async function init() {
+            registerSW();
             if (!initRootApi()) {
                 // 无 API 且经 http(s) 加载即直连模式，走登录页。
                 if (/^https?:/.test(location.protocol)) {

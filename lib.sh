@@ -1245,6 +1245,15 @@ webui_status_fast() {
 	printf '%s %s\n' "$e" "$h"
 }
 
+# WEBUI_PORT 是否处于 LISTEN（/proc/net/tcp*）：
+# 断网/省电后进程可能活着但监听 socket 被 ROM 摘除，pid 探活探不出，端口探活补这个盲区。
+webui_port_listening() {
+	local hex
+	hex=$(printf '%04X' "$WEBUI_PORT" 2>/dev/null)
+	[ -n "$hex" ] || return 1
+	awk 'NR>1 { split($2,a,":"); if (toupper(a[2]) == "'"$hex"'" && $4 == "0A") exit 0 } END { exit 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+}
+
 # 找含 httpd 的 busybox，输出路径。
 # 顺序：沙盒覆盖（仅 PC 联调）→ PATH → 各 root 方案自带。
 webui_find_busybox() {
