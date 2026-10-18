@@ -203,72 +203,80 @@
                 }
             } catch (e) { /* 存储不可用时按系统默认 */ }
         })();
+        // 语言首屏前定参：与下方 applyLang 同一 key，避免刷新瞬间中英跳变
+        (function () {
+            try {
+                if (localStorage.getItem('svcbox_lang_v1') === 'en') {
+                    document.documentElement.setAttribute('lang', 'en');
+                }
+            } catch (e) { /* 存储不可用按中文 */ }
+        })();
     </script>
 </head>
 <body>
     <div class="debug" id="debug-info" style="display:none;">
-        <strong>调试信息</strong> <button class="btn btn-sm" style="float:right;" onclick="hideDebug()">关闭</button><button class="btn btn-sm" style="float:right;margin-right:6px;" onclick="copyDebugLog()">复制</button>
+        <strong data-i18n="debug.title">调试信息</strong> <button class="btn btn-sm" style="float:right;" onclick="hideDebug()" data-i18n="debug.close">关闭</button><button class="btn btn-sm" style="float:right;margin-right:6px;" onclick="copyDebugLog()" data-i18n="debug.copy">复制</button>
         <pre id="debug-text"></pre>
     </div>
 
     <div class="nav">
-        <button class="nav-item active" data-page="status">服务状态</button>
-        <button class="nav-item" data-page="config">服务配置</button>
-        <button class="nav-item" data-page="func">功能设置</button>
-        <button class="nav-item" id="nav-logout" data-page="__logout" style="display:none;flex:0 0 auto;padding:14px 18px;">退出</button>
+        <button class="nav-item active" data-page="status" data-i18n="nav.status">服务状态</button>
+        <button class="nav-item" data-page="config" data-i18n="nav.config">服务配置</button>
+        <button class="nav-item" data-page="func" data-i18n="nav.func">功能设置</button>
+        <button class="nav-item" id="nav-logout" data-page="__logout" style="display:none;flex:0 0 auto;padding:14px 18px;" data-i18n="nav.logout">退出</button>
     </div>
 
     <div class="container">
         <div class="page active" id="page-status">
             <div class="section">
                 <div class="section-hd">
-                    <span class="section-title">Termux 服务</span>
+                    <span class="section-title" data-i18n="sec.termux">Termux 服务</span>
                     <div class="actions">
                         <select class="btn btn-md" id="status-filter" onchange="setStatusFilter(this.value)">
-                            <option value="all">全显示</option>
-                            <option value="running">已运行</option>
-                            <option value="stopped">已停止</option>
-                            <option value="auto-start">自启动</option>
-                            <option value="auto-stop">非自启动</option>
+                            <option value="all" data-i18n="filter.all">全显示</option>
+                            <option value="running" data-i18n="filter.running">已运行</option>
+                            <option value="stopped" data-i18n="filter.stopped">已停止</option>
+                            <option value="auto-start" data-i18n="filter.autoStart">自启动</option>
+                            <option value="auto-stop" data-i18n="filter.autoStop">非自启动</option>
                         </select>
-                        <button class="btn btn-md" onclick="loadStatus(true)">刷新</button>
+                        <button class="btn btn-md" onclick="loadStatus(true)" data-i18n="btn.refresh">刷新</button>
                     </div>
                 </div>
-                <div class="section-body" id="termux-list"><div class="empty">加载中...</div></div>
+                <div class="section-body" id="termux-list"><div class="empty" data-i18n="empty.loading">加载中...</div></div>
             </div>
             <div class="section">
-                <div class="section-hd"><span class="section-title">二进制服务</span></div>
-                <div class="section-body" id="binary-list"><div class="empty">加载中...</div></div>
+                <div class="section-hd"><span class="section-title" data-i18n="sec.binary">二进制服务</span></div>
+                <div class="section-body" id="binary-list"><div class="empty" data-i18n="empty.loading">加载中...</div></div>
             </div>
         </div>
 
         <div class="page" id="page-config">
             <div class="section">
                 <div class="section-hd">
-                    <span class="section-title">Termux 服务</span>
+                    <span class="section-title" data-i18n="sec.termux">Termux 服务</span>
                     <div class="actions">
-                        <button class="btn btn-lg" onclick="loadConfigSvcs(true)">刷新</button>
-                        <button class="btn btn-lg" id="sort-termux-btn" onclick="toggleSort('termux')">排序</button>
-                        <button class="btn btn-lg" onclick="openModal('termux')">添加</button>
+                        <button class="btn btn-lg" onclick="loadConfigSvcs(true)" data-i18n="btn.refresh">刷新</button>
+                        <button class="btn btn-lg" id="sort-termux-btn" onclick="toggleSort('termux')" data-i18n="btn.sort">排序</button>
+                        <button class="btn btn-lg" onclick="openModal('termux')" data-i18n="btn.add">添加</button>
                     </div>
                 </div>
-                <div class="section-body" id="config-termux-list"><div class="empty">点击刷新加载</div></div>
+                <div class="section-body" id="config-termux-list"><div class="empty" data-i18n="empty.clickRefresh">点击刷新加载</div></div>
             </div>
             <div class="section">
                 <div class="section-hd">
-                    <span class="section-title">二进制服务</span>
+                    <span class="section-title" data-i18n="sec.binary">二进制服务</span>
                     <div class="actions">
-                        <button class="btn btn-lg" id="sort-binary-btn" onclick="toggleSort('binary')">排序</button>
-                        <button class="btn btn-lg" onclick="openModal('binary')">添加</button>
+                        <button class="btn btn-lg" id="sort-binary-btn" onclick="toggleSort('binary')" data-i18n="btn.sort">排序</button>
+                        <button class="btn btn-lg" onclick="openModal('binary')" data-i18n="btn.add">添加</button>
                     </div>
                 </div>
                 <div class="section-body">
                     <div class="form" style="border-bottom:1px solid var(--line);">
-                        <label class="form-label-strong">服务目录</label>
-                        <input type="text" class="form-input" id="input-server-dir" onblur="autoSaveBasic()" placeholder="/storage/emulated/0/ → 自动转换可执行目录 /data/media/0/">
-                        <div class="form-hint">务必将二进制文件设为可执行权限</div>
+                        <label class="form-label-strong" data-i18n="label.serverDir">服务目录</label>
+                        <input type="text" class="form-input" id="input-server-dir" onblur="autoSaveBasic()" placeholder="/storage/emulated/0/ → 自动转换可执行目录 /data/media/0/" data-i18n-attr="placeholder:hint.serverDirPh">
+                        <div class="form-hint" data-i18n="hint.serverDir">务必将二进制文件设为可执行权限</div>
                     </div>
-                    <div id="config-binary-list"><div class="empty">点击刷新加载</div></div>
+                    <div id="config-binary-list"><div class="empty" data-i18n="empty.clickRefresh">点击刷新加载</div></div>
                 </div>
             </div>
         
@@ -277,64 +285,68 @@
         <div class="page" id="page-func">
             <div class="section">
                 <div class="section-hd">
-                    <span class="section-title">基本设置</span>
+                    <span class="section-title" data-i18n="sec.basic">基本设置</span>
                     <div class="actions">
-                        <select class="btn btn-lg" id="theme-select" onchange="setTheme(this.value)" title="主题外观，默认跟随设备">
-                            <option value="auto">跟随设备</option>
-                            <option value="dark">深色主题</option>
-                            <option value="light">浅色主题</option>
+                        <select class="btn btn-lg" id="lang-select" onchange="setLang(this.value)" title="界面语言" data-i18n-attr="title:title.langSelect">
+                            <option value="zh">中文</option>
+                            <option value="en">EN</option>
                         </select>
-                        <button class="btn btn-lg" onclick="toggleDebugPanel()">调试</button>
-                        <button class="btn btn-lg" onclick="loadConfigSettings(true)">刷新</button>
+                        <select class="btn btn-lg" id="theme-select" onchange="setTheme(this.value)" title="主题外观，默认跟随设备" data-i18n-attr="title:title.themeSelect">
+                            <option value="auto" data-i18n="theme.optAuto">跟随设备</option>
+                            <option value="dark" data-i18n="theme.optDark">深色主题</option>
+                            <option value="light" data-i18n="theme.optLight">浅色主题</option>
+                        </select>
+                        <button class="btn btn-lg" onclick="toggleDebugPanel()" data-i18n="btn.debug">调试</button>
+                        <button class="btn btn-lg" onclick="loadConfigSettings(true)" data-i18n="btn.refresh">刷新</button>
                     </div>
                 </div>
                 <div class="section-body">
                     <div class="form">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                            <label class="form-label-strong" style="margin:0;">巡检保活</label>
-                            <label class="switch" title="自动巡检：关闭后仅停周期拉起；出停止窗/亮屏解锁/Wi-Fi 条件满足的恢复照常">
+                            <label class="form-label-strong" style="margin:0;" data-i18n="label.patrol">巡检保活</label>
+                            <label class="switch" data-i18n-attr="title:title.patrol" title="自动巡检：关闭后仅停周期拉起；出停止窗/亮屏解锁/Wi-Fi 条件满足的恢复照常">
                                 <input type="checkbox" id="patrol-switch" onclick="togglePatrol(this)">
                                 <span class="switch-slider"></span>
                             </label>
                         </div>
                         <div id="patrol-panel" style="display:none;">
                             <div class="form-row">
-                                <input type="number" class="form-input" id="input-sleep" value="60" min="10" onblur="autoSaveBasic()" placeholder="检查间隔 (秒)，最小10秒，建议60秒">
-                                <button class="btn btn-lg" onclick="showLog('supervisor')">日志</button>
+                                <input type="number" class="form-input" id="input-sleep" value="60" min="10" onblur="autoSaveBasic()" placeholder="检查间隔 (秒)，最小10秒，建议60秒" data-i18n-attr="placeholder:label.sleep">
+                                <button class="btn btn-lg" onclick="showLog('supervisor')" data-i18n="btn.log">日志</button>
                             </div>
                             <div class="form-error" id="error-sleep"></div>
                         </div>
                     </div>
                 <div class="form">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                        <label class="form-label-strong" style="margin:0;">外部访问</label>
+                        <label class="form-label-strong" style="margin:0;" data-i18n="label.webui">外部访问</label>
                             <label class="switch">
                                 <input type="checkbox" id="webui-switch" onclick="toggleWebui(this)">
                                 <span class="switch-slider"></span>
                             </label>
                         </div>
                         <div id="webui-panel" style="display:none;">
-                            <div class="form-hint" id="webui-status" style="margin-bottom:10px;">状态：加载中...</div>
+                            <div class="form-hint" id="webui-status" style="margin-bottom:10px;" data-i18n="status.webuiLoading">状态：加载中...</div>
                             <div id="webui-manage" style="display:none;">
                                 <div style="display:flex;gap:6px;margin-bottom:10px;">
-                                    <button class="btn btn-lg" style="flex:1;" onclick="showWebuiPasswd()">修改密码</button>
-                                    <button class="btn btn-lg" style="flex:1;" onclick="showWebuiToken()">长期 Token</button>
-                                    <button class="btn btn-lg" onclick="showLog('webui')">日志</button>
+                                    <button class="btn btn-lg" style="flex:1;" onclick="showWebuiPasswd()" data-i18n="btn.passwd">修改密码</button>
+                                    <button class="btn btn-lg" style="flex:1;" onclick="showWebuiToken()" data-i18n="btn.token">长期 Token</button>
+                                    <button class="btn btn-lg" onclick="showLog('webui')" data-i18n="btn.log">日志</button>
                                 </div>
                                 <div id="webui-passwd-box" style="display:none;margin-bottom:10px;">
-                                    <input type="password" class="form-input" id="input-webui-old" placeholder="旧密码" autocomplete="current-password" style="margin-bottom:8px;">
+                                    <input type="password" class="form-input" id="input-webui-old" placeholder="旧密码" autocomplete="current-password" style="margin-bottom:8px;" data-i18n-attr="placeholder:ph.oldPw">
                                     <div style="display:flex;gap:8px;">
-                                        <input type="password" class="form-input" id="input-webui-new1" placeholder="新密码" autocomplete="new-password">
-                                        <input type="password" class="form-input" id="input-webui-new2" placeholder="再次输入" autocomplete="new-password">
+                                        <input type="password" class="form-input" id="input-webui-new1" placeholder="新密码" autocomplete="new-password" data-i18n-attr="placeholder:ph.newPw">
+                                        <input type="password" class="form-input" id="input-webui-new2" placeholder="再次输入" autocomplete="new-password" data-i18n-attr="placeholder:ph.newPw2">
                                     </div>
-                                    <button class="btn btn-lg btn-primary" style="width:100%;margin-top:8px;" onclick="setWebuiPassword()">确认修改</button>
+                                    <button class="btn btn-lg btn-primary" style="width:100%;margin-top:8px;" onclick="setWebuiPassword()" data-i18n="btn.confirmChange">确认修改</button>
                                 </div>
                                 <div id="webui-token-box" style="display:none;margin-bottom:10px;">
                                     <div class="form-row">
-                                        <input type="text" class="form-input" id="input-webui-token" readonly placeholder="若无token呈现，点击重新生成">
-                                        <button class="btn btn-lg" onclick="copyWebuiToken()">复制</button>
+                                        <input type="text" class="form-input" id="input-webui-token" readonly placeholder="若无token呈现，点击重新生成" data-i18n-attr="placeholder:ph.token">
+                                        <button class="btn btn-lg" onclick="copyWebuiToken()" data-i18n="btn.copy">复制</button>
                                     </div>
-                                    <button class="btn btn-lg" style="width:100%;margin-top:8px;" onclick="regenWebuiToken()">重新生成（旧值立即失效）</button>
+                                    <button class="btn btn-lg" style="width:100%;margin-top:8px;" onclick="regenWebuiToken()" data-i18n="btn.regen">重新生成（旧值立即失效）</button>
                                 </div>
                                 <!-- <div class="form-hint">若监听地址为 0.0.0.0 局域网内可访问，请设强密码</div> -->
                             </div>
@@ -346,10 +358,10 @@
             </div>
             <div class="section">
                 <div class="section-hd">
-                    <span class="section-title">开机命令 & 测试命令</span>
+                    <span class="section-title" data-i18n="sec.bootcmd">开机命令 & 测试命令</span>
                     <div class="actions">
-                        <button class="btn btn-sm" id="btn-test-log" onclick="showTestLog()">日志</button>
-                        <span style="font-size:12px;color:var(--muted);display:flex;align-items:center;">测试</span>
+                        <button class="btn btn-sm" id="btn-test-log" onclick="showTestLog()" data-i18n="btn.log">日志</button>
+                        <span style="font-size:12px;color:var(--muted);display:flex;align-items:center;" data-i18n="label.test">测试</span>
                         <label class="switch" style="margin-right:8px;">
                             <input type="checkbox" id="test-cmd-switch" onchange="toggleTestCmd()">
                             <span class="switch-slider"></span>
@@ -358,12 +370,12 @@
                 </div>
                 <div class="section-body">
                     <div class="form" style="border-bottom:none;">
-                        <textarea class="form-input form-textarea" id="input-boot-cmds" onblur="saveBootCmds()" placeholder="请自行确认命令安全性和可用性后再放入"></textarea>
+                        <textarea class="form-input form-textarea" id="input-boot-cmds" onblur="saveBootCmds()" placeholder="请自行确认命令安全性和可用性后再放入" data-i18n-attr="placeholder:label.bootcmds"></textarea>
                         <div class="form-hint-row">
-                            <div class="form-hint">模块启动时执行；编辑完成后点击框外自动保存</div>
+                            <div class="form-hint" id="boot-cmds-hint" data-i18n="hint.bootcmds">模块启动时执行；编辑完成后点击框外自动保存</div>
                             <div class="actions run-bar" id="test-run-bar" style="display:none;">
-                                <button class="btn btn-lg" onclick="runTestCmds('termux')">以termux运行</button>
-                                <button class="btn btn-lg btn-primary" onclick="runTestCmds('normal')">运行</button>
+                                <button class="btn btn-lg" onclick="runTestCmds('termux')" data-i18n="btn.termuxRun">以termux运行</button>
+                                <button class="btn btn-lg btn-primary" onclick="runTestCmds('normal')" data-i18n="btn.run">运行</button>
                             </div>
                         </div>
                     </div>
@@ -371,12 +383,12 @@
             </div>
             <div class="section">
                 <div class="section-hd">
-                    <span class="section-title">启停功能</span>
+                    <span class="section-title" data-i18n="sec.startstop">启停功能</span>
                 </div>
                 <div class="section-body">
                     <div class="form">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                            <label class="form-label-strong" style="margin:0;">定时启停服务</label>
+                            <label class="form-label-strong" style="margin:0;" data-i18n="label.schedule">定时启停服务</label>
                             <label class="switch">
                                 <input type="checkbox" id="schedule-switch" onclick="toggleSchedule(this)">
                                 <span class="switch-slider"></span>
@@ -385,22 +397,22 @@
                         <div id="schedule-panel" style="display:none;">
                             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end;">
                                 <div style="flex:1;min-width:0;">
-                                    <label class="form-label">停止时间</label>
+                                    <label class="form-label" data-i18n="label.schedStop">停止时间</label>
                                     <input type="time" class="form-input" id="input-schedule-stop" value="" onchange="autoSaveSchedule()">
                                 </div>
                                 <div style="flex:1;min-width:0;">
-                                    <label class="form-label">启动时间</label>
+                                    <label class="form-label" data-i18n="label.schedStart">启动时间</label>
                                     <input type="time" class="form-input" id="input-schedule-start" value="" onchange="autoSaveSchedule()">
                                 </div>
-                                <button class="btn btn-lg" style="flex-shrink:0;" onclick="showLog('schedule')">日志</button>
+                                <button class="btn btn-lg" style="flex-shrink:0;" onclick="showLog('schedule')" data-i18n="btn.log">日志</button>
                             </div>
-                            <div class="form-hint">每日生效；支持跨夜窗口（如22停到07起）；选好时间自动保存</div>
+                            <div class="form-hint" data-i18n="hint.schedule">每日生效；支持跨夜窗口（如22停到07起）；选好时间自动保存</div>
                             <div class="form-error" id="error-schedule"></div>
                         </div>
                     </div>
                     <div class="form">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                            <label class="form-label-strong" style="margin:0;">亮屏启停服务</label>
+                            <label class="form-label-strong" style="margin:0;" data-i18n="label.screen">亮屏启停服务</label>
                             <label class="switch">
                                 <input type="checkbox" id="screen-switch" onclick="toggleScreen(this)">
                                 <span class="switch-slider"></span>
@@ -410,15 +422,15 @@
                             <div style="display:flex;gap:6px;margin-bottom:10px;">
                                 <button class="btn btn-lg" id="screenon-pick-btn" style="flex:1;" onclick="openWifiModal('screenon')">亮屏白名单 (0)</button>
                                 <button class="btn btn-lg" id="screen-pick-btn" style="flex:1;" onclick="openWifiModal('screen')">锁屏白名单 (0)</button>
-                                <button class="btn btn-lg" onclick="showLog('screen')">日志</button>
+                                <button class="btn btn-lg" onclick="showLog('screen')" data-i18n="btn.log">日志</button>
                             </div>
-                            <div class="form-hint">亮屏解锁后启动（为空启动start项）；锁屏后全停（除白名单外）</div>
+                            <div class="form-hint" data-i18n="hint.screen">亮屏解锁后启动（为空启动start项）；锁屏后全停（除白名单外）</div>
                             <div class="form-error" id="error-screen"></div>    
                         </div>
                     </div>
                     <div class="form">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                            <label class="form-label-strong" style="margin:0;">Wi-Fi 启停服务</label>
+                            <label class="form-label-strong" style="margin:0;" data-i18n="label.wifi">Wi-Fi 启停服务</label>
                             <label class="switch">
                                 <input type="checkbox" id="wifi-service-switch" onclick="toggleWifiService(this)">
                                 <span class="switch-slider"></span>
@@ -428,11 +440,11 @@
                             <div style="display:flex;gap:6px;margin-bottom:10px;">
                                 <button class="btn btn-lg" id="wifi-pick-btn" style="flex:1;" onclick="openWifiModal('on')">连接启停组 (0)</button>
                                 <button class="btn btn-lg" id="wifi-pick-off-btn" style="flex:1;" onclick="openWifiModal('off')">断开启停组 (0)</button>
-                                <button class="btn btn-lg" onclick="showLog('wifi')">日志</button>
+                                <button class="btn btn-lg" onclick="showLog('wifi')" data-i18n="btn.log">日志</button>
                             </div>
-                            <!-- <div class="form-hint" style="margin-bottom:10px;">两组选择的服务互斥，防止冲突循环启动</div> -->
-                            <label class="form-label">Wi-Fi SSID / 名称</label>
-                            <textarea class="form-input form-textarea" id="input-wifi-ssids" onblur="saveWifiSsids()" placeholder="两组共用，每行一个，留空 = 任意 Wi-Fi"></textarea>
+                            <!-- <div class="form-hint">若监听地址为 0.0.0.0 局域网内可访问，请设强密码</div> -->
+                            <label class="form-label" data-i18n="label.ssid">Wi-Fi SSID / 名称</label>
+                            <textarea class="form-input form-textarea" id="input-wifi-ssids" onblur="saveWifiSsids()" placeholder="两组共用，每行一个，留空 = 任意 Wi-Fi" data-i18n-attr="placeholder:ph.ssid"></textarea>
                         </div>
                     </div>
                 </div>
@@ -444,7 +456,7 @@
             <div class="modal-hd" style="display:flex;justify-content:space-between;align-items:center;">
                 <span id="modal-svc-title">添加服务</span>
                 <div style="display:flex;align-items:center;gap:6px;">
-                    <span style="font-size:11px;color:var(--muted);">自动启动 & 保活</span>
+                    <span style="font-size:11px;color:var(--muted);" data-i18n="label.autoKeep">自动启动 & 保活</span>
                     <label class="switch">
                         <input type="checkbox" id="input-svc-auto" checked>
                         <span class="switch-slider"></span>
@@ -456,37 +468,37 @@
                 <input type="hidden" id="edit-svc-idx" value="-1">
                 <div class="form" style="padding:0 0 10px 0;border:none;display:flex;gap:10px;">
                     <div style="flex:1;min-width:0;">
-                        <label class="form-label">服务名称 *（必须）</label>
+                        <label class="form-label" data-i18n="label.svcName">服务名称 *（必须）</label>
                         <input type="text" class="form-input" id="input-svc-name">
                     </div>
                     <div style="flex:1;min-width:0;">
-                        <label class="form-label">端口（仅标识，非执行参数）</label>
-                        <input type="text" class="form-input" id="input-svc-port" placeholder="用于打开 Web 页">
+                        <label class="form-label" data-i18n="label.svcPort">端口（仅标识，非执行参数）</label>
+                        <input type="text" class="form-input" id="input-svc-port" placeholder="用于打开 Web 页" data-i18n-attr="placeholder:ph.svcPort">
                     </div>
                 </div>
                 <div class="form" style="padding:0;border:none;">
                     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">
-                        <label class="form-label" style="margin:0;">启动命令 *（必须）</label>
+                        <label class="form-label" style="margin:0;" data-i18n="label.svcCmd">启动命令 *（必须）</label>
                         <div id="svc-root-wrap" style="display:flex;align-items:center;gap:6px;">
-                            <span style="font-size:11px;color:var(--muted);">root 运行</span>
+                            <span style="font-size:11px;color:var(--muted);" data-i18n="label.rootRun">root 运行</span>
                             <label class="switch">
                                 <input type="checkbox" id="input-svc-root">
                                 <span class="switch-slider"></span>
                             </label>
                         </div>
                     </div>
-                    <textarea class="form-input form-textarea" id="input-svc-cmd" placeholder="并行多服务用 & 分隔，如 a & b ，nginx 等守护进程需前台运行：nginx -g 'daemon off;'；且命令中不含管道符 | "></textarea>
+                    <textarea class="form-input form-textarea" id="input-svc-cmd" placeholder="并行多服务用 & 分隔，如 a & b ，nginx 等守护进程需前台运行：nginx -g 'daemon off;'；且命令中不含管道符 | " data-i18n-attr="placeholder:ph.svcCmd"></textarea>
                 </div>
                 <div class="form" id="svc-stop-box" style="padding:0;border:none;display:none;">
-                    <label class="form-label">收尾命令（服务停止后执行一次）</label>
-                    <textarea class="form-input form-textarea" id="input-svc-stop" placeholder="可放如：清理注入的 iptables 规则、清理可能的进程残留、删临时文件等命令"></textarea>
-                    <div class="form-hint">若放同步命令执行会阻塞停止操作，请避免长时间命令</div>
+                    <label class="form-label" data-i18n="label.svcEnd">收尾命令（服务停止后执行一次）</label>
+                    <textarea class="form-input form-textarea" id="input-svc-stop" placeholder="可放如：清理注入的 iptables 规则、清理可能的进程残留、删临时文件等命令" data-i18n-attr="placeholder:ph.svcEnd"></textarea>
+                    <div class="form-hint" data-i18n="hint.svcEnd">若放同步命令执行会阻塞停止操作，请避免长时间命令</div>
                 </div>
             </div>
             <div class="modal-ft">
-                <button class="btn" style="margin-right:auto;" onclick="toggleStopCmdBox()">收尾命令</button>
-                <button class="btn" onclick="closeModal()">取消</button>
-                <button class="btn btn-primary" onclick="saveService()">保存</button>
+                <button class="btn" style="margin-right:auto;" onclick="toggleStopCmdBox()" data-i18n="btn.stopcmd">收尾命令</button>
+                <button class="btn" onclick="closeModal()" data-i18n="btn.cancel">取消</button>
+                <button class="btn btn-primary" onclick="saveService()" data-i18n="btn.save">保存</button>
             </div>
         </div>
     </div>
@@ -498,13 +510,13 @@
                 <div class="actions">
                     <button class="btn btn-sm" id="log-top-btn" onclick="logToTop()">↑</button>
                     <button class="btn btn-sm" id="log-bottom-btn" onclick="logToBottom()">↓</button>
-                    <button class="btn btn-sm" id="log-clear-btn" onclick="confirmClearLog()">清空</button>
-                    <button class="btn btn-sm" id="log-refresh-btn" onclick="toggleLogRefresh()">暂停</button>
-                    <button class="btn btn-sm" onclick="copyLog()">复制</button>
-                    <button class="btn btn-sm" onclick="closeLogModal()">关闭</button>
+                    <button class="btn btn-sm" id="log-clear-btn" onclick="confirmClearLog()" data-i18n="log.clear">清空</button>
+                    <button class="btn btn-sm" id="log-refresh-btn" onclick="toggleLogRefresh()" data-i18n="log.pause">暂停</button>
+                    <button class="btn btn-sm" onclick="copyLog()" data-i18n="btn.copy">复制</button>
+                    <button class="btn btn-sm" onclick="closeLogModal()" data-i18n="debug.close">关闭</button>
                 </div>
             </div>
-            <div class="modal-bd"><div class="log-content" id="log-content">加载中...</div></div>
+            <div class="modal-bd"><div class="log-content" id="log-content" data-i18n="empty.loading">加载中...</div></div>
         </div>
     </div>
 
@@ -513,9 +525,9 @@
             <div class="modal-hd" id="wifi-pick-title">选择参与 Wi-Fi 启停的服务</div>
             <div class="modal-bd" id="wifi-pick-body"></div>
             <div class="modal-ft">
-                <button class="btn" style="margin-right:auto;" onclick="clearWifiPick()">清空选择</button>
-                <button class="btn" onclick="closeWifiModal()">取消</button>
-                <button class="btn btn-primary" id="wifi-pick-ok" onclick="confirmWifiPick()">确定</button>
+                <button class="btn" style="margin-right:auto;" onclick="clearWifiPick()" data-i18n="btn.clearPick">清空选择</button>
+                <button class="btn" onclick="closeWifiModal()" data-i18n="btn.cancel">取消</button>
+                <button class="btn btn-primary" id="wifi-pick-ok" onclick="confirmWifiPick()" data-i18n="btn.ok">确定</button>
             </div>
         </div>
     </div>
@@ -527,7 +539,7 @@
                 <div class="confirm-msg" id="confirm-message">确定要删除该服务吗？</div>
             </div>
             <div class="modal-ft">
-                <button class="btn" onclick="closeConfirm()">取消</button>
+                <button class="btn" onclick="closeConfirm()" data-i18n="btn.cancel">取消</button>
                 <button class="btn btn-danger" id="confirm-btn" onclick="">删除</button>
             </div>
         </div>
@@ -538,31 +550,31 @@
     <div class="modal" id="modal-login">
         <div class="modal-box">
             <div class="modal-hd" style="display:flex;justify-content:space-between;align-items:center;">
-                <span>外部访问登录</span>
+                <span data-i18n="login.title">外部访问登录</span>
                 <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);font-weight:normal;">
-                    长期 Token 登录
+                    <span data-i18n="login.tokenMode">长期 Token 登录</span>
                     <span class="switch"><input type="checkbox" id="login-use-token" onchange="toggleLoginMode()"><span class="switch-slider"></span></span>
                 </label>
             </div>
             <div class="modal-bd">
                 <div class="form" id="login-pw-box" style="padding:0;border:none;">
-                    <label class="form-label">密码</label>
+                    <label class="form-label" data-i18n="login.pw">密码</label>
                     <div class="form-row">
-                        <input type="password" class="form-input" id="input-login-pw" placeholder="外部访问密码" autocomplete="current-password" onkeydown="if(event.key==='Enter')httpLogin()">
-                        <button class="btn btn-lg" id="login-pw-eye" onclick="togglePwEye('input-login-pw','login-pw-eye')">显示</button>
+                        <input type="password" class="form-input" id="input-login-pw" placeholder="外部访问密码" autocomplete="current-password" onkeydown="if(event.key==='Enter')httpLogin()" data-i18n-attr="placeholder:ph.loginPw">
+                        <button class="btn btn-lg" id="login-pw-eye" onclick="togglePwEye('input-login-pw','login-pw-eye')" data-i18n="btn.show">显示</button>
                     </div>
                 </div>
                 <div class="form" id="login-token-box" style="padding:0;border:none;display:none;">
-                    <label class="form-label">长期 Token</label>
+                    <label class="form-label" data-i18n="login.token">长期 Token</label>
                     <div class="form-row">
-                        <input type="password" class="form-input" id="input-login-token" placeholder="长期 Token" autocomplete="off" onkeydown="if(event.key==='Enter')httpLogin()">
-                        <button class="btn btn-lg" id="login-token-eye" onclick="togglePwEye('input-login-token','login-token-eye')">显示</button>
+                        <input type="password" class="form-input" id="input-login-token" placeholder="长期 Token" autocomplete="off" onkeydown="if(event.key==='Enter')httpLogin()" data-i18n-attr="placeholder:ph.loginToken">
+                        <button class="btn btn-lg" id="login-token-eye" onclick="togglePwEye('input-login-token','login-token-eye')" data-i18n="btn.show">显示</button>
                     </div>
                 </div>
                 <div class="form-error" id="error-login"></div>
             </div>
             <div class="modal-ft">
-                <button class="btn btn-primary" style="width:100%;" onclick="httpLogin()">登录</button>
+                <button class="btn btn-primary" style="width:100%;" onclick="httpLogin()" data-i18n="login.btn">登录</button>
             </div>
         </div>
     </div>
@@ -573,10 +585,11 @@
         const SYS_NAME_RE = new RegExp('^(init|sh|su|root|shell|system|kernel|logd|logcat|netd|vold|adbd|zygote|servicemanager|surfaceflinger|audioserver|cameraserver|mediaserver|installd|lmkd|keystore|system_server)$');
 
         // 服务名前端校验：返回错误文案，空串表示通过（与后端 valid_name 规则一致）
+        // 服务名前端校验：返回 i18n 键名，空串表示通过（与后端 valid_name 规则一致）
         function checkServiceName(name) {
-            if (!NAME_RE.test(name)) return '名称只能包含字母数字._-';
-            if (/^[0-9]+$/.test(name)) return '名称不能为纯数字';
-            if (SYS_NAME_RE.test(name)) return '名称与系统进程冲突，请更换';
+            if (!NAME_RE.test(name)) return 'err.nameChars';
+            if (/^[0-9]+$/.test(name)) return 'err.nameNum';
+            if (SYS_NAME_RE.test(name)) return 'err.nameSys';
             return '';
         }
 
@@ -596,6 +609,7 @@
             screen_service_enabled: false, screen_service_names: new Set(), screen_resume_names: new Set(),
             termux_root_names: new Set(),
             patrol_enabled: false,
+            language: 'zh',
             webui_enabled: false, webui_port: 5555
         };
         let statusData = { termux_services: [], binary_services: [] };
@@ -609,6 +623,8 @@
         let svcLoading = null;
         let setLoading = null;
         let confirmCallback = null;
+        // 确认弹窗当前语义：delete 删服务 / clear 清日志（语言切换时按此重刷文案）
+        let confirmKind = 'delete';
         const sortMode = { termux: false, binary: false };
         // 常用时间常量（毫秒）
         const REFRESH_DELAY_MS = 500;   // 启停操作后延迟刷新状态
@@ -634,8 +650,8 @@
         }
 
         function renderOpLog() {
-            if (!opLog.length) return '暂无调用记录';
-            return opLog.map(e => '执行：\n$ ' + e.cmd + '\n\n结果（返回信息）：\n' + e.out)
+            if (!opLog.length) return t('oplog.none');
+            return opLog.map(e => t('oplog.exec') + '\n$ ' + e.cmd + '\n\n' + t('oplog.result') + '：\n' + e.out)
                 .join('\n────────────────\n');
         }
 
@@ -655,7 +671,7 @@
                 ta.style.opacity = '0';
                 document.body.appendChild(ta);
                 ta.select();
-                try { document.execCommand('copy'); done(); } catch (e) { toast('复制失败', true); }
+                try { document.execCommand('copy'); done(); } catch (e) { toast(t('toast.copyFail'), true); }
                 document.body.removeChild(ta);
             };
             if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -666,7 +682,7 @@
         }
 
         function copyDebugLog() {
-            copyText(renderOpLog(), () => toast('已复制调试日志'));
+            copyText(renderOpLog(), () => toast(t('toast.copyDebug')));
         }
 
         // 状态页本地缓存：先渲染缓存秒开，后台刷新后覆盖
@@ -696,7 +712,7 @@
         function setTheme(mode) {
             try { localStorage.setItem(THEME_KEY, mode); } catch (e) { /* 存储不可用仅本次会话生效 */ }
             applyTheme(mode);
-            toast(mode === 'auto' ? '主题：跟随设备' : (mode === 'dark' ? '主题：深色' : '主题：浅色'));
+            toast(t(mode === 'auto' ? 'theme.auto' : (mode === 'dark' ? 'theme.dark' : 'theme.light')));
         }
 
         // 读取已存主题并生效；auto 模式下注册系统偏好监听，切换设备主题即时联动
@@ -716,6 +732,278 @@
                     if (cur === 'auto') applyTheme('auto');
                 };
             }
+        }
+
+        // —— 界面语言：zh 值逐字等于改前中文串，applyLang('zh') 即恒等变换 ——
+        const LANG_KEY = 'svcbox_lang_v1';
+        let curLang = 'zh';
+        // 键名语义化；含变量拼接的文案用 {n} 占位（t() 后自行替换）
+        const TEXTS = {
+            zh: {
+                'lang.switched': '已切换中文',
+                'nav.status': '服务状态', 'nav.config': '服务配置', 'nav.func': '功能设置', 'nav.logout': '退出',
+                'debug.title': '调试信息', 'debug.copy': '复制', 'debug.close': '关闭',
+                'btn.debug': '调试', 'port.unknown': '未知',
+                'title.themeSelect': '主题外观，默认跟随设备', 'title.langSelect': '界面语言',
+                'theme.optAuto': '跟随设备', 'theme.optDark': '深色主题', 'theme.optLight': '浅色主题',
+                'sec.termux': 'Termux 服务', 'sec.binary': '二进制服务', 'sec.basic': '基本设置',
+                'sec.bootcmd': '开机命令 & 测试命令', 'sec.startstop': '启停功能',
+                'filter.all': '全显示', 'filter.running': '已运行', 'filter.stopped': '已停止',
+                'filter.autoStart': '自启动', 'filter.autoStop': '非自启动',
+                'btn.refresh': '刷新', 'btn.sort': '排序', 'btn.sortOk': '确认', 'btn.add': '添加',
+                'btn.edit': '编辑', 'btn.delete': '删除', 'btn.save': '保存', 'btn.cancel': '取消',
+                'btn.ok': '确定', 'btn.log': '日志', 'btn.passwd': '修改密码', 'btn.token': '长期 Token',
+                'btn.copy': '复制', 'btn.show': '显示', 'btn.hide': '隐藏', 'btn.clearPick': '清空选择',
+                'btn.open': '打开', 'btn.start': '启动', 'btn.stop': '停止', 'btn.restart': '重启',
+                'btn.termuxRun': '以termux运行', 'btn.run': '运行', 'btn.stopcmd': '收尾命令',
+                'btn.regen': '重新生成（旧值立即失效）', 'btn.confirmChange': '确认修改',
+                'empty.loading': '加载中...', 'empty.clickRefresh': '点击刷新加载', 'empty.none': '暂无服务',
+                'empty.noMatch': '无匹配服务', 'empty.notInit': '请先初始化', 'empty.log': '无内容',
+                'label.serverDir': '服务目录', 'hint.serverDir': '务必将二进制文件设为可执行权限',
+                'hint.serverDirPh': '/storage/emulated/0/ → 自动转换可执行目录 /data/media/0/',
+                'label.patrol': '巡检保活', 'title.patrol': '自动巡检：关闭后仅停周期拉起；出停止窗/亮屏解锁/Wi-Fi 条件满足的恢复照常',
+                'label.sleep': '检查间隔 (秒)，最小10秒，建议60秒', 'err.sleep': '最小值为10秒',
+                'label.webui': '外部访问', 'status.webuiLoading': '状态：加载中...',
+                'status.webuiRunning': '状态：运行中（http://本机IP:{port}），默认密码admin',
+                'status.webuiNotRun': '状态：已开启但 httpd 未运行（请关闭重开，或查看 webui 日志）',
+                'ph.oldPw': '旧密码', 'ph.newPw': '新密码', 'ph.newPw2': '再次输入',
+                'ph.token': '若无token呈现，点击重新生成',
+                'label.bootcmds': '请自行确认命令安全性和可用性后再放入',
+                'hint.bootcmds': '模块启动时执行；编辑完成后点击框外自动保存',
+                'hint.bootcmdsTest': '测试模式：编辑的内容不会保存开机命令中',
+                'hint.bootcmdsRun': '开机命令：模块启动时执行，编辑后点击框外自动保存',
+                'label.test': '测试',
+                'label.schedule': '定时启停服务', 'label.schedStop': '停止时间', 'label.schedStart': '启动时间',
+                'hint.schedule': '每日生效；支持跨夜窗口（如22停到07起）；选好时间自动保存',
+                'err.schedStop': '停止时间格式错误', 'err.schedStart': '启动时间格式错误',
+                'err.schedSame': '停止时间与启动时间不能相同',
+                'label.screen': '亮屏启停服务',
+                'btn.screenOn': '亮屏白名单 ({n})', 'btn.screen': '锁屏白名单 ({n})',
+                'hint.screen': '亮屏解锁后启动（为空启动start项）；锁屏后全停（除白名单外）',
+                'label.wifi': 'Wi-Fi 启停服务',
+                'btn.wifiOn': '连接启停组 ({n})', 'btn.wifiOff': '断开启停组 ({n})',
+                'label.ssid': 'Wi-Fi SSID / 名称', 'ph.ssid': '两组共用，每行一个，留空 = 任意 Wi-Fi',
+                'modal.svcAdd': '添加服务', 'modal.svcEdit': '编辑 {type} 服务', 'modal.svcAddType': '添加 {type} 服务',
+                'label.autoKeep': '自动启动 & 保活', 'label.svcName': '服务名称 *（必须）',
+                'label.svcPort': '端口（仅标识，非执行参数）', 'ph.svcPort': '用于打开 Web 页',
+                'label.svcCmd': '启动命令 *（必须）', 'label.rootRun': 'root 运行',
+                'ph.svcCmd': '并行多服务用 & 分隔，如 a & b ，nginx 等守护进程需前台运行：nginx -g \'daemon off;\'；且命令中不含管道符 | ',
+                'label.svcEnd': '收尾命令（服务停止后执行一次）',
+                'ph.svcEnd': '可放如：清理注入的 iptables 规则、清理可能的进程残留、删临时文件等命令',
+                'hint.svcEnd': '若放同步命令执行会阻塞停止操作，请避免长时间命令',
+                'log.title': '{name} 日志', 'log.pause': '暂停', 'log.resume': '刷新', 'log.clear': '清空',
+                'pick.titleOn': '选择连接组服务（连上时运行，断开则停止）',
+                'pick.titleOff': '选择断开组服务（断开则运行，连上则停止）',
+                'pick.titleScreen': '选择锁屏白名单服务（若已运行，锁屏时不停止）',
+                'pick.titleScreenOn': '选择亮屏白名单服务（亮屏解锁后需启动的服务）',
+                'pick.all': '选择参与 Wi-Fi 启停的服务',
+                'confirm.delTitle': '确认删除', 'confirm.delMsg': '确定要删除服务 <strong>{name}</strong> 吗？',
+                'confirm.delBtn': '删除', 'confirm.dfltMsg': '确定要删除该服务吗？',
+                'confirm.clearTitle': '确认清空', 'confirm.clearMsg': '确定要清空 <strong>{name}</strong> 的日志吗？',
+                'confirm.clearBtn': '清空',
+                'login.title': '外部访问登录', 'login.tokenMode': '长期 Token 登录',
+                'login.pw': '密码', 'login.token': '长期 Token', 'login.btn': '登录', 'login.submit': '登录',
+                'ph.loginPw': '外部访问密码', 'ph.loginToken': '长期 Token',
+                'toast.saving': '保存中...', 'toast.saved': '已保存', 'toast.saveFail': '保存失败', 'toast.langSaveFail': '语言保存失败，后台日志暂不切换',
+                'toast.refreshing': '刷新中...', 'toast.refreshed': '已刷新', 'toast.refreshFail': '刷新失败',
+                'toast.parseFail': '解析失败，请重试', 'toast.copied': '已复制', 'toast.copyFail': '复制失败',
+                'toast.copyDebug': '已复制调试日志', 'toast.opFail': '操作失败', 'toast.opFailDebug': '操作失败，请查看调试信息',
+                'toast.on': '已开启', 'toast.off': '已关闭', 'toast.logging': '登录中...', 'toast.loginOk': '登录成功',
+                'toast.autoRefresh': '自动刷新中', 'toast.logCleared': '已清空', 'toast.logClearFail': '清空失败',
+                'toast.timeout': '请求超时，已保留上次数据，请重试', 'toast.portInvalid': '端口无效',
+                'toast.openFail': '打开失败', 'toast.invalid': '数据无效，请修正',
+                'toast.stopping': '停止 {name}...', 'toast.listCleanFail': '名单清理保存失败',
+                'toast.required': '请填写必填项', 'toast.noPipe': '启动命令不支持竖线「|」，管道可写 sh -c \'命令1 | 命令2\'',
+                'toast.dupName': '已存在同名配置项', 'toast.rootFail': 'root 运行开关保存失败',
+                'toast.notInit': '请先初始化', 'toast.notLoaded': '配置未加载完成，已取消保存',
+                'toast.emptyPayload': '保存内容为空，已取消', 'toast.emptyResp': '保存失败（空响应）',
+                'toast.settingsLoading': '配置未加载完成，请稍后再试',
+                'toast.tokenEmpty': '暂无 Token', 'toast.getFail': '获取失败', 'toast.gening': '生成中...',
+                'toast.regenerated': '已重新生成', 'toast.genFail': '生成失败',
+                'toast.cmdEmpty': '请输入要执行的命令', 'toast.cmdRunning': '运行（测试）命令...',
+                'toast.cmdTermux': '以 Termux 运行（测试）命令...', 'toast.cmdDone': '已执行，详情可查看日志',
+                'toast.cmdFail': '执行失败',
+                'toast.starting': '启动 {name}', 'toast.stoppingOnly': '停止 {name}', 'toast.restarting': '重启 {name}',
+                'err.loginPw': '请输入密码', 'err.loginToken': '请输入长期 Token',
+                'err.loginMany': '尝试过多，请稍后再试', 'err.loginFail': '登录失败',
+                'err.loginHttp': '登录失败（HTTP {code}）：{msg}', 'err.loginReq': '登录请求失败：{msg}',
+                'err.pwOld': '请输入旧密码', 'err.pwShort': '密码至少 6 位', 'err.pwDiff': '两次输入不一致',
+                'err.nameChars': '名称只能包含字母数字._-', 'err.nameNum': '名称不能为纯数字',
+                'err.nameSys': '名称与系统进程冲突，请更换',
+                'oplog.exec': '执行：', 'oplog.result': '结果（返回信息）：', 'oplog.none': '暂无调用记录',
+                'err.notLoggedIn': '未登录', 'err.timeoutBackend': '请求超时（后端无响应）',
+                'dbg.noApi': '未检测到可用的 root 管理器 API\n\n请在 KernelSU / APatch 管理器中打开此页面\nMagisk 可能不支持模块 WebUI，请使用KsuWebUI软件管理',
+                'dbg.noDir': '无法确定模块目录（缺少 moduleInfo 且未在 /data/adb/modules 下找到 action.sh）。\n请在 KernelSU 管理器中打开此页面。',
+                'theme.dark': '主题：深色', 'theme.light': '主题：浅色', 'theme.auto': '主题：跟随设备'
+            },
+            en: {
+                'lang.switched': 'Language switched to English',
+                'nav.status': 'Status', 'nav.config': 'Services', 'nav.func': 'Settings', 'nav.logout': 'Logout',
+                'debug.title': 'Debug', 'debug.copy': 'Copy', 'debug.close': 'Close',
+                'btn.debug': 'Debug', 'port.unknown': 'unknown',
+                'title.themeSelect': 'Appearance, follows the device by default', 'title.langSelect': 'Interface language',
+                'theme.optAuto': 'System', 'theme.optDark': 'Dark', 'theme.optLight': 'Light',
+                'sec.termux': 'Termux Services', 'sec.binary': 'Binary Services', 'sec.basic': 'General',
+                'sec.bootcmd': 'Boot & Test Commands', 'sec.startstop': 'Start / Stop Rules',
+                'filter.all': 'All', 'filter.running': 'Running', 'filter.stopped': 'Stopped',
+                'filter.autoStart': 'Auto-start', 'filter.autoStop': 'No auto-start',
+                'btn.refresh': 'Refresh', 'btn.sort': 'Sort', 'btn.sortOk': 'Done', 'btn.add': 'Add',
+                'btn.edit': 'Edit', 'btn.delete': 'Delete', 'btn.save': 'Save', 'btn.cancel': 'Cancel',
+                'btn.ok': 'OK', 'btn.log': 'Logs', 'btn.passwd': 'Change Password',
+                'btn.token': 'Token', 'btn.copy': 'Copy', 'btn.show': 'Show', 'btn.hide': 'Hide',
+                'btn.clearPick': 'Clear', 'btn.open': 'Open', 'btn.start': 'Start', 'btn.stop': 'Stop',
+                'btn.restart': 'Restart', 'btn.termuxRun': 'Run as Termux', 'btn.run': 'Run',
+                'btn.stopcmd': 'Finish Cmd', 'btn.regen': 'Regenerate (old token dies instantly)',
+                'btn.confirmChange': 'Confirm',
+                'empty.loading': 'Loading...', 'empty.clickRefresh': 'Tap refresh to load',
+                'empty.none': 'No services yet', 'empty.noMatch': 'No matching services',
+                'empty.notInit': 'Initialize first', 'empty.log': 'No content',
+                'label.serverDir': 'Service Directory',
+                'hint.serverDir': 'Make sure the binary has the executable permission',
+                'hint.serverDirPh': '/storage/emulated/0/ → auto-converted to /data/media/0/',
+                'label.patrol': 'Keep-alive Patrol',
+                'title.patrol': 'Auto patrol: when off, only periodic restarts stop; stop-window exit / screen unlock / Wi-Fi recovery still apply',
+                'label.sleep': 'Interval (sec), min 10, 60 recommended', 'err.sleep': 'Minimum is 10 seconds',
+                'label.webui': 'Web Access', 'status.webuiLoading': 'Status: loading...',
+                'status.webuiRunning': 'Status: running (http://<device-ip>:{port}), default password admin',
+                'status.webuiNotRun': 'Status: enabled but httpd is not running (toggle off then on, or check the webui log)',
+                'ph.oldPw': 'Current password', 'ph.newPw': 'New password', 'ph.newPw2': 'Repeat password',
+                'ph.token': 'No token shown? Tap regenerate',
+                'label.bootcmds': 'Confirm the command is safe and usable before adding it',
+                'hint.bootcmds': 'Runs at module start; saved automatically when you tap outside',
+                'hint.bootcmdsTest': 'Test mode: edits are not saved to the boot command',
+                'hint.bootcmdsRun': 'Boot command: runs at module start, saved when you tap outside',
+                'label.test': 'Test',
+                'label.schedule': 'Scheduled Start / Stop', 'label.schedStop': 'Stop at',
+                'label.schedStart': 'Start at',
+                'hint.schedule': 'Daily; overnight windows supported (e.g. 22 → 07); saved on pick',
+                'err.schedStop': 'Invalid stop time', 'err.schedStart': 'Invalid start time',
+                'err.schedSame': 'Stop and start time cannot be the same',
+                'label.screen': 'Screen State Rules',
+                'btn.screenOn': 'Unlock Whitelist ({n})', 'btn.screen': 'Lock Whitelist ({n})',
+                'hint.screen': 'After unlock, start the whitelist (or start-tagged services if empty); on lock, stop all except the lock whitelist',
+                'label.wifi': 'Wi-Fi Rules',
+                'btn.wifiOn': 'On Connect ({n})', 'btn.wifiOff': 'On Disconnect ({n})',
+                'label.ssid': 'Wi-Fi SSID / Name', 'ph.ssid': 'Shared by both groups, one per line, empty = any Wi-Fi',
+                'modal.svcAdd': 'Add Service', 'modal.svcEdit': 'Edit {type} Service',
+                'modal.svcAddType': 'Add {type} Service',
+                'label.autoKeep': 'Auto-start & keep-alive',
+                'label.svcName': 'Service Name * (required)',
+                'label.svcPort': 'Port (label only)',
+                'ph.svcPort': 'Used to open a web page',
+                'label.svcCmd': 'Start Command * (required)', 'label.rootRun': 'Run as root',
+                'ph.svcCmd': 'Use & for parallel services, e.g. a & b. Daemons must run in the foreground: nginx -g \'daemon off;\'. No pipe | allowed',
+                'label.svcEnd': 'Finish Command (runs once after the service stops)',
+                'ph.svcEnd': 'e.g. flush injected iptables rules, clean leftover processes, delete temp files',
+                'hint.svcEnd': 'A blocking command stalls the stop operation — keep it short',
+                'log.title': '{name} Log', 'log.pause': 'Pause', 'log.resume': 'Resume', 'log.clear': 'Clear',
+                'pick.titleOn': 'Pick On-Connect services (run when connected, stop when disconnected)',
+                'pick.titleOff': 'Pick On-Disconnect services (run when disconnected, stop when connected)',
+                'pick.titleScreen': 'Pick Lock Whitelist services (kept running when the screen locks)',
+                'pick.titleScreenOn': 'Pick Unlock Whitelist services (started after unlock)',
+                'pick.all': 'Pick services for Wi-Fi rules',
+                'confirm.delTitle': 'Confirm Delete',
+                'confirm.delMsg': 'Delete service <strong>{name}</strong>?',
+                'confirm.delBtn': 'Delete', 'confirm.dfltMsg': 'Delete this service?',
+                'confirm.clearTitle': 'Confirm Clear',
+                'confirm.clearMsg': 'Clear the <strong>{name}</strong> log?', 'confirm.clearBtn': 'Clear',
+                'login.title': 'Web Access Login', 'login.tokenMode': 'Log in with long-term Token',
+                'login.pw': 'Password', 'login.token': 'Long-term Token', 'login.btn': 'Log In',
+                'login.submit': 'Log In',
+                'ph.loginPw': 'Web access password', 'ph.loginToken': 'Long-term Token',
+                'toast.saving': 'Saving...', 'toast.saved': 'Saved', 'toast.saveFail': 'Save failed', 'toast.langSaveFail': 'Language save failed, backend logs stay unchanged',
+                'toast.refreshing': 'Refreshing...', 'toast.refreshed': 'Refreshed',
+                'toast.refreshFail': 'Refresh failed', 'toast.parseFail': 'Parse failed, retry',
+                'toast.copied': 'Copied', 'toast.copyFail': 'Copy failed',
+                'toast.copyDebug': 'Debug log copied', 'toast.opFail': 'Operation failed',
+                'toast.opFailDebug': 'Operation failed, see debug info',
+                'toast.on': 'Enabled', 'toast.off': 'Disabled', 'toast.logging': 'Logging in...',
+                'toast.loginOk': 'Logged in', 'toast.autoRefresh': 'Auto-refresh on',
+                'toast.logCleared': 'Log cleared', 'toast.logClearFail': 'Clear failed',
+                'toast.timeout': 'Request timed out, keeping last data — retry',
+                'toast.portInvalid': 'Invalid port', 'toast.openFail': 'Open failed',
+                'toast.invalid': 'Invalid data, please fix', 'toast.stopping': 'Stopping {name}...',
+                'toast.listCleanFail': 'Failed to save name-list cleanup',
+                'toast.required': 'Fill in the required fields',
+                'toast.noPipe': 'Pipes are not supported — wrap them as sh -c \'cmd1 | cmd2\'',
+                'toast.dupName': 'A service with this name already exists',
+                'toast.rootFail': 'Failed to save the run-as-root switch',
+                'toast.notInit': 'Initialize first',
+                'toast.notLoaded': 'Settings not loaded yet, save cancelled',
+                'toast.emptyPayload': 'Nothing to save, cancelled',
+                'toast.emptyResp': 'Save failed (empty response)',
+                'toast.settingsLoading': 'Settings still loading, try again shortly',
+                'toast.tokenEmpty': 'No token yet', 'toast.getFail': 'Fetch failed',
+                'toast.gening': 'Generating...', 'toast.regenerated': 'Regenerated',
+                'toast.genFail': 'Generation failed', 'toast.cmdEmpty': 'Enter a command first',
+                'toast.cmdRunning': 'Running (test) command...',
+                'toast.cmdTermux': 'Running (test) command as Termux...',
+                'toast.cmdDone': 'Executed, see the log for details', 'toast.cmdFail': 'Execution failed',
+                'toast.starting': 'Starting {name}', 'toast.stoppingOnly': 'Stopping {name}',
+                'toast.restarting': 'Restarting {name}',
+                'err.loginPw': 'Enter the password', 'err.loginToken': 'Enter the long-term Token',
+                'err.loginMany': 'Too many attempts, try later', 'err.loginFail': 'Login failed',
+                'err.loginHttp': 'Login failed (HTTP {code}): {msg}',
+                'err.loginReq': 'Login request failed: {msg}', 'err.pwOld': 'Enter the current password',
+                'err.pwShort': 'At least 6 characters', 'err.pwDiff': 'The two entries differ',
+                'err.nameChars': 'Only letters, digits, . _ and - are allowed',
+                'err.nameNum': 'The name cannot be all digits',
+                'err.nameSys': 'This name conflicts with a system process, pick another',
+                'oplog.exec': 'Run:', 'oplog.result': 'Result:', 'oplog.none': 'No calls recorded',
+                'err.notLoggedIn': 'Not logged in', 'err.timeoutBackend': 'Request timed out (backend not responding)',
+                'dbg.noApi': 'No root manager JS API detected\n\nOpen this page from KernelSU / APatch\nMagisk may not support module WebUI — use KsuWebUI instead',
+                'dbg.noDir': 'Cannot locate the module directory (no moduleInfo and action.sh not found under /data/adb/modules).\nOpen this page from the KernelSU manager.',
+                'theme.dark': 'Theme: Dark', 'theme.light': 'Theme: Light',
+                'theme.auto': 'Theme: Follow system'
+            }
+        };
+
+        // 取当前语言文案；{n} 占位由调用方替换（服务名/端口/计数等）
+        function t(key, vars) {
+            const s = (TEXTS[curLang] && TEXTS[curLang][key]) || (TEXTS.zh[key]) || key;
+            if (!vars) return s;
+            return s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] === undefined ? m : vars[k]));
+        }
+
+        // 落地语言：存本机 + 刷 DOM 文本/属性 + 重渲染动态区
+        function applyLang(lang) {
+            curLang = (lang === 'en') ? 'en' : 'zh';
+            document.documentElement.lang = curLang === 'en' ? 'en' : 'zh-CN';
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const v = t(el.getAttribute('data-i18n'));
+                if (el.firstChild && el.childNodes.length === 1 && el.firstChild.nodeType === 3) el.textContent = v;
+                else if (!el.firstChild) el.textContent = v;
+            });
+            document.querySelectorAll('[data-i18n-attr]').forEach(el => {
+                const pair = el.getAttribute('data-i18n-attr').split(':');
+                const key = pair[0], i18nKey = pair[1];
+                el.setAttribute(key, t(i18nKey));
+            });
+            const sel = document.getElementById('lang-select');
+            if (sel) sel.value = curLang;
+            renderAll();
+        }
+
+        // 切语言：界面即时切换，language 落盘供后台巡检与接口错误读取
+        async function setLang(lang) {
+            const v = (lang === 'en') ? 'en' : 'zh';
+            try { localStorage.setItem(LANG_KEY, v); } catch (e) { /* 存储不可用仅本次会话生效 */ }
+            applyLang(v);
+            toast(t('lang.switched'));
+            if (!backendReady()) return; // 无后端仅本次会话生效
+            const ok = await saveSettingsKey('language', v, null, true);
+            if (!ok) toast(t('toast.langSaveFail'), true);
+            configData.language = v;
+        }
+
+        // 读取已存语言并生效；切换语言时 renderAll 重画动态区（不发请求，不动输入框）
+        function initLang() {
+            let lang = 'zh';
+            try {
+                const v = localStorage.getItem(LANG_KEY);
+                if (v === 'en') lang = 'en';
+            } catch (e) { /* 存储不可用按中文 */ }
+            applyLang(lang);
         }
 
         function clearStatusCache() {
@@ -807,7 +1095,7 @@
             if (typeof window.ap !== 'undefined' && window.ap.exec) { ksuApi = window.ap; hideDebug(); return true; }
             if (typeof window.mgi !== 'undefined' && window.mgi.exec) { ksuApi = window.mgi; hideDebug(); return true; }
             if (/^https?:/.test(location.protocol)) return false;
-            showDebug('未检测到可用的 root 管理器 API\n\n请在 KernelSU / APatch 管理器中打开此页面\nMagisk 可能不支持模块 WebUI，请使用KsuWebUI软件管理');
+            showDebug(t('dbg.noApi'));
             return false;
         }
 
@@ -826,7 +1114,7 @@
             const r = await exec("p=$(find /data/adb/modules -maxdepth 2 -name 'action.sh' -path '*SvcHub*/*' 2>/dev/null | head -n 1); [ -n \"$p\" ] && echo \"${p%/action.sh}\"");
             const p = (r.stdout || '').trim();
             if (p) { MODDIR = p; hideDebug(); return true; }
-            showDebug('无法确定模块目录（缺少 moduleInfo 且未在 /data/adb/modules 下找到 action.sh）。\n请在 KernelSU 管理器中打开此页面。');
+            showDebug(t('dbg.noDir'));
             return false;
         }
 
@@ -886,14 +1174,14 @@
                 let r = await fetchWithGetRetry(url, init);
                 // 并发滑动续期下偶发 401（会话竞态读半截）：先 whoami 复核，仍未登录才弹登录页
                 if (r.status === 401) {
-                    if (httpToken) return { errno: 401, stdout: '', stderr: '未登录' }; // Token 登录失配不复核
+                    if (httpToken) return { errno: 401, stdout: '', stderr: t('err.notLoggedIn') }; // Token 登录失配不复核
                     const v = await fetch('cgi-bin/api.cgi?a=whoami', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
                     if (v.status === 200) r = await fetchWithGetRetry(url, init);
                 }
-                if (r.status === 401 || r.status === 404) { showLogin(); return { errno: r.status, stdout: '', stderr: '未登录' }; }
+                if (r.status === 401 || r.status === 404) { showLogin(); return { errno: r.status, stdout: '', stderr: t('err.notLoggedIn') }; }
                 return { errno: 0, stdout: await r.text(), stderr: '' };
             } catch (e) {
-                return { errno: -1, stdout: '', stderr: e.name === 'AbortError' ? '请求超时（后端无响应）' : e.message };
+                return { errno: -1, stdout: '', stderr: e.name === 'AbortError' ? t('err.timeoutBackend') : e.message };
             }
         }
 
@@ -903,7 +1191,7 @@
             const btn = document.getElementById(btnId);
             const show = input.type === 'password';
             input.type = show ? 'text' : 'password';
-            btn.textContent = show ? '隐藏' : '显示';
+            btn.textContent = show ? t('btn.hide') : t('btn.show');
         }
 
         // 密码/Token 登录框切换。
@@ -950,8 +1238,8 @@
             const tk = useToken ? document.getElementById('input-login-token').value.trim() : '';
             const errEl = document.getElementById('error-login');
             errEl.textContent = '';
-            if (!pw && !tk) { errEl.textContent = useToken ? '请输入长期 Token' : '请输入密码'; return; }
-            toast('登录中...');
+            if (!pw && !tk) { errEl.textContent = useToken ? t('err.loginToken') : t('err.loginPw'); return; }
+            toast(t('toast.logging'));
             try {
                 const body = 'password=' + encodeURIComponent(pw) + '&token=' + encodeURIComponent(tk);
                 const r = await fetch('cgi-bin/api.cgi?a=login', {
@@ -960,28 +1248,28 @@
                     body
                 });
                 if (r.status === 429) {
-                    try { errEl.textContent = (JSON.parse(await r.text()).error) || '尝试过多，请稍后再试'; }
-                    catch (e) { errEl.textContent = '尝试过多，请稍后再试'; }
+                    try { errEl.textContent = (JSON.parse(await r.text()).error) || t('err.loginMany'); }
+                    catch (e) { errEl.textContent = t('err.loginMany'); }
                     return;
                 }
                 const text = await r.text();
                 // 非 JSON 直接展示原文片段。
                 let d;
                 try { d = JSON.parse(text); }
-                catch (e) { errEl.textContent = '登录失败（HTTP ' + r.status + '）：' + text.slice(0, 120); return; }
+                catch (e) { errEl.textContent = t('err.loginHttp', { code: r.status, msg: text.slice(0, 120) }); return; }
                 if (d.success) {
                     // Token 登录走请求头，密码登录靠 Cookie。
                     httpToken = (useToken && tk) ? tk : '';
                     afterLogin();
-                    toast('登录成功');
+                    toast(t('toast.loginOk'));
                     // 登录后预热三页数据：状态页首屏优先，其余两项随后补（httpd 串行处理 CGI，并行会拖慢首屏）
                     await loadStatus(true);
                     loadConfigSvcs(true, true);
                     loadConfigSettings(true, true);
                 } else {
-                    errEl.textContent = d.error || '登录失败';
+                    errEl.textContent = d.error || t('err.loginFail');
                 }
-            } catch (e) { errEl.textContent = '登录请求失败：' + e.message; }
+            } catch (e) { errEl.textContent = t('err.loginReq', { msg: e.message }); }
         }
 
         function showLogin() {
@@ -1103,16 +1391,16 @@
         }
 
         async function loadStatus(force = false) {
-            if (!ksuApi && !httpMode) { document.getElementById('termux-list').innerHTML = '<div class="empty">请先初始化</div>'; return; }
+            if (!ksuApi && !httpMode) { document.getElementById('termux-list').innerHTML = '<div class="empty">' + t('empty.notInit') + '</div>'; return; }
             if (!force && isStatusLoaded) return;
-            if (force) toast('刷新中...');
+            if (force) toast(t('toast.refreshing'));
             const r = await invoke('status');
             if (r.errno === 401 || r.errno === 404) return; // 已弹登录页
             if (r.errno !== 0 || !r.stdout) {
                 // 超时不断臂：保留旧列表仅提示，用户点刷新重试。
-                if (r.errno === -1) { if (force) toast('请求超时，已保留上次数据，请重试', true); return; }
-                renderStatusFailure('刷新失败，请重试');
-                if (force) toast('刷新失败', true);
+                if (r.errno === -1) { if (force) toast(t('toast.timeout'), true); return; }
+                renderStatusFailure(t('toast.parseFail'));
+                if (force) toast(t('toast.refreshFail'), true);
                 return;
             }
             try {
@@ -1127,15 +1415,41 @@
                 saveStatusCache(d);
                 renderStatusList('termux-list', d.termux_services, true);
                 renderStatusList('binary-list', d.binary_services, false);
-                if (force) toast('已刷新');
+                if (force) toast(t('toast.refreshed'));
             } catch (e) {
-                renderStatusFailure('解析失败，请重试');
+                renderStatusFailure(t('toast.parseFail'));
             }
         }
 
         function renderStatusFromCache() {
             renderStatusList('termux-list', statusData.termux_services, true);
             renderStatusList('binary-list', statusData.binary_services, false);
+        }
+
+        // 语言切换后重画所有动态文案区：只重渲染 DOM，不发请求、不碰任何输入框的值。
+        // 未加载过的列表留空态，交由各自加载函数在就绪后渲染。
+        function renderAll() {
+            if (isStatusLoaded || statusData) renderStatusFromCache();
+            if (isServicesLoaded || typeof configData.termux_services !== 'undefined') renderConfigLists();
+            updateWifiPickBtn();
+            updateScreenPickBtn();
+            updateScreenOnPickBtn();
+            updateLogRefreshBtn();
+            // 打开中的选择弹窗按当前 mode 重取标题（未开则跳过）
+            if (typeof pickMode !== 'undefined' && document.getElementById('modal-wifi-pick').classList.contains('show')) {
+                document.getElementById('wifi-pick-title').textContent = pickTitle(pickMode);
+            }
+            // 确认弹窗打开中：按 delete/clear 语义重刷文案
+            if (document.getElementById('modal-confirm').classList.contains('show')) {
+                if (confirmKind === 'clear' && currentLogName) {
+                    document.getElementById('confirm-title').textContent = t('confirm.clearTitle');
+                    document.getElementById('confirm-message').innerHTML = t('confirm.clearMsg', { name: escapeHtml(currentLogName) });
+                    document.getElementById('confirm-btn').textContent = t('confirm.clearBtn');
+                } else {
+                    document.getElementById('confirm-title').textContent = t('confirm.delTitle');
+                    document.getElementById('confirm-btn').textContent = t('confirm.delBtn');
+                }
+            }
         }
 
         // 端口标签：纯数字且 1~65535 显示 port:数字；其他文本直显当标签；空显示 port:未知
@@ -1148,7 +1462,7 @@
         }
         function formatPort(port) {
             const p = String(port || '').trim();
-            if (!p) return 'port:未知';
+            if (!p) return 'port:' + t('port.unknown');
             const n = parseValidPort(p);
             return n === null ? escapeHtml(p) : 'port:' + n;
         }
@@ -1187,15 +1501,15 @@
                 || (statusFilter === 'stopped' && s.status !== 'running')
                 || (statusFilter === 'auto-start' && s.auto === 'start')
                 || (statusFilter === 'auto-stop' && s.auto === 'stop')) : [];
-            if (!list.length) { el.innerHTML = `<div class="empty">${hasAny ? '无匹配服务' : '暂无服务'}</div>`; return; }
+            if (!list.length) { el.innerHTML = `<div class="empty">${hasAny ? t('empty.noMatch') : t('empty.none')}</div>`; return; }
             el.innerHTML = list.map((s, i) => {
                 const running = s.status === 'running';
                 const port = parseValidPort(s.port);
                 // 打开按钮：运行中且端口合法即显示；直连跳本机链接，管理器走 am 跳转。
                 const openBtn = (running && port !== null)
                     ? (httpMode
-                        ? `<a class="btn btn-md btn-open" style="text-decoration:none;" href="http://${location.hostname}:${port}" target="_blank" rel="noopener" onclick="event.stopPropagation()">打开</a>`
-                        : `<button class="btn btn-md btn-open" onclick="openSvcPort('${s.port}')">打开</button>`)
+                        ? `<a class="btn btn-md btn-open" style="text-decoration:none;" href="http://${location.hostname}:${port}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${t('btn.open')}</a>`
+                        : `<button class="btn btn-md btn-open" onclick="openSvcPort('${s.port}')">${t('btn.open')}</button>`)
                     : '';
                 return `
                 <div class="item" onclick="toggleExpand('${id}', ${i}, event)">
@@ -1203,8 +1517,8 @@
                     ${svcItemInfo(s, isTermux, false)}
                     <div class="actions" onclick="event.stopPropagation()">
                         ${running
-                            ? openBtn + `<button class="btn btn-md btn-restart" onclick="restartSvc('${s.name}')">重启</button><button class="btn btn-md btn-danger" onclick="stopSvc('${s.name}')">停止</button><button class="btn btn-md" onclick="showLog('${s.name}')">日志</button>`
-                            : `<button class="btn btn-md btn-primary" onclick="startSvc('${isTermux ? 'termux' : 'binary'}','${s.name}')">启动</button><button class="btn btn-md" onclick="showLog('${s.name}')">日志</button>`}
+                            ? openBtn + `<button class="btn btn-md btn-restart" onclick="restartSvc('${s.name}')">${t('btn.restart')}</button><button class="btn btn-md btn-danger" onclick="stopSvc('${s.name}')">${t('btn.stop')}</button><button class="btn btn-md" onclick="showLog('${s.name}')">${t('btn.log')}</button>`
+                            : `<button class="btn btn-md btn-primary" onclick="startSvc('${isTermux ? 'termux' : 'binary'}','${s.name}')">${t('btn.start')}</button><button class="btn btn-md" onclick="showLog('${s.name}')">${t('btn.log')}</button>`}
                     </div>
                 </div>
                 <div class="expand" id="expand-${id}-${i}" style="display:none;">
@@ -1214,9 +1528,9 @@
         }
 
         async function openSvcPort(port) {
-            if (parseValidPort(port) === null) { toast('端口无效', true); return; }
+            if (parseValidPort(port) === null) { toast(t('toast.portInvalid'), true); return; }
             const r = await invoke('open ' + sq(String(port).trim()));
-            if (!parseSuccess(r)) toast('打开失败', true);
+            if (!parseSuccess(r)) toast(t('toast.openFail'), true);
         }
 
         // 命令解转义：字面 \n \t \" \\ → 明文；单遍替换防 \\n 被二次解码
@@ -1255,25 +1569,25 @@
         }
 
         function copyToClipboard(el) {
-            copyText(el.value, () => toast('已复制'));
+            copyText(el.value, () => toast(t('toast.copied')));
         }
 
         // 启停操作公共流程：toast -> 调用 -> 延迟刷新状态
         async function svcAction(msg, sub) {
             toast(msg);
             const r = await invoke(sub);
-            if (!parseSuccess(r)) toast('操作失败，请查看调试信息', true);
+            if (!parseSuccess(r)) toast(t('toast.opFailDebug'), true);
             setTimeout(() => loadStatus(true), REFRESH_DELAY_MS);
         }
 
-        function startSvc(type, name) { svcAction('启动 ' + name, 'start ' + sq(type) + ' ' + sq(name)); }
-        function stopSvc(name) { svcAction('停止 ' + name, 'stop ' + sq(name)); }
-        function restartSvc(name) { svcAction('重启 ' + name, 'start auto ' + sq(name)); }
+        function startSvc(type, name) { svcAction(t('toast.starting', { name: name }), 'start ' + sq(type) + ' ' + sq(name)); }
+        function stopSvc(name) { svcAction(t('toast.stoppingOnly', { name: name }), 'stop ' + sq(name)); }
+        function restartSvc(name) { svcAction(t('toast.restarting', { name: name }), 'start auto ' + sq(name)); }
 
         async function showLog(name) {
             currentLogName = name;
-            document.getElementById('log-title').textContent = name + ' 日志';
-            document.getElementById('log-content').textContent = '加载中...';
+            document.getElementById('log-title').textContent = t('log.title', { name: name });
+            document.getElementById('log-content').textContent = t('empty.loading');
             logAutoRefresh = true;
             updateLogRefreshBtn();
             showAnyModal('modal-log');
@@ -1291,7 +1605,7 @@
         let logTimer = null;
 
         function updateLogRefreshBtn() {
-            document.getElementById('log-refresh-btn').textContent = logAutoRefresh ? '暂停' : '刷新';
+            document.getElementById('log-refresh-btn').textContent = logAutoRefresh ? t('log.pause') : t('log.resume');
             // 刷新态隐藏顶部/底部按钮、显示清空；暂停态反之
             document.getElementById('log-top-btn').style.display = logAutoRefresh ? 'none' : '';
             document.getElementById('log-bottom-btn').style.display = logAutoRefresh ? 'none' : '';
@@ -1315,7 +1629,7 @@
             logAutoRefresh = !logAutoRefresh;
             updateLogRefreshBtn();
             if (logAutoRefresh) {
-                toast('自动刷新中');
+                toast(t('toast.autoRefresh'));
                 refreshLog(true);
             }
         }
@@ -1328,14 +1642,14 @@
                     const d = JSON.parse(r.stdout);
                     if (d.content) {
                         const content = base64ToUtf8(d.content);
-                        document.getElementById('log-content').textContent = content || '无内容';
+                        document.getElementById('log-content').textContent = content || t('empty.log');
                     } else {
-                        document.getElementById('log-content').textContent = d.error || '无内容';
+                        document.getElementById('log-content').textContent = d.error || t('empty.log');
                     }
                 } catch (e) {
                     document.getElementById('log-content').textContent = r.stdout;
                 }
-            } else { document.getElementById('log-content').textContent = '无内容'; }
+            } else { document.getElementById('log-content').textContent = t('empty.log'); }
             if (toBottom) logToBottom();
         }
 
@@ -1349,25 +1663,26 @@
         }
 
         function copyLog() {
-            copyText(document.getElementById('log-content').textContent, () => toast('已复制'));
+            copyText(document.getElementById('log-content').textContent, () => toast(t('toast.copied')));
         }
 
         // 清空当前日志：复用删除确认弹窗二次确认，调后端 clearlog
         function confirmClearLog() {
             if (!currentLogName) return;
             const name = currentLogName;
-            document.getElementById('confirm-title').textContent = '确认清空';
-            document.getElementById('confirm-message').innerHTML = `确定要清空 <strong>${escapeHtml(name)}</strong> 的日志吗？`;
-            document.getElementById('confirm-btn').textContent = '清空';
+            document.getElementById('confirm-title').textContent = t('confirm.clearTitle');
+            document.getElementById('confirm-message').innerHTML = t('confirm.clearMsg', { name: escapeHtml(name) });
+            document.getElementById('confirm-btn').textContent = t('confirm.clearBtn');
+            confirmKind = 'clear';
             showAnyModal('modal-confirm');
             confirmCallback = async () => {
                 const r = await invoke('clearlog ' + sq(name));
                 closeConfirm();
                 if (parseSuccess(r)) {
-                    document.getElementById('log-content').textContent = '无内容';
-                    toast('已清空');
+                    document.getElementById('log-content').textContent = t('empty.log');
+                    toast(t('toast.logCleared'));
                 } else {
-                    toast('清空失败', true);
+                    toast(t('toast.logClearFail'), true);
                 }
             };
         }
@@ -1404,38 +1719,38 @@
         // 配置加载中：切页/刷新并发复用同一 promise，防串行双读拖慢实机。
         // 服务配置页只读服务行：单次 getservices，切页/刷新不再读设置键。
         async function loadConfigSvcs(force = false, silent = false) {
-            if (!backendReady()) { toast('请先初始化', true); return; }
+            if (!backendReady()) { toast(t('toast.notInit'), true); return; }
             if (!force && isServicesLoaded) return;
             if (svcLoading) { try { await svcLoading; } catch (e) { /* 忽略 */ } return; }
             svcLoading = (async () => {
-                if (force && !silent) toast('刷新中...');
+                if (force && !silent) toast(t('toast.refreshing'));
                 let rv = await invoke('getservices');
                 if (rv.errno !== 0 || !rv.stdout) rv = await invoke('getservices');
                 if (rv.errno === 401) return; // 已弹登录页
-                if (rv.errno !== 0 || !rv.stdout) { if (force && !silent) toast('刷新失败', true); return; }
+                if (rv.errno !== 0 || !rv.stdout) { if (force && !silent) toast(t('toast.refreshFail'), true); return; }
                 try {
                     const v = JSON.parse(rv.stdout);
                     configData.termux_services = parseRows(v.termux_services || '', 'termux');
                     configData.binary_services = parseRows(v.binary_services || '', 'binary');
                     isServicesLoaded = true;
                     renderConfigLists();
-                    if (force && !silent) toast('已刷新');
-                } catch (e) { toast('解析失败，请重试', true); }
+                    if (force && !silent) toast(t('toast.refreshed'));
+                } catch (e) { toast(t('toast.parseFail'), true); }
             })();
             try { await svcLoading; } finally { svcLoading = null; }
         }
 
         // 功能设置页只读设置键：单次 getsettings（原 loadConfig 的设置段整体搬入）。
         async function loadConfigSettings(force = false, silent = false) {
-            if (!backendReady()) { toast('请先初始化', true); return; }
+            if (!backendReady()) { toast(t('toast.notInit'), true); return; }
             if (!force && isSettingsLoaded) return;
             if (setLoading) { try { await setLoading; } catch (e) { /* 忽略 */ } return; }
             setLoading = (async () => {
-                if (force && !silent) toast('刷新中...');
+                if (force && !silent) toast(t('toast.refreshing'));
                 let rs = await invoke('getsettings');
                 if (rs.errno !== 0 || !rs.stdout) rs = await invoke('getsettings');
                 if (rs.errno === 401) return; // 已弹登录页
-                if (rs.errno !== 0 || !rs.stdout) { renderConfigFromCache(); if (force && !silent) toast('刷新失败', true); return; }
+                if (rs.errno !== 0 || !rs.stdout) { renderConfigFromCache(); if (force && !silent) toast(t('toast.refreshFail'), true); return; }
                 try {
                     const d = JSON.parse(rs.stdout);
                     const sv = parseInt(d.sleep_interval, 10);
@@ -1454,9 +1769,12 @@
                     configData.screen_resume_names = new Set((d.screen_resume_names || '').split('\n').map(s => s.trim()).filter(Boolean));
                     configData.termux_root_names = new Set((d.termux_root_names || '').split('\n').map(s => s.trim()).filter(Boolean));
                     configData.patrol_enabled = d.patrol_enabled === '1';
+                    configData.language = d.language === 'en' ? 'en' : 'zh';
                     configData.webui_enabled = d.webui_enabled === '1';
                     isSettingsLoaded = true;
                     renderConfigFromCache();
+                    // 后端是语言持久真相：刷新/换设备后以落盘值为准（与本机 localStorage 可能不同）
+                    applyLang(configData.language);
                     // 保存中的开关不回填：以用户拨动为准，否则关了又弹回来
                     if (typeof wifiToggling !== 'undefined' && wifiToggling) {
                         document.getElementById('wifi-service-switch').checked = configData.wifi_service_enabled;
@@ -1478,11 +1796,11 @@
                         document.getElementById('webui-switch').checked = configData.webui_enabled;
                     }
                     refreshWebuiPanel();
-                    if (force && !silent) toast('已刷新');
+                    if (force && !silent) toast(t('toast.refreshed'));
                 } catch (e) {
                     isSettingsLoaded = false;
                     renderConfigFromCache();
-                    toast('解析失败，请重试', true);
+                    toast(t('toast.parseFail'), true);
                 }
             })();
             try { await setLoading; } finally { setLoading = null; }
@@ -1491,8 +1809,8 @@
         function renderConfigFromCache() {
             sortMode.termux = false;
             sortMode.binary = false;
-            document.getElementById('sort-termux-btn').textContent = '排序';
-            document.getElementById('sort-binary-btn').textContent = '排序';
+            document.getElementById('sort-termux-btn').textContent = t('btn.sort');
+            document.getElementById('sort-binary-btn').textContent = t('btn.sort');
             document.getElementById('input-sleep').value = configData.sleep_interval;
             document.getElementById('input-server-dir').value = configData.server_dir;
             isTestMode = false;
@@ -1501,7 +1819,7 @@
             document.getElementById('test-run-bar').style.display = 'none';
             document.getElementById('input-boot-cmds').value = configData.boot_commands;
             const hint = document.getElementById('input-boot-cmds').parentNode.querySelector('.form-hint');
-            hint.textContent = '模块启动时执行；编辑完成后点击其他位置自动保存';
+            hint.textContent = t('hint.bootcmds');
             hint.style.color = '';
             if (typeof wifiToggling === 'undefined' || !wifiToggling) {
                 document.getElementById('wifi-service-switch').checked = configData.wifi_service_enabled;
@@ -1537,8 +1855,8 @@
                 const actions = sorting
                     ? `<button class="btn btn-md" onclick="moveItem('${type}', ${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
                        <button class="btn btn-md" onclick="moveItem('${type}', ${i}, 1)" ${i === len - 1 ? 'disabled' : ''}>↓</button>`
-                    : `<button class="btn btn-lg" onclick="openModal('${type}', ${i})">编辑</button>
-                       <button class="btn btn-lg btn-danger" onclick="confirmDelete('${type}', ${i})">删除</button>`;
+                    : `<button class="btn btn-lg" onclick="openModal('${type}', ${i})">${t('btn.edit')}</button>
+                       <button class="btn btn-lg btn-danger" onclick="confirmDelete('${type}', ${i})">${t('btn.delete')}</button>`;
                 return `
                 <div class="item" ${sorting ? '' : `onclick="openModal('${type}', ${i})"`}>
                     ${svcItemInfo(s, isTermux, true)}
@@ -1549,17 +1867,17 @@
             const tEl = document.getElementById('config-termux-list');
             if (configData.termux_services.length) {
                 tEl.innerHTML = configData.termux_services.map((s, i) => renderRow('termux', s, i, true)).join('');
-            } else { tEl.innerHTML = '<div class="empty">暂无服务</div>'; }
+            } else { tEl.innerHTML = '<div class="empty">' + t('empty.none') + '</div>'; }
 
             const bEl = document.getElementById('config-binary-list');
             if (configData.binary_services.length) {
                 bEl.innerHTML = configData.binary_services.map((s, i) => renderRow('binary', s, i, false)).join('');
-            } else { bEl.innerHTML = '<div class="empty">暂无服务</div>'; }
+            } else { bEl.innerHTML = '<div class="empty">' + t('empty.none') + '</div>'; }
         }
 
         function toggleSort(type) {
             sortMode[type] = !sortMode[type];
-            document.getElementById('sort-' + type + '-btn').textContent = sortMode[type] ? '确认' : '排序';
+            document.getElementById('sort-' + type + '-btn').textContent = sortMode[type] ? t('btn.sortOk') : t('btn.sort');
             renderConfigLists();
             // 确认排序只发本类（moveItem 已即时单步落盘，此处兜底整类一次）
             if (!sortMode[type]) saveServicesOnly(type);
@@ -1588,11 +1906,14 @@
 
         function confirmDelete(type, idx) {
             const name = svcArr(type)[idx].name;
-            document.getElementById('confirm-message').innerHTML = `确定要删除服务 <strong>${escapeHtml(name)}</strong> 吗？`;
+            document.getElementById('confirm-title').textContent = t('confirm.delTitle');
+            document.getElementById('confirm-message').innerHTML = t('confirm.delMsg', { name: escapeHtml(name) });
+            document.getElementById('confirm-btn').textContent = t('confirm.delBtn');
+            confirmKind = 'delete';
             showAnyModal('modal-confirm');
             confirmCallback = async () => {
                 // 先停后删：运行中则先停止，防止配置已删、进程残留
-                toast('停止 ' + name + '...');
+                toast(t('toast.stopping', { name: name }));
                 await invoke('stop ' + sq(name));
                 svcArr(type).splice(idx, 1);
                 // 同步清理名单中的残留，避免名单指向不存在的服务
@@ -1605,12 +1926,12 @@
                 updateWifiPickBtn();
                 updateScreenPickBtn();
                 updateScreenOnPickBtn();
-                toast('保存中...');
+                toast(t('toast.saving'));
                 await saveServicesOnly(type);
                 // 名单清理独立落盘（saveservices 不写设置键）；收尾命令随服务行已同步删除
                 const names = [...configData.termux_root_names].join('\n');
                 const rs = await runAction('savesettings', 'termux_root_names=' + toB64(names));
-                if (rs.errno !== 0) toast('名单清理保存失败', true);
+                if (rs.errno !== 0) toast(t('toast.listCleanFail'), true);
                 closeConfirm();
             };
         }
@@ -1619,8 +1940,8 @@
             hideAnyModal('modal-confirm');
             confirmCallback = null;
             // 恢复删除弹窗默认文案，防止清空日志的确认文案残留
-            document.getElementById('confirm-title').textContent = '确认删除';
-            document.getElementById('confirm-btn').textContent = '删除';
+            document.getElementById('confirm-title').textContent = t('confirm.delTitle');
+            document.getElementById('confirm-btn').textContent = t('confirm.delBtn');
         }
 
         document.getElementById('confirm-btn').onclick = () => {
@@ -1632,9 +1953,9 @@
             const editing = typeof idx === 'number' && idx >= 0;
             const s = editing ? svcArr(type)[idx]
                 : { name: '', port: '', auto: 'start', cmd: '', end: '' };
-            const label = type === 'termux' ? 'Termux' : '二进制';
+            const label = type === 'termux' ? 'Termux' : t('sec.binary');
             document.getElementById('edit-svc-type').value = type;
-            document.getElementById('modal-svc-title').textContent = editing ? `编辑 ${label} 服务` : `添加 ${label} 服务`;
+            document.getElementById('modal-svc-title').textContent = editing ? t('modal.svcEdit', { type: label }) : t('modal.svcAddType', { type: label });
             document.getElementById('edit-svc-idx').value = editing ? idx : -1;
             document.getElementById('input-svc-name').value = s.name;
             document.getElementById('input-svc-port').value = s.port || '';
@@ -1671,13 +1992,13 @@
                 cmd: normalizeCmd(el('input-svc-cmd').value),
                 end: normalizeCmd(el('input-svc-stop').value)
             };
-            if (!s.name || !s.cmd) { toast('请填写必填项', true); return; }
-            if (/[|]/.test(s.cmd)) { toast('启动命令不支持竖线「|」，管道可写 sh -c \'命令1 | 命令2\'', true); return; }
+            if (!s.name || !s.cmd) { toast(t('toast.required'), true); return; }
+            if (/[|]/.test(s.cmd)) { toast(t('toast.noPipe'), true); return; }
             const nameErr = checkServiceName(s.name);
-            if (nameErr) { toast(nameErr, true); return; }
+            if (nameErr) { toast(t(nameErr), true); return; }
             // 全服务项查重：pid/日志/Wi-Fi 选择均按 name 索引，跨类同名必冲突（编辑排除自身）
             const self = idx >= 0 ? svcArr(type)[idx] : null;
-            if (svcArr('termux').concat(svcArr('binary')).some(x => x !== self && x.name === s.name)) { toast('已存在同名配置项', true); return; }
+            if (svcArr('termux').concat(svcArr('binary')).some(x => x !== self && x.name === s.name)) { toast(t('toast.dupName'), true); return; }
             const oldName = self ? self.name : '';
             if (idx === -1) svcArr(type).push(s);
             else svcArr(type)[idx] = s;
@@ -1685,7 +2006,7 @@
             svcSaving = true;
             closeModal();
             renderConfigLists();
-            toast('保存中...');
+            toast(t('toast.saving'));
             try {
                 const svcOk = await saveServicesOnly(type);
                 // 服务行失败已回读纠正，不再写名单，免名单指向不存在的服务
@@ -1705,26 +2026,26 @@
                 try { ok = JSON.parse(r.stdout || '{}').success === true; } catch (e) { /* 视为失败 */ }
             }
             if (ok) { renderConfigLists(); return; }
-            toast('root 运行开关保存失败', true);
+            toast(t('toast.rootFail'), true);
             try { await loadConfigSettings(true, true); } catch (e) { /* 下次刷新纠正 */ }
             renderConfigLists();
         }
 
         // 只存本类服务：saveservices 单键（另一类不动，设置不动）；失败回读刷新。返回是否成功。
         async function saveServicesOnly(type) {
-            if (!backendReady()) { toast('请先初始化', true); return false; }
-            if (!isServicesLoaded) { toast('配置未加载完成，已取消保存', true); return false; }
+            if (!backendReady()) { toast(t('toast.notInit'), true); return false; }
+            if (!isServicesLoaded) { toast(t('toast.notLoaded'), true); return false; }
             const key = type === 'binary' ? 'binary_services' : 'termux_services';
             const payload = key + '=' + toB64(stringifyRows(svcArr(type), type));
             const r = await runAction('saveservices', payload);
             if (r.errno === 0) {
                 try {
                     const d = JSON.parse(r.stdout || '{}');
-                    if (d.success) { toast('已保存'); return true; }
-                    toast(d.error || '保存失败', true);
-                } catch (e) { toast('保存失败', true); }
+                    if (d.success) { toast(t('toast.saved')); return true; }
+                    toast(d.error || t('toast.saveFail'), true);
+                } catch (e) { toast(t('toast.saveFail'), true); }
             } else {
-                toast('保存失败', true);
+                toast(t('toast.saveFail'), true);
             }
             // 失败回读本类，丢弃本地脏数据，防“显示有、刷新无”。
             try {
@@ -1743,7 +2064,7 @@
             const sleepErr = document.getElementById('error-sleep');
             const raw = (sleepEl.value || '').trim();
             if (!/^\d*$/.test(raw) || (raw !== '' && parseInt(raw, 10) < 10)) {
-                sleepErr.textContent = '最小值为10秒';
+                sleepErr.textContent = t('err.sleep');
                 sleepEl.classList.add('error');
                 valid = false;
             } else {
@@ -1754,8 +2075,8 @@
         }
 
         async function autoSaveBasic() {
-            if (!validateBasic()) { toast('数据无效，请修正', true); return; }
-            toast('保存中...');
+            if (!validateBasic()) { toast(t('toast.invalid'), true); return; }
+            toast(t('toast.saving'));
             // sleep 与服务目录同属本区输入框，两键一次提交；空 sleep=默认60，目录路径归一化同后端规则
             const sleepV = document.getElementById('input-sleep').value.trim();
             const serverDir = (document.getElementById('input-server-dir').value || '').trim().replace(/\/storage\/emulated\/0\//g, '/data/media/0/').replace(/(.)\/+$/, '$1');
@@ -1764,7 +2085,7 @@
                 // 同步内存值：不回填 renderConfigFromCache 会用旧值盖输入框，之后提交也会旧覆盖新
                 configData.sleep_interval = sleepV === '' ? 60 : parseInt(sleepV, 10) || configData.sleep_interval;
                 configData.server_dir = serverDir;
-                toast('已保存');
+                toast(t('toast.saved'));
             } else {
                 // 失败回滚输入框到已加载值，避免留着的失败值被下次提交发出去
                 document.getElementById('input-sleep').value = configData.sleep_interval;
@@ -1787,12 +2108,12 @@
             saveSettingsKey('patrol_enabled', on ? '1' : '0', (ok) => {
                 patrolToggling = false;
                 sw.disabled = false;
-                if (ok) toast(on ? '已开启' : '已关闭');
+                if (ok) toast(t(on ? 'toast.on' : 'toast.off'));
                 else {
                     configData.patrol_enabled = !on;
                     sw.checked = !on;
                     document.getElementById('patrol-panel').style.display = !on ? 'block' : 'none';
-                    toast('保存失败', true);
+                    toast(t('toast.saveFail'), true);
                 }
             });
         }
@@ -1803,12 +2124,12 @@
                 testCmdData = value;
                 return;
             }
-            toast('保存中...');
+            toast(t('toast.saving'));
             // 等保存结果再收尾：成功才同步内存并提示，失败不碰内存（回填仍用旧值）
             const ok = await saveConfigPayload('boot_commands=' + toB64(value), null, 'savesettings');
             if (ok) {
                 configData.boot_commands = value;
-                toast('已保存');
+                toast(t('toast.saved'));
             }
         }
 
@@ -1837,8 +2158,8 @@
                 return;
             }
             stEl.textContent = running === 'running'
-                ? '状态：运行中（http://本机IP:' + port + '），默认密码admin'
-                : '状态：已开启但 httpd 未运行（请关闭重开，或查看 webui 日志）';
+                ? t('status.webuiRunning', { port: port })
+                : t('status.webuiNotRun');
             manage.style.display = 'block';
             document.getElementById('error-webui').textContent = '';
         }
@@ -1885,12 +2206,12 @@
             if (d) {
                 errEl.textContent = '';
                 document.getElementById('webui-panel').style.display = on ? 'block' : 'none';
-                toast(on ? '已开启' : '已关闭');
+                toast(t(on ? 'toast.on' : 'toast.off'));
             } else {
-                try { errEl.textContent = (JSON.parse(r.stdout || '{}').error) || '操作失败'; } catch (e) { errEl.textContent = '操作失败'; }
+                try { errEl.textContent = (JSON.parse(r.stdout || '{}').error) || t('toast.opFail'); } catch (e) { errEl.textContent = t('toast.opFail'); }
                 sw.checked = !on;
                 document.getElementById('webui-panel').style.display = !on ? 'block' : 'none';
-                toast('操作失败', true);
+                toast(t('toast.opFail'), true);
             }
             refreshWebuiPanel(true);
         }
@@ -1901,10 +2222,10 @@
             const old = document.getElementById('input-webui-old').value;
             const pw1 = document.getElementById('input-webui-new1').value;
             const pw2 = document.getElementById('input-webui-new2').value;
-            if (!old) { errEl.textContent = '请输入旧密码'; return; }
-            if (!pw1 || pw1.length < 6) { errEl.textContent = '密码至少 6 位'; return; }
-            if (pw1 !== pw2) { errEl.textContent = '两次输入不一致'; return; }
-            toast('保存中...');
+            if (!old) { errEl.textContent = t('err.pwOld'); return; }
+            if (!pw1 || pw1.length < 6) { errEl.textContent = t('err.pwShort'); return; }
+            if (pw1 !== pw2) { errEl.textContent = t('err.pwDiff'); return; }
+            toast(t('toast.saving'));
             // 直连发明文表单，管理器发 key=base64 行。
             const r = httpMode
                 ? await postForm('cgi-bin/api.cgi?a=webuipasswd', 'password=' + encodeURIComponent(pw1) + '&old=' + encodeURIComponent(old))
@@ -1915,11 +2236,11 @@
                 document.getElementById('input-webui-new1').value = '';
                 document.getElementById('input-webui-new2').value = '';
                 document.getElementById('webui-passwd-box').style.display = 'none';
-                toast('已保存');
+                toast(t('toast.saved'));
                 refreshWebuiPanel(true);
             } else {
-                try { errEl.textContent = (JSON.parse(r.stdout || '{}').error) || '保存失败'; } catch (e) { errEl.textContent = '保存失败'; }
-                toast('保存失败', true);
+                try { errEl.textContent = (JSON.parse(r.stdout || '{}').error) || t('toast.saveFail'); } catch (e) { errEl.textContent = t('toast.saveFail'); }
+                toast(t('toast.saveFail'), true);
             }
         }
 
@@ -1939,26 +2260,26 @@
             try {
                 const d = JSON.parse(r.stdout || '{}');
                 if (d.success) input.value = d.token || '';
-                else toast(d.error || '获取失败', true);
-            } catch (e) { toast('获取失败', true); }
+                else toast(d.error || t('toast.getFail'), true);
+            } catch (e) { toast(t('toast.getFail'), true); }
         }
 
         function copyWebuiToken() {
             const v = document.getElementById('input-webui-token').value;
-            if (!v) { toast('暂无 Token', true); return; }
-            copyText(v, () => toast('已复制'));
+            if (!v) { toast(t('toast.tokenEmpty'), true); return; }
+            copyText(v, () => toast(t('toast.copied')));
         }
 
         async function regenWebuiToken() {
-            toast('生成中...');
+            toast(t('toast.gening'));
             const r = await invoke('webuiregen');
             try {
                 const d = JSON.parse(r.stdout || '{}');
                 if (d.success) {
                     document.getElementById('input-webui-token').value = d.token || '';
-                    toast('已重新生成');
-                } else toast(d.error || '生成失败', true);
-            } catch (e) { toast('生成失败', true); }
+                    toast(t('toast.regenerated'));
+                } else toast(d.error || t('toast.genFail'), true);
+            } catch (e) { toast(t('toast.genFail'), true); }
         }
 
         // —— Wi-Fi 启停服务 ——
@@ -1981,14 +2302,14 @@
         // SSID 文本框失焦：整理后走单键保存（轻量，不触发全页重载）
         function saveWifiSsids() {
             if (!isSettingsLoaded) {
-                toast('配置未加载完成，请稍后再试', true);
+                toast(t('toast.settingsLoading'), true);
                 return;
             }
             const el = document.getElementById('input-wifi-ssids');
             const cleaned = normalizeSsidText(el.value);
             if (cleaned !== el.value) el.value = cleaned;
             if (cleaned === configData.wifi_ssids) return; // 无变化不打扰后端
-            toast('保存中...');
+            toast(t('toast.saving'));
             saveSettingsKey('wifi_ssids', cleaned, (ok) => {
                 if (!ok) el.value = configData.wifi_ssids; // 失败回滚显示
             });
@@ -2013,12 +2334,12 @@
             saveSettingsKey('wifi_service_enabled', on ? '1' : '0', (ok) => {
                 wifiToggling = false;
                 sw.disabled = false;
-                if (ok) toast(on ? '已开启' : '已关闭');
+                if (ok) toast(t(on ? 'toast.on' : 'toast.off'));
                 else {
                     configData.wifi_service_enabled = !on;
                     sw.checked = !on;
                     document.getElementById('wifi-service-panel').style.display = !on ? 'block' : 'none';
-                    toast('保存失败', true);
+                    toast(t('toast.saveFail'), true);
                 }
             });
         }
@@ -2041,12 +2362,12 @@
             saveSettingsKey('screen_service_enabled', on ? '1' : '0', (ok) => {
                 screenToggling = false;
                 sw.disabled = false;
-                if (ok) toast(on ? '已开启' : '已关闭');
+                if (ok) toast(t(on ? 'toast.on' : 'toast.off'));
                 else {
                     configData.screen_service_enabled = !on;
                     sw.checked = !on;
                     document.getElementById('screen-panel').style.display = !on ? 'block' : 'none';
-                    toast('保存失败', true);
+                    toast(t('toast.saveFail'), true);
                 }
             });
         }
@@ -2065,12 +2386,12 @@
             saveScheduleKey('schedule_enabled', on ? '1' : '0', (ok) => {
                 schedToggling = false;
                 sw.disabled = false;
-                if (ok) toast(on ? '已开启' : '已关闭');
+                if (ok) toast(t(on ? 'toast.on' : 'toast.off'));
                 else {
                     configData.schedule_enabled = !on;
                     sw.checked = !on;
                     document.getElementById('schedule-panel').style.display = !on ? 'block' : 'none';
-                    toast('保存失败', true);
+                    toast(t('toast.saveFail'), true);
                 }
             });
         }
@@ -2086,9 +2407,9 @@
             const stop = stopEl.value.trim();
             const start = startEl.value.trim();
             errEl.textContent = '';
-            if (stop && !SCHEDULE_TIME_RE.test(stop)) { errEl.textContent = '停止时间格式错误'; return; }
-            if (start && !SCHEDULE_TIME_RE.test(start)) { errEl.textContent = '启动时间格式错误'; return; }
-            if (stop && start && stop === start) { errEl.textContent = '停止时间与启动时间不能相同'; return; }
+            if (stop && !SCHEDULE_TIME_RE.test(stop)) { errEl.textContent = t('err.schedStop'); return; }
+            if (start && !SCHEDULE_TIME_RE.test(start)) { errEl.textContent = t('err.schedStart'); return; }
+            if (stop && start && stop === start) { errEl.textContent = t('err.schedSame'); return; }
             // 与内存一致则不打扰后端
             if (stop === configData.schedule_stop && start === configData.schedule_start) return;
             scheduleSaving = true;
@@ -2104,12 +2425,12 @@
                 configData.schedule_enabled = (on === '1');
                 configData.schedule_stop = stop;
                 configData.schedule_start = start;
-                toast('已保存');
+                toast(t('toast.saved'));
             } else {
                 // 失败回滚两框到内存值，避免显示与实际不一致
                 stopEl.value = configData.schedule_stop;
                 startEl.value = configData.schedule_start;
-                toast('保存失败', true);
+                toast(t('toast.saveFail'), true);
             }
         }
 
@@ -2120,9 +2441,9 @@
                 if (key === 'schedule_enabled') configData.schedule_enabled = (value === '1');
                 else if (key === 'schedule_stop') configData.schedule_stop = value;
                 else if (key === 'schedule_start') configData.schedule_start = value;
-                toast('已保存');
+                toast(t('toast.saved'));
             } else {
-                toast('保存失败', true);
+                toast(t('toast.saveFail'), true);
             }
             if (done) done(ok);
         }
@@ -2131,63 +2452,64 @@
         function backendReady() { return httpMode || (!!ksuApi && !!MODDIR); }
         async function saveConfigPayload(payload, errEl, sub) {
             if (!backendReady() || !isSettingsLoaded) {
-                toast('配置未加载完成，已取消保存', true);
+                toast(t('toast.notLoaded'), true);
                 return false;
             }
-            if (!payload) { toast('保存内容为空，已取消', true); return false; }
+            if (!payload) { toast(t('toast.emptyPayload'), true); return false; }
             const r = await runAction(sub || 'savesettings', payload);
             if (r.errno === 0) {
                 const text = (r.stdout || '').trim();
                 // 空回包（CGI 400 被吞等异常）直接失败，不当成功
-                if (!text) { toast('保存失败（空响应）', true); return false; }
+                if (!text) { toast(t('toast.emptyResp'), true); return false; }
                 try {
                     const d = JSON.parse(text);
                     if (d.success) return true;
-                    const msg = d.error || '保存失败';
+                    const msg = d.error || t('toast.saveFail');
                     if (errEl) errEl.textContent = msg;
                     toast(msg, true);
-                } catch (e) { toast('保存失败', true); }
+                } catch (e) { toast(t('toast.saveFail'), true); }
             } else if (r.errno !== 401 && r.errno !== 404) {
-                toast('保存失败', true);
+                toast(t('toast.saveFail'), true);
             }
             return false;
         }
 
-        // 单键保存（开关/名单选择用）：走 savesettings 单键链路，只提交一键
-        async function saveSettingsKey(key, value, done) {
+        // 单键保存（savesettings 单键链路）；silent=true 抑制内部 toast（调用方统一发）。
+        async function saveSettingsKey(key, value, done, silent) {
             const ok = await saveConfigPayload(key + '=' + toB64(value), null, 'savesettings');
             if (ok) {
                 if (key === 'wifi_service_enabled') configData.wifi_service_enabled = (value === '1');
                 else if (key === 'patrol_enabled') configData.patrol_enabled = (value === '1');
                 else if (key === 'wifi_ssids') configData.wifi_ssids = value;
                 else if (key === 'screen_service_enabled') configData.screen_service_enabled = (value === '1');
-                toast('已保存');
+                if (!silent) toast(t('toast.saved'));
             } else {
-                toast('保存失败', true);
+                if (!silent) toast(t('toast.saveFail'), true);
             }
             if (done) done(ok);
+            return ok;
         }
 
         function updateWifiPickBtn() {
-            document.getElementById('wifi-pick-btn').textContent = '连接启停组 (' + configData.wifi_service_names.size + ')';
-            document.getElementById('wifi-pick-off-btn').textContent = '断开启停组 (' + configData.wifi_service_names_off.size + ')';
+            document.getElementById('wifi-pick-btn').textContent = t('btn.wifiOn', { n: configData.wifi_service_names.size });
+            document.getElementById('wifi-pick-off-btn').textContent = t('btn.wifiOff', { n: configData.wifi_service_names_off.size });
         }
 
         function updateScreenPickBtn() {
-            document.getElementById('screen-pick-btn').textContent = '锁屏白名单 (' + configData.screen_service_names.size + ')';
+            document.getElementById('screen-pick-btn').textContent = t('btn.screen', { n: configData.screen_service_names.size });
         }
 
         function updateScreenOnPickBtn() {
-            document.getElementById('screenon-pick-btn').textContent = '亮屏白名单 (' + configData.screen_resume_names.size + ')';
+            document.getElementById('screenon-pick-btn').textContent = t('btn.screenOn', { n: configData.screen_resume_names.size });
         }
 
         // 选择弹窗：另一组已选的服务置灰禁用（仍可见，不可勾选），互斥一目了然
         function renderWifiPickBody(picked, excluded) {
             const groups = [
-                { title: 'Termux 服务', list: configData.termux_services },
-                { title: '二进制服务', list: configData.binary_services }
+                { title: t('sec.termux'), list: configData.termux_services },
+                { title: t('sec.binary'), list: configData.binary_services }
             ].filter(g => g.list.length);
-            if (!groups.length) return '<div class="empty">暂无服务</div>';
+            if (!groups.length) return '<div class="empty">' + t('empty.none') + '</div>';
             const renderGroup = g => `
                 <div>
                     <div class="wifi-group-title">${g.title}</div>
@@ -2210,12 +2532,15 @@
         // （Wi-Fi 连接组↔断开组、锁屏白名单↔亮屏白名单；跨功能不互斥）
         let pickMode = 'on';
         let pickBackup = null;
+        // title 存 i18n 键名，经 pickTitle() 取当前语言（语言切换时重开弹窗即刷新）
         const SERVICES_PICK_DEFS = {
-            on:       { title: '选择连接组服务（连上时运行，断开则停止）', key: 'wifi_service_names', peer: 'wifi_service_names_off', upd: updateWifiPickBtn },
-            off:      { title: '选择断开组服务（断开则运行，连上则停止）', key: 'wifi_service_names_off', peer: 'wifi_service_names', upd: updateWifiPickBtn },
-            screen:   { title: '选择锁屏白名单服务（若已运行，锁屏时不停止）', key: 'screen_service_names', peer: 'screen_resume_names', upd: updateScreenPickBtn },
-            screenon: { title: '选择亮屏白名单服务（亮屏解锁后需启动的服务）', key: 'screen_resume_names', peer: 'screen_service_names', upd: updateScreenOnPickBtn }
+            on:       { title: 'pick.titleOn', key: 'wifi_service_names', peer: 'wifi_service_names_off', upd: updateWifiPickBtn },
+            off:      { title: 'pick.titleOff', key: 'wifi_service_names_off', peer: 'wifi_service_names', upd: updateWifiPickBtn },
+            screen:   { title: 'pick.titleScreen', key: 'screen_service_names', peer: 'screen_resume_names', upd: updateScreenPickBtn },
+            screenon: { title: 'pick.titleScreenOn', key: 'screen_resume_names', peer: 'screen_service_names', upd: updateScreenOnPickBtn }
         };
+
+        function pickTitle(mode) { return t((SERVICES_PICK_DEFS[mode] || SERVICES_PICK_DEFS.on).title); }
 
         // 清空当前弹窗已勾选项（另一组锁定项不动）
         function clearWifiPick() {
@@ -2229,7 +2554,7 @@
             const def = SERVICES_PICK_DEFS[pickMode];
             const picked = new Set(configData[def.key]);
             pickBackup = picked;
-            document.getElementById('wifi-pick-title').textContent = def.title;
+            document.getElementById('wifi-pick-title').textContent = pickTitle(pickMode);
             document.getElementById('wifi-pick-body').innerHTML = renderWifiPickBody(picked, configData[def.peer]);
             document.getElementById('wifi-pick-ok').disabled = !configData.termux_services.length && !configData.binary_services.length;
             showAnyModal('modal-wifi-pick');
@@ -2253,7 +2578,7 @@
             hideAnyModal('modal-wifi-pick');
             def.upd();
             // 轻量保存：只发本组名单单键，不做全量重载；失败回滚按钮计数
-            toast('保存中...');
+            toast(t('toast.saving'));
             saveSettingsKey(def.key, [...picked].join('\n'), (ok) => { if (ok) def.upd(); });
         }
 
@@ -2276,24 +2601,24 @@
                     testCmdData = '';
                 }
                 textarea.value = testCmdData;
-                hint.textContent = '测试模式：编辑的内容不会保存开机命令中';
+                hint.textContent = t('hint.bootcmdsTest');
                 hint.style.color = '#dc2626';
             } else {
                 testCmdData = textarea.value;
                 textarea.value = configData.boot_commands;
-                hint.textContent = '开机命令：模块启动时执行，编辑后点击框外自动保存';
+                hint.textContent = t('hint.bootcmdsRun');
                 hint.style.color = '';
             }
         }
 
         async function runTestCmds(mode) {
             const cmds = document.getElementById('input-boot-cmds').value.trim();
-            if (!cmds) { toast('请输入要执行的命令', true); return; }
+            if (!cmds) { toast(t('toast.cmdEmpty'), true); return; }
             const useTermux = mode === 'termux';
-            toast(useTermux ? '以 Termux 运行（测试）命令...' : '运行（测试）命令...');
+            toast(t(useTermux ? 'toast.cmdTermux' : 'toast.cmdRunning'));
             const r = await runAction(useTermux ? 'runcmdtermux' : 'runcmd', cmds);
-            if (r.errno === 0) { toast('已执行，详情可查看日志'); }
-            else { toast('执行失败', true); }
+            if (r.errno === 0) { toast(t('toast.cmdDone')); }
+            else { toast(t('toast.cmdFail'), true); }
         }
 
 
@@ -2314,6 +2639,7 @@
         async function init() {
             registerSW();
             initTheme();
+            initLang();
             if (!initRootApi()) {
                 // 无 API 且经 http(s) 加载即直连模式，走登录页。
                 if (/^https?:/.test(location.protocol)) {

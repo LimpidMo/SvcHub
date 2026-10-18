@@ -42,11 +42,11 @@ cgi_check_body() {
     local n=${CONTENT_LENGTH:-0}
     case "$n" in ''|*[!0-9]*) n=0 ;; esac
     if [ "$n" -le 0 ] 2>/dev/null; then
-        cgi_fail "400 Bad Request" "请求体为空"
+        cgi_fail "400 Bad Request" "$(ui_msg 请求体为空)"
         exit 0
     fi
     if [ "$n" -gt 65536 ] 2>/dev/null; then
-        cgi_fail "413 Payload Too Large" "请求体过大"
+        cgi_fail "413 Payload Too Large" "$(ui_msg 请求体过大)"
         exit 0
     fi
 }
@@ -126,7 +126,7 @@ fail_add() {
 	n=$((n + 1))
 	if [ "$n" -ge "$FAIL_MAX" ]; then
 		printf '%s:%s' "$n" "$((now + FAIL_LOCK))" > "$WEBUI_FAIL_PREFIX$(client_ip)"
-		webui_log "登录锁定：$(client_ip) 连续失败 $n 次，锁定 $FAIL_LOCK 秒"
+		webui_log "$(ui_msg '登录锁定：%s 连续失败 %s 次，锁定 %s 秒' "$(client_ip)" "$n" "$FAIL_LOCK")"
 	else
 		printf '%s:%s' "$n" 0 > "$WEBUI_FAIL_PREFIX$(client_ip)"
 	fi
@@ -288,7 +288,7 @@ sess_sweep() {
 
 load_cfg_sh
 R=$(route)
-[ -n "$R" ] || { cgi_fail "404 Not Found" "未知接口"; exit 0; }
+[ -n "$R" ] || { cgi_fail "404 Not Found" "$(ui_msg 未知接口)"; exit 0; }
 
 case "$R" in
 status)
@@ -296,9 +296,9 @@ status)
     cgi_ok "{\"online\":true,\"has_password\":$hp}"
     ;;
 login)
-    [ "$REQUEST_METHOD" = "POST" ] || { cgi_fail "405 Method Not Allowed" "仅支持 POST"; exit 0; }
+    [ "$REQUEST_METHOD" = "POST" ] || { cgi_fail "405 Method Not Allowed" "$(ui_msg 仅支持 POST)"; exit 0; }
     if fail_locked; then
-        cgi_status "429 Too Many Requests" "Retry-After: $FAIL_LOCK" '{"success":false,"error":"尝试过多，请 '$FAIL_LOCK' 秒后再试"}'
+        cgi_status "429 Too Many Requests" "Retry-After: $FAIL_LOCK" "{\"success\":false,\"error\":\"$(ui_msg '尝试过多，请 %s 秒后再试' "$FAIL_LOCK")\"}"
         exit 0
     fi
     cgi_check_body
@@ -314,8 +314,8 @@ login)
     fi
     if [ -z "$ok" ]; then
         fail_add
-        webui_log "登录失败：$(client_ip)"
-        cgi_fail "401 Unauthorized" "密码或 Token 错误"
+        webui_log "$(ui_msg '登录失败：%s' "$(client_ip)")"
+        cgi_fail "401 Unauthorized" "$(ui_msg 密码或 Token 错误)"
         exit 0
     fi
     fail_clear
@@ -327,20 +327,20 @@ login)
     if [ -n "$OLDSESS" ]; then
         LEFT=$(sess_left "$OLDSESS")
         if [ -n "$LEFT" ]; then
-            webui_log "登录成功（会话复用）：$(client_ip)"
+            webui_log "$(ui_msg '登录成功（会话复用）：%s' "$(client_ip)")"
             cgi_status "200 OK" "Set-Cookie: SVC_SESS=$OLDSESS; HttpOnly; Path=/; SameSite=Lax; Max-Age=$LEFT" '{"success":true,"reused":true}'
             exit 0
         fi
     fi
     # 新建会话前清过期文件（有效会话不动，多设备共存）。
     sess_sweep
-    SESS=$(webui_gen_token) || { cgi_fail "500 Internal Server Error" "会话生成失败"; exit 0; }
+    SESS=$(webui_gen_token) || { cgi_fail "500 Internal Server Error" "$(ui_msg 会话生成失败)"; exit 0; }
     sess_write "$SESS" "$(($(date +%s) + TTL))" "$is_tsess"
-    webui_log "登录成功：$(client_ip)"
+    webui_log "$(ui_msg '登录成功：%s' "$(client_ip)")"
     cgi_status "200 OK" "Set-Cookie: SVC_SESS=$SESS; HttpOnly; Path=/; SameSite=Lax; Max-Age=$TTL" '{"success":true}'
     ;;
 logout)
-    auth_check 0 || { cgi_fail "401 Unauthorized" "未登录"; exit 0; }
+    auth_check 0 || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
     # 删会话文件（两前缀都清，非法值跳过）。
     for T in "$(cookie SVC_SESS)" "$(bearer)"; do
         case "$T" in ''|*[!A-Za-z0-9]*) ;; *) rm -f "$WEBUI_SESS_PREFIX$T" "$WEBUI_TSESS_PREFIX$T" ;; esac
@@ -349,7 +349,7 @@ logout)
     ;;
 webuitoken)
     # 仅会话 Cookie 可查（防 ?token= 进代理日志扩散）。
-    sess_valid "$(cookie SVC_SESS)" || { cgi_fail "401 Unauthorized" "未登录"; exit 0; }
+    sess_valid "$(cookie SVC_SESS)" || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
     OUT=$(api_webui_token_show 2>/dev/null)
     cgi_authed "$OUT"
     ;;
@@ -358,7 +358,7 @@ whoami)
     if auth_check 0; then
         cgi_authed '{"success":true,"authed":true}'
     else
-        cgi_fail "401 Unauthorized" "未登录"
+        cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"
     fi
     ;;
 webuistatus)
@@ -367,16 +367,16 @@ webuistatus)
         OUT=$(api_webui_status 2>/dev/null)
         cgi_authed "$OUT"
     else
-        cgi_fail "401 Unauthorized" "未登录"
+        cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"
     fi
     ;;
 webuipasswd|webuiregen)
-    auth_check 0 || { cgi_fail "401 Unauthorized" "未登录"; exit 0; }
-    webui_log "$([ "$R" = webuiregen ] && echo '重新生成长期 Token' || echo '修改访问密码')：$(client_ip)"
+    auth_check 0 || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
+    webui_log "$(ui_msg '%s：%s' "$([ "$R" = webuiregen ] && ui_msg '重新生成长期 Token' || ui_msg '修改访问密码')" "$(client_ip)")"
     # regen 不读表单；passwd 限 POST 并校验体长。
     case "$R" in
     webuipasswd)
-        [ "$REQUEST_METHOD" = "POST" ] || { cgi_fail "405 Method Not Allowed" "仅支持 POST"; exit 0; }
+        [ "$REQUEST_METHOD" = "POST" ] || { cgi_fail "405 Method Not Allowed" "$(ui_msg 仅支持 POST)"; exit 0; }
         cgi_check_body
         FORM_BODY=$(cat)
         ;;
@@ -396,10 +396,10 @@ webuipasswd|webuiregen)
     ;;
 webuistart|webuistop)
     # 开关走管理器，CGI 不代理。
-    cgi_fail "403 Forbidden" "请在管理器内操作"
+    cgi_fail "403 Forbidden" "$(ui_msg 请在管理器内操作)"
     ;;
 svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|execboot|runcmd|runcmdtermux)
-    auth_check 1 || { cgi_fail "401 Unauthorized" "未登录"; exit 0; }
+    auth_check 1 || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
     # 滑动过期：每次有效访问续满 TTL，锁屏回来不断登。
     case "$R" in
     svcstatus) SUB=status ;;
@@ -419,11 +419,11 @@ svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|read
         # body 透传 stdin；空 body 直接拒，防“已保存”假成功。
         cgi_check_body
         case "$SUB" in
-        savesettings) webui_log "保存设置项：$(client_ip)"; OUT=$(cat | api_save_settings 2>/dev/null) ;;
-        saveservices) webui_log "保存服务项：$(client_ip)"; OUT=$(cat | api_save_services 2>/dev/null) ;;
-        runcmd) BODY=$(cat); webui_log "测试命令（普通）来源 $(client_ip)：$(printf '%s' "$BODY" | tr '\n' ';')"; OUT=$(printf '%s' "$BODY" | api_run_cmd 2>/dev/null) ;;
-        runcmdtermux) BODY=$(cat); webui_log "测试命令（Termux）来源 $(client_ip)：$(printf '%s' "$BODY" | tr '\n' ';')"; OUT=$(printf '%s' "$BODY" | api_run_cmd termux 2>/dev/null) ;;
-        execboot) webui_log "手动执行开机命令：$(client_ip)"; OUT=$(api_exec_boot 2>/dev/null) ;;
+        savesettings) webui_log "$(ui_msg '保存设置项：%s' "$(client_ip)")"; OUT=$(cat | api_save_settings 2>/dev/null) ;;
+        saveservices) webui_log "$(ui_msg '保存服务项：%s' "$(client_ip)")"; OUT=$(cat | api_save_services 2>/dev/null) ;;
+        runcmd) BODY=$(cat); webui_log "$(ui_msg '测试命令（普通）来源 %s：%s' "$(client_ip)" "$(printf '%s' "$BODY" | tr '\n' ';')")"; OUT=$(printf '%s' "$BODY" | api_run_cmd 2>/dev/null) ;;
+        runcmdtermux) BODY=$(cat); webui_log "$(ui_msg '测试命令（Termux）来源 %s：%s' "$(client_ip)" "$(printf '%s' "$BODY" | tr '\n' ';')")"; OUT=$(printf '%s' "$BODY" | api_run_cmd termux 2>/dev/null) ;;
+        execboot) webui_log "$(ui_msg '手动执行开机命令：%s' "$(client_ip)")"; OUT=$(api_exec_boot 2>/dev/null) ;;
         esac
         cgi_authed "$OUT"
         ;;
@@ -432,12 +432,12 @@ svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|read
         P1=$(qparam p1)
         P2=$(qparam p2)
         case "$SUB" in
-        start) webui_log "启动服务：$(log_flat "${P2:-$P1}")（$(client_ip)）"; OUT=$(api_start_service "$P1" "$P2" 2>/dev/null) ;;
-        stop) webui_log "停止服务：$(log_flat "${P1:-?}")（$(client_ip)）"; OUT=$(api_stop_service "$P1" 2>/dev/null) ;;
+        start) webui_log "$(ui_msg '启动服务：%s（%s）' "$(log_flat "${P2:-$P1}")" "$(client_ip)")"; OUT=$(api_start_service "$P1" "$P2" 2>/dev/null) ;;
+        stop) webui_log "$(ui_msg '停止服务：%s（%s）' "$(log_flat "${P1:-?}")" "$(client_ip)")"; OUT=$(api_stop_service "$P1" 2>/dev/null) ;;
         readlog) OUT=$(api_read_log "$P1" "$P2" 2>/dev/null) ;;
         clearlog)
-            webui_log "清空日志：$(log_flat "${P1:-?}")（$(client_ip)）"
-            if clear_log "$P1"; then OUT='{"success":true}'; else OUT='{"success":false,"error":"名称不合法"}'; fi
+            webui_log "$(ui_msg '清空日志：%s（%s）' "$(log_flat "${P1:-?}")" "$(client_ip)")"
+            if clear_log "$P1"; then OUT='{"success":true}'; else OUT="{\"success\":false,\"error\":\"$(ui_msg 名称不合法)\"}"; fi
             ;;
         esac
         cgi_authed "$OUT"
@@ -452,7 +452,7 @@ svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|read
     esac
     ;;
 *)
-    cgi_fail "404 Not Found" "未知接口"
+    cgi_fail "404 Not Found" "$(ui_msg 未知接口)"
     ;;
 esac
 exit 0

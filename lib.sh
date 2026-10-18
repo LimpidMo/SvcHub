@@ -66,7 +66,7 @@ mkdir -p "$RUNDIR" "$LOG_DIR" "$RUNDIR/session"
 # ---------- 配置（config/setting.conf 设置项 + config/services.conf 服务项） ----------
 # 配置 schema 唯一定义全键：新增设置键需同步补全 load_settings / write_settings / action.sh cfg_apply_one 及前端字段；
 # 新增服务类型只需在 load_services / write_services 加一个 type 分支。
-SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names termux_root_names patrol_enabled webui_enabled webui_password_hash webui_token'
+SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names termux_root_names patrol_enabled language webui_enabled webui_password_hash webui_token'
 
 # JSON 字符串编码：\ " tab CR 转义、换行转字面 \n；逐字符拼接（gsub 替换串反斜杠 busybox/gawk 语义不一致，禁用）
 enc_js() {
@@ -76,6 +76,219 @@ enc_js() {
 # JSON 字符串解码：左到右单遍，\n \t \r \" \\ 还原明文，孤立 \ 原样保留
 dec_js() {
 	awk 'function unesc(s,   o, i, n, c) { o = ""; n = length(s); for (i = 1; i <= n; i++) { c = substr(s, i, 1); if (c != "\\") { o = o c; continue } i++; c = substr(s, i, 1); if (c == "n") o = o "\n"; else if (c == "t") o = o "\t"; else if (c == "r") o = o "\r"; else if (c == "\"") o = o "\""; else if (c == "\\") o = o "\\"; else o = o "\\" c } return o } { printf "%s", unesc($0) }'
+}
+
+# ---------- 后端文案双语 ----------
+# 界面语言（zh 默认 / en）：由 setting.conf 的 language 键驱动，load_cfg_sh 后同进程可见。
+UI_LANG="zh"
+
+# 取当前语言文案：$1=中文原文（%s 为占位），其余参数按位代入（不经 printf 格式串，值含 % 安全）。
+# 英文态查英文表（键即中文原文），漏项回退中文模板（fail-open）。
+ui_msg() {
+	local tpl=$1
+	shift
+	case "$UI_LANG" in
+	en)
+		case "$tpl" in
+	# ---- 巡检 / 开关机（supervisor.sh） ----
+	'supervisor 已在运行 (old=%s)，退出') printf 'supervisor already running (old=%s), exiting' "$1" ;;
+	'supervisor 启动 pid=%s') printf 'supervisor started pid=%s' "$1" ;;
+	'mock 环境，跳过启动等待，直接巡检') printf 'mock env: skipping boot wait, patrolling now' ;;
+	'系统启动完成') printf 'System boot completed' ;;
+	'设备解锁，服务存储可访问') printf 'Device unlocked, service storage accessible' ;;
+	'su 就绪：%s，开始巡检') printf 'su ready: %s, patrolling' "$1" ;;
+	'等待系统启动/解锁/su 超时(300s)，继续巡检 (boot=%s anim=%s ce=%s su=%s)') printf 'Boot wait timed out (300s), patrolling anyway (boot=%s anim=%s ce=%s su=%s)' "$1" "$2" "$3" "$4" ;;
+	'巡检完成') printf 'Patrol complete' ;;
+	'巡检开始 开机启动') printf 'Patrol start: boot' ;;
+	'巡检开始 启停功能策略') printf 'Patrol start: start/stop policy' ;;
+	'巡检开始 interval=%ss') printf 'Patrol start interval=%ss' "$1" ;;
+	'巡检开始 启停功能策略（定时停止窗内 %s~%s），暂停拉起') printf 'Patrol start: start/stop policy (in stop window %s~%s), starts paused' "$1" "$2" ;;
+	'    跳过 %s') printf '    Skipped %s' "$1" ;;
+	'    跳过 %s (%s)') printf '    Skipped %s (%s)' "$1" "$2" ;;
+	'    跳过 %s (WIFI 已断开，连接组不启动)') printf '    Skipped %s (Wi-Fi disconnected, on-connect group stays stopped)' "$1" ;;
+	'    跳过 %s (WIFI 已连接，断开组不启动)') printf '    Skipped %s (Wi-Fi connected, on-disconnect group stays stopped)' "$1" ;;
+	'    已运行 %s') printf '    Already running %s' "$1" ;;
+	'    已启动 %s') printf '    Started %s' "$1" ;;
+	'    启动未生效 %s（请检查该服务日志/命令）') printf '    Start had no effect for %s (check the service log/command)' "$1" ;;
+	'    启动失败 %s (服务目录不存在或命令错误)') printf '    Failed to start %s (service dir missing or bad command)' "$1" ;;
+	'    亮屏白名单恢复：仅启动名单内服务') printf '    Unlock whitelist resume: only whitelisted services start' ;;
+	' ------- Termux 服务 ------- ') printf ' ------- Termux services ------- ' ;;
+	' ------- 二进制服务 ------- ') printf ' ------- Binary services ------- ' ;;
+	'检查间隔更新为 %ss') printf 'Interval updated to %ss' "$1" ;;
+	'检测到 disable，停止全部受管服务') printf 'Disable flag found, stopping all managed services' ;;
+	# ---- 定时停止窗（schedule.log） ----
+	'定时启停已关闭，恢复巡检') printf 'Schedule start/stop disabled, patrol resumed' ;;
+	'进入定时停止窗（%s~%s），已停止全部服务') printf 'Entered stop window (%s~%s), all services stopped' "$1" "$2" ;;
+	'退出定时停止窗（%s~%s），立即巡检恢复服务') printf 'Left stop window (%s~%s), patrolling immediately to restore services' "$1" "$2" ;;
+	'定时时间配置无效（stop=%s start=%s），已暂停定时启停') printf 'Invalid schedule times (stop=%s start=%s), schedule start/stop paused' "$1" "$2" ;;
+	'supervisor 启动时已在定时停止窗内（%s~%s），暂停拉起') printf 'Stop window already active at startup (%s~%s), starts paused' "$1" "$2" ;;
+	# ---- 亮屏启停（screen.log） ----
+	'亮屏且已解锁，定时停止窗内，暂停拉起') printf 'Screen on and unlocked, but inside stop window, starts paused' ;;
+	'亮屏且已解锁，立即巡检恢复服务') printf 'Screen on and unlocked, patrolling immediately to restore services' ;;
+	'亮屏（锁屏中，待解锁后恢复）') printf 'Screen on (still locked, waiting for unlock)' ;;
+	'进入熄屏，停止非白名单服务') printf 'Screen off, stopping non-whitelisted services' ;;
+	'亮屏已解锁，定时停止窗内，暂停拉起') printf 'Screen on and unlocked, but inside stop window, starts paused' ;;
+	'亮屏已解锁，立即巡检恢复服务') printf 'Screen on and unlocked, patrolling immediately to restore services' ;;
+	'亮屏又进入锁屏（不拉起，运行中服务保留）') printf 'Locked again (no starts, running services kept)' ;;
+	'启动时熄屏，暂停非白名单拉起') printf 'Screen off at startup, non-whitelisted starts paused' ;;
+	'启动时亮屏未解锁（锁屏中），暂停拉起') printf 'Screen on but locked at startup, starts paused' ;;
+	'无法检测屏幕状态（dumpsys 无匹配字段），按亮屏处理') printf 'Cannot read screen state (no dumpsys match), assuming screen on' ;;
+	# ---- Wi-Fi 策略（wifi.log） ----
+	'Wi-Fi 启停已关闭') printf 'Wi-Fi start/stop disabled' ;;
+	'WiFi %s（%s）') printf 'Wi-Fi %s (%s)' "$1" "$2" ;;
+	'当前 Wi-Fi：%s') printf 'Current Wi-Fi: %s' "$1" ;;
+	'%s（netId %s）') printf '%s (netId %s)' "$1" "$2" ;;
+	'断开组') printf 'on-disconnect group' ;;
+	'连接组') printf 'on-connect group' ;;
+	'断开组服务%s 同时在连接组，已按连接组处理') printf 'On-disconnect service %s is also in the on-connect group, handled as on-connect' "$1" ;;
+	'定时停止窗内，%s暂停启动') printf 'Inside stop window, %s stays stopped' "$1" ;;
+	'按门控暂停启动：%s') printf 'Starts paused by gate: %s' "$1" ;;
+	'启动%s：%s') printf 'Start %s: %s' "$1" "$2" ;;
+	'停止%s：%s') printf 'Stop %s: %s' "$1" "$2" ;;
+	'不在服务配置中，跳过：%s') printf 'Not in service config, skipped: %s' "$1" ;;
+	'已连接') printf 'connected' ;;
+	'已断开') printf 'disconnected' ;;
+	'SSID匹配') printf 'SSID matched' ;;
+	'无SSID匹配') printf 'no SSID match' ;;
+	'SSID未检测') printf 'SSID not detected' ;;
+	'(空)') printf '(empty)' ;;
+	# ---- 启动禁令原因（supervisor 明细行内嵌） ----
+	'定时停止窗内') printf 'inside stop window' ;;
+	'亮屏未解锁，暂不拉起') printf 'screen on but locked, not starting yet' ;;
+	'熄屏非白名单') printf 'screen off, not whitelisted' ;;
+	# ---- 配置加载（services.conf 非法行） ----
+	'services.conf 非法行(binary段数不足)：%s') printf 'services.conf invalid line (binary has too few fields): %s' "$1" ;;
+	'services.conf 非法行(无|分隔)：%s') printf 'services.conf invalid line (no | separator): %s' "$1" ;;
+	'services.conf 非法行(类型[%s])非termux/binary：%s') printf 'services.conf invalid line (type [%s] is not termux/binary): %s' "$1" "$2" ;;
+	'services.conf 非法行(名称[%s]字节=%s)：%s') printf 'services.conf invalid line (name [%s] bytes=%s): %s' "$1" "$2" "$3" ;;
+	# ---- 收尾命令（stop.log） ----
+	'收尾 %s 跳过：su 不可用') printf 'Finish command for %s skipped: su unavailable' "$1" ;;
+	'=== 执行 %s 收尾命令 %s ===') printf '=== Running finish command for %s at %s ===' "$1" "$2" ;;
+	# ---- 开关日志（action.sh 保存设置） ----
+	'自动巡检已%s') printf 'Auto patrol turned %s' "$1" ;;
+	'Wi-Fi 启停服务已%s') printf 'Wi-Fi start/stop service turned %s' "$1" ;;
+	'定时启停服务已%s') printf 'Schedule start/stop service turned %s' "$1" ;;
+	'亮屏启停服务已%s') printf 'Screen start/stop service turned %s' "$1" ;;
+	'开启') printf 'on' ;;
+	'关闭') printf 'off' ;;
+	# ---- 外部访问 httpd 生命周期（webui.log） ----
+	'httpd 保活拉起（分片巡检）') printf 'httpd keep-alive start (patrol slice)' ;;
+	'httpd 保活拉起失败，见 webui.log') printf 'httpd keep-alive start failed, see webui.log' ;;
+	'启动失败：未找到可用 busybox（含 httpd）') printf 'Start failed: no busybox with httpd found' ;;
+	'启动失败：api.cgi 无可执行权限（CGI 会 404）') printf 'Start failed: api.cgi is not executable (CGI would 404)' ;;
+	'启动失败：端口 %s 被占用（若为旧实例残留，先关闭外部访问再重开）') printf 'Start failed: port %s in use (if a stale instance holds it, turn web access off then on)' "$1" ;;
+	'httpd 已启动（%s:%s，pid=%s）') printf 'httpd started (%s:%s, pid=%s)' "$1" "$2" "$3" ;;
+	'启动失败：httpd 进程存活但 %s:%s 无响应（CGI 链路不通）') printf 'Start failed: httpd process alive but %s:%s unresponsive (CGI chain broken)' "$1" "$2" ;;
+	'启动失败：httpd 进程未存活，请查看 %s') printf 'Start failed: httpd process died, see %s' "$1" ;;
+	'httpd 停止失败，进程仍存活') printf 'httpd stop failed, process still alive' ;;
+	'httpd 已停止') printf 'httpd stopped' ;;
+	'用法：httpd.sh start|stop|status') printf 'Usage: httpd.sh start|stop|status' ;;
+	# ---- 开机启动（service.sh） ----
+	'disable 标记存在，跳过启动') printf 'Disable flag present, skipping startup' ;;
+	'开机命令') printf 'Boot commands' ;;
+	# ---- 接口错误（action.sh JSON error / api.cgi cgi_fail） ----
+	'外部访问配置请用专用接口修改') printf 'Web access settings must be changed via its dedicated endpoint' ;;
+	'配置编码错误') printf 'Config encoding error' ;;
+	'配置解码失败') printf 'Config decode failed' ;;
+	'配置内容过大') printf 'Config content too large' ;;
+	'名称不合法') printf 'Invalid name' ;;
+	'不支持的服务类型') printf 'Unsupported service type' ;;
+	'启动失败（可能是 Termux 目录不存在或命令错误）') printf 'Start failed (Termux dir missing or bad command)' ;;
+	'启动失败（服务目录不存在或命令错误）') printf 'Start failed (service dir missing or bad command)' ;;
+	'未在 Termux 服务中找到该名称') printf 'Name not found in Termux services' ;;
+	'未在二进制服务中找到该名称') printf 'Name not found in binary services' ;;
+	'日志文件不存在') printf 'Log file does not exist' ;;
+	'包含高危命令，已拒绝执行：%s') printf 'Contains a dangerous command, refused: %s' "$1" ;;
+	'开机命令包含高危命令，已拒绝执行：%s') printf 'Boot commands contain a dangerous command, refused: %s' "$1" ;;
+	'模块已禁用，无法开启外部访问') printf 'Module disabled, cannot enable web access' ;;
+	'请先设置密码') printf 'Set a password first' ;;
+	'配置写入失败') printf 'Failed to write config' ;;
+	'未找到可用 busybox（含 httpd）') printf 'No busybox with httpd found' ;;
+	'端口 %s 被占用') printf 'Port %s in use' "$1" ;;
+	'api.cgi 无可执行权限，请重装模块') printf 'api.cgi is not executable, reinstall the module' ;;
+	'httpd 启动失败，请查看 webui 日志') printf 'httpd start failed, see the webui log' ;;
+	'httpd 停止失败，进程仍存活，请查看 webui 日志') printf 'httpd stop failed, process still alive, see the webui log' ;;
+	'未知参数') printf 'Unknown parameter' ;;
+	'编码错误') printf 'Encoding error' ;;
+	'解码失败') printf 'Decode failed' ;;
+	'密码至少 6 位') printf 'Password must be at least 6 characters' ;;
+	'密码过长') printf 'Password too long' ;;
+	'旧密码错误') printf 'Wrong current password' ;;
+	'随机数生成失败') printf 'Random generation failed' ;;
+	'密码哈希失败') printf 'Password hashing failed' ;;
+	'Token 生成失败') printf 'Token generation failed' ;;
+	'配置写入校验不一致') printf 'Config write verification mismatch' ;;
+	'间隔必须为数字') printf 'Interval must be a number' ;;
+	'Wi-Fi 功能开关必须为 0 或 1') printf 'Wi-Fi toggle must be 0 or 1' ;;
+	'Wi-Fi 服务名不合法: %s') printf 'Invalid Wi-Fi service name: %s' "$1" ;;
+	'Wi-Fi SSID 列表过长') printf 'Wi-Fi SSID list too long' ;;
+	'Wi-Fi SSID 数量过多(最多100个)') printf 'Too many Wi-Fi SSIDs (max 100)' ;;
+	'定时功能开关必须为 0 或 1') printf 'Schedule toggle must be 0 or 1' ;;
+	'定时时间格式错误(HH:MM)') printf 'Invalid schedule time format (HH:MM)' ;;
+	'亮屏启停开关必须为 0 或 1') printf 'Screen toggle must be 0 or 1' ;;
+	'锁屏白名单服务名不合法: %s') printf 'Invalid lock-whitelist service name: %s' "$1" ;;
+	'亮屏白名单服务名不合法: %s') printf 'Invalid unlock-whitelist service name: %s' "$1" ;;
+	'root 运行服务名不合法: %s') printf 'Invalid root-run service name: %s' "$1" ;;
+	'巡检开关必须为 0 或 1') printf 'Patrol toggle must be 0 or 1' ;;
+	'未知配置键') printf 'Unknown config key' ;;
+	'配置内容为空') printf 'Config content is empty' ;;
+	'停止时间与启动时间不能相同') printf 'Stop time and start time cannot be the same' ;;
+	'服务配置格式错误（第 %s 行）') printf 'Service config format error (line %s)' "$1" ;;
+	'端口不合法') printf 'Invalid port' ;;
+	'端口超出范围') printf 'Port out of range' ;;
+	'语言只支持 zh 或 en') printf 'Language must be zh or en' ;;
+	# ---- CGI 网关（api.cgi） ----
+	'请求体为空') printf 'Request body is empty' ;;
+	'请求体过大') printf 'Request body too large' ;;
+	'未知接口') printf 'Unknown endpoint' ;;
+	'仅支持 POST') printf 'POST only' ;;
+	'尝试过多，请 %s 秒后再试') printf 'Too many attempts, retry in %s seconds' "$1" ;;
+	'密码或 Token 错误') printf 'Wrong password or Token' ;;
+	'未登录') printf 'Not logged in' ;;
+	'会话生成失败') printf 'Session generation failed' ;;
+	'请在管理器内操作') printf 'Use the manager app instead' ;;
+	'登录锁定：%s 连续失败 %s 次，锁定 %s 秒') printf 'Login locked: %s failed %s times in a row, locked for %s seconds' "$1" "$2" "$3" ;;
+	'登录失败：%s') printf 'Login failed: %s' "$1" ;;
+	'登录成功（会话复用）：%s') printf 'Login succeeded (session reused): %s' "$1" ;;
+	'登录成功：%s') printf 'Login succeeded: %s' "$1" ;;
+	'重新生成长期 Token') printf 'Regenerate long-term Token' ;;
+	'修改访问密码') printf 'Change web access password' ;;
+	'%s：%s') printf '%s: %s' "$1" "$2" ;;
+	'保存设置项：%s') printf 'Save settings: %s' "$1" ;;
+	'保存服务项：%s') printf 'Save services: %s' "$1" ;;
+	'测试命令（普通）来源 %s：%s') printf 'Test command (normal) from %s: %s' "$1" "$2" ;;
+	'测试命令（Termux）来源 %s：%s') printf 'Test command (Termux) from %s: %s' "$1" "$2" ;;
+	'手动执行开机命令：%s') printf 'Run boot commands manually: %s' "$1" ;;
+	'启动服务：%s（%s）') printf 'Start service: %s (%s)' "$1" "$2" ;;
+	'停止服务：%s（%s）') printf 'Stop service: %s (%s)' "$1" "$2" ;;
+	'清空日志：%s（%s）') printf 'Clear log: %s (%s)' "$1" "$2" ;;
+	# ---- 交互执行 / 外部访问开关（action.sh） ----
+	'(测试运行)') printf '(test run)' ;;
+	'(Termux 测试运行)') printf '(Termux test run)' ;;
+	'开机命令(手动)') printf 'Boot commands (manual)' ;;
+	'高危命令已拦截：%s') printf 'Dangerous command blocked: %s' "$1" ;;
+	'高危命令已拦截（开机命令）：%s') printf 'Dangerous command blocked (boot commands): %s' "$1" ;;
+	'外部访问已开启') printf 'Web access enabled' ;;
+	'外部访问已关闭') printf 'Web access disabled' ;;
+	# ---- Manager Action 状态摘要（action.sh 默认分支） ----
+	'SvcHub 状态摘要') printf 'SvcHub status summary' ;;
+	'保活间隔: %ss | Termux 服务: %s | 二进制服务: %s') printf 'Keep-alive interval: %ss | Termux services: %s | Binary services: %s' "$1" "$2" "$3" ;;
+	'Termux 服务:') printf 'Termux services:' ;;
+	'二进制服务:') printf 'Binary services:' ;;
+	*) printf '%s' "$(ui_fill "$tpl" "$@")" ;;
+		esac
+		;;
+	*)
+		printf '%s' "$(ui_fill "$tpl" "$@")"
+		;;
+	esac
+}
+
+# 按位代入 %s 占位：awk 逐段替换，值含 % 不当格式符；无占位时原样返回
+ui_fill() {
+	[ "$#" -gt 1 ] || { printf '%s' "$1"; return 0; }
+	printf '%s\n' "$1" | awk -v a="$2" -v b="${3-}" -v c="${4-}" -v d="${5-}" '{
+		sub(/%s/, a); sub(/%s/, b); sub(/%s/, c); sub(/%s/, d); print }'
 }
 
 # ---------- 校验 ----------
@@ -114,7 +327,8 @@ write_settings() {
 		printf 'screen_service_names=%s\n'    "$(printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js)"
 	printf 'screen_resume_names=%s\n'     "$(printf '%s' "$SCREEN_RESUME_NAMES" | enc_js)"
 	printf 'termux_root_names=%s\n'       "$(printf '%s' "$TERMUX_ROOT_NAMES" | enc_js)"
-	printf 'patrol_enabled=%s\n'          "$(printf '%s' "$PATROL_ENABLED" | enc_js)"
+		printf 'patrol_enabled=%s\n'          "$(printf '%s' "$PATROL_ENABLED" | enc_js)"
+		printf 'language=%s\n'                "$(printf '%s' "$UI_LANG" | enc_js)"
 		printf 'webui_enabled=%s\n'           "$(printf '%s' "$WEBUI_ENABLED" | enc_js)"
 		printf 'webui_password_hash=%s\n'     "$(printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js)"
 		printf 'webui_token=%s\n'             "$(printf '%s' "$WEBUI_TOKEN" | enc_js)"
@@ -420,9 +634,9 @@ EOF
 	if printf '%s\n' "$row" | grep -q '^termux|' && ! name_in_set "$name" "$TERMUX_ROOT_NAMES"; then
 		extra=$(termux_user_args)
 	fi
-	su_bin=$(get_su_bin) || { echo "[$(date '+%F %T')] 收尾 $name 跳过：su 不可用" >> "$LOG_DIR/stop.log"; return 0; }
+	su_bin=$(get_su_bin) || { echo "[$(date '+%F %T')] $(ui_msg '收尾 %s 跳过：su 不可用' "$name")" >> "$LOG_DIR/stop.log"; return 0; }
 	{
-		echo "=== 执行 $name 收尾命令 $(date '+%F %T') ==="
+		echo "$(ui_msg '=== 执行 %s 收尾命令 %s ===' "$name" "$(date '+%F %T')")"
 		if printf '%s\n' "$row" | grep -q '^termux|'; then
 			"$su_bin" $extra -c "$TERMUX_ENV cd $TERMUX_HOME; $endcmd" 2>&1
 		else
@@ -476,6 +690,7 @@ load_settings() {
 	SCREEN_SERVICE_ENABLED=""; SCREEN_SERVICE_NAMES=""; SCREEN_RESUME_NAMES=""
 	TERMUX_ROOT_NAMES=""
 	PATROL_ENABLED=""
+	UI_LANG=""
 	WEBUI_ENABLED=""; WEBUI_PASSWORD_HASH=""; WEBUI_TOKEN=""
 	[ -f "$f" ] || return 0
 	while IFS= read -r line || [ -n "$line" ]; do
@@ -483,7 +698,7 @@ load_settings() {
 		case "$line" in ''|'#'*) continue ;; esac
 		k=${line%%=*}
 		case "$k" in
-		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|screen_service_enabled|screen_service_names|screen_resume_names|termux_root_names|patrol_enabled|webui_enabled|webui_password_hash|webui_token) ;;
+		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|screen_service_enabled|screen_service_names|screen_resume_names|termux_root_names|patrol_enabled|language|webui_enabled|webui_password_hash|webui_token) ;;
 		*) continue ;;
 		esac
 		v=${line#*=}
@@ -505,6 +720,7 @@ load_settings() {
 		screen_resume_names) SCREEN_RESUME_NAMES=$v ;;
 		termux_root_names) TERMUX_ROOT_NAMES=$v ;;
 		patrol_enabled) PATROL_ENABLED=$v ;;
+		language) UI_LANG=$v ;;
 		webui_enabled) WEBUI_ENABLED=$v ;;
 		webui_password_hash) WEBUI_PASSWORD_HASH=$v ;;
 		webui_token) WEBUI_TOKEN=$v ;;
@@ -541,7 +757,7 @@ $rest"; else TERMUX_SERVICES=$rest; fi
 	binary)
 		case "$rest" in
 		*\|*\|*\|*\|*) : ;;
-		*) sup_log "services.conf 非法行(binary段数不足)：$rest"; return 1 ;;
+		*) sup_log "$(ui_msg 'services.conf 非法行(binary段数不足)：%s' "$rest")"; return 1 ;;
 		esac
 		if [ -n "$BINARY_SERVICES" ]; then BINARY_SERVICES="$BINARY_SERVICES
 $rest"; else BINARY_SERVICES=$rest; fi
@@ -578,7 +794,7 @@ load_services() {
 		case "$line" in ''|'#'*) continue ;; esac
 		case "$line" in
 		*'|'*) : ;;
-		*) sup_log "services.conf 非法行(无|分隔)：$line"; continue ;;
+		*) sup_log "$(ui_msg 'services.conf 非法行(无|分隔)：%s' "$line")"; continue ;;
 		esac
 		# heredoc read 切段（末变量保留原始分隔符）：裸竖线 ${var%%|*} 模式在设备 shell 返回空，会全量判非法
 		IFS='|' read -r type rest <<SVCEOF
@@ -614,10 +830,10 @@ SVCEOF
 		IFS='|' read -r name _r1 <<SVCEOF
 $rest
 SVCEOF
-		valid_name "$name" || { sup_log "services.conf 非法行(名称[$name]字节=$(printf '%s' "$name" | od -An -tx1 2>/dev/null | tr -d ' \n'))：$line"; continue; }
+		valid_name "$name" || { sup_log "$(ui_msg 'services.conf 非法行(名称[%s]字节=%s)：%s' "$name" "$(printf '%s' "$name" | od -An -tx1 2>/dev/null | tr -d ' \n')" "$line")"; continue; }
 		case "$type" in
 		termux|binary) append_row "$type" "$rest" || continue ;;
-		*) sup_log "services.conf 非法行(类型[$type])非termux/binary：$line" ;;
+		*) sup_log "$(ui_msg 'services.conf 非法行(类型[%s])非termux/binary：%s' "$type" "$line")" ;;
 		esac
 	done < "$f"
 }
@@ -652,6 +868,9 @@ load_cfg_sh() {
 	elif [ "$PATROL_ENABLED" != "0" ] && [ "$PATROL_ENABLED" != "1" ]; then
 		PATROL_ENABLED="1"
 	fi
+
+	# 界面语言：缺键/空/非法按中文，与改前行为一致。
+	case "$UI_LANG" in zh|en) ;; *) UI_LANG=zh ;; esac
 
 	# 缺键默认开启，显式 0 保留。
 	if [ -z "$WEBUI_ENABLED" ]; then
@@ -765,22 +984,22 @@ wifi_log() {
 }
 
 wifi_log_connected_text() {
-	[ "$WIFI_LOG_CONNECTED" = "1" ] && printf '已连接' || printf '已断开'
+	[ "$WIFI_LOG_CONNECTED" = "1" ] && printf '%s' "$(ui_msg 已连接)" || printf '%s' "$(ui_msg 已断开)"
 }
 
 wifi_log_match_text() {
 	case "$WIFI_LOG_SSID_MATCH" in
-		1) printf 'SSID匹配' ;;
-		0) printf '无SSID匹配' ;;
-		*) printf 'SSID未检测' ;;
+		1) printf '%s' "$(ui_msg 'SSID匹配')" ;;
+		0) printf '%s' "$(ui_msg '无SSID匹配')" ;;
+		*) printf '%s' "$(ui_msg 'SSID未检测')" ;;
 	esac
 }
 
 wifi_log_ssid_text() {
 	if [ -z "$WIFI_LOG_SSID" ]; then
-		printf '(空)'
+		printf '%s' "$(ui_msg '(空)')"
 	elif [ -n "$WIFI_LOG_NETID" ]; then
-		printf '%s（netId %s）' "$WIFI_LOG_SSID" "$WIFI_LOG_NETID"
+		printf '%s' "$(ui_msg '%s（netId %s）' "$WIFI_LOG_SSID" "$WIFI_LOG_NETID")"
 	else
 		printf '%s' "$WIFI_LOG_SSID"
 	fi
@@ -968,12 +1187,12 @@ refresh_screen_gate() {
 # 启动禁令统一判定（单点）：阻断时输出原因并返回 0，放行输出空返回 1。
 # $2=1 豁免解锁禁令（Wi-Fi 无人值守）。定时窗禁启 > 熄屏仅白名单可启 > 亮屏未解锁禁启。
 starts_blocked_reason() {
-	[ "$SCHED_IN_WINDOW" = "1" ] && { printf '定时停止窗内'; return 0; }
+	[ "$SCHED_IN_WINDOW" = "1" ] && { printf '%s' "$(ui_msg '定时停止窗内')"; return 0; }
 	if [ "$2" != "1" ] && [ "$SCREEN_SERVICE_ENABLED" = "1" ] && [ "$SCREEN_UNLOCK_OK" != "1" ]; then
-		printf '亮屏未解锁，暂不拉起'; return 0
+		printf '%s' "$(ui_msg '亮屏未解锁，暂不拉起')"; return 0
 	fi
 	if [ "$SCREEN_SERVICE_ENABLED" = "1" ] && [ "$SCREEN_ON" != "1" ]; then
-		name_in_set "$1" "$SCREEN_SERVICE_NAMES" || { printf '熄屏非白名单'; return 0; }
+		name_in_set "$1" "$SCREEN_SERVICE_NAMES" || { printf '%s' "$(ui_msg '熄屏非白名单')"; return 0; }
 	fi
 	return 1
 }
@@ -1012,7 +1231,7 @@ calc_screen_state() {
 	esac
 	SCREEN_ON=1
 	if [ -z "$SCREEN_WARNED" ]; then
-		screen_log "无法检测屏幕状态（dumpsys 无匹配字段），按亮屏处理"
+		screen_log "$(ui_msg '无法检测屏幕状态（dumpsys 无匹配字段），按亮屏处理')"
 		SCREEN_WARNED=1
 	fi
 	return 0
@@ -1026,7 +1245,7 @@ wifi_sync_starts() {
 		# 定时窗优先级高于 Wi-Fi 启动：窗内不启动，仅首次说明（边沿化防刷屏）
 		if [ -z "$WIFI_WINDOW_NOTED" ] && [ -n "$names_list" ]; then
 			WIFI_WINDOW_NOTED=1
-			wifi_log "定时停止窗内，${group}暂停启动"
+			wifi_log "$(ui_msg '定时停止窗内，%s暂停启动' "$group")"
 		fi
 		return 0
 	fi
@@ -1047,10 +1266,10 @@ wifi_sync_starts() {
 			missing="$missing $name"
 		fi
 	done
-	[ -n "$blocked" ] && wifi_log "按门控暂停启动：$(wifi_trim_list "$blocked")"
+	[ -n "$blocked" ] && wifi_log "$(ui_msg '按门控暂停启动：%s' "$(wifi_trim_list "$blocked")")"
 	# 两类服务合并一行输出（Termux 在前），执行仍按类型分开
 	if [ -n "$t_start" ] || [ -n "$b_start" ]; then
-		wifi_log "启动${group}：$(wifi_trim_list "$t_start $b_start")"
+		wifi_log "$(ui_msg '启动%s：%s' "$group" "$(wifi_trim_list "$t_start $b_start")")"
 	fi
 	for name in $t_start; do
 		row=$(pick_termux "$name")
@@ -1066,7 +1285,7 @@ $row
 EOF
 		launch_svc binary "$name" "$cmd"
 	done
-	[ -n "$missing" ] && wifi_log "不在服务配置中，跳过：$(wifi_trim_list "$missing")"
+	[ -n "$missing" ] && wifi_log "$(ui_msg '不在服务配置中，跳过：%s' "$(wifi_trim_list "$missing")")"
 	return 0
 }
 
@@ -1078,7 +1297,7 @@ wifi_sync_stops() {
 		svc_running "$name" && stops="$stops $name"
 	done
 	if [ -n "$stops" ]; then
-		wifi_log "停止${group}：$(wifi_trim_list "$stops")"
+		wifi_log "$(ui_msg '停止%s：%s' "$group" "$(wifi_trim_list "$stops")")"
 		for name in $stops; do
 			stop_svc "$name"
 		done
@@ -1094,11 +1313,11 @@ sync_wifi_service_policy() {
 	local group target_names on_names
 
 	if [ "$mode" = "off" ]; then
-		group="断开组"
+		group="$(ui_msg '断开组')"
 		target_names=$WIFI_SERVICE_NAMES_OFF
 		on_names=$WIFI_SERVICE_NAMES
 	else
-		group="连接组"
+		group="$(ui_msg '连接组')"
 		target_names=$WIFI_SERVICE_NAMES
 		on_names=""
 	fi
@@ -1108,13 +1327,13 @@ sync_wifi_service_policy() {
 	if [ "$mode" = "on" ] && [ "$new_policy" != "$WIFI_POLICY_PREV" ]; then
 		# 状态行：直接呈现当前连接态与匹配结果
 		if [ "$new_policy" = "disabled" ]; then
-			wifi_log "Wi-Fi 启停已关闭"
+			wifi_log "$(ui_msg 'Wi-Fi 启停已关闭')"
 		else
-			wifi_log "WiFi $(wifi_log_connected_text)（$(wifi_log_match_text)）"
+			wifi_log "$(ui_msg 'WiFi %s（%s）' "$(wifi_log_connected_text)" "$(wifi_log_match_text)")"
 			# 已配置白名单且已连接时，输出当前 Wi-Fi 名称（及 netId），方便排查匹配失败；
 			# 白名单为空（任意 WiFi）时不获取 SSID，跳过该行避免输出无意义的 (空)
 			[ "$WIFI_LOG_CONNECTED" = "1" ] && [ -n "$WIFI_SSIDS" ] && \
-				wifi_log "当前 Wi-Fi：$(wifi_log_ssid_text)"
+				wifi_log "$(ui_msg '当前 Wi-Fi：%s' "$(wifi_log_ssid_text)")"
 		fi
 		WIFI_POLICY_PREV="$new_policy"
 	fi
@@ -1137,7 +1356,7 @@ sync_wifi_service_policy() {
 			esac
 		done
 		names_list=$clean_list
-		[ -n "$dup" ] && wifi_log "断开组服务$(wifi_trim_list "$dup") 同时在连接组，已按连接组处理"
+		[ -n "$dup" ] && wifi_log "$(ui_msg '断开组服务%s 同时在连接组，已按连接组处理' "$(wifi_trim_list "$dup")")"
 	fi
 
 	# 断开组语义与连接组完全反向：allow=Wi-Fi 连上=断开组停、block=Wi-Fi 断开=断开组起
@@ -1150,6 +1369,38 @@ sync_wifi_service_policy() {
 
 	[ -n "$do_start" ] && wifi_sync_starts "$group" "$names_list"
 	[ -n "$do_stop" ] && wifi_sync_stops "$group" "$names_list"
+	return 0
+}
+
+# ---------- 模块描述覆盖（KernelSU ksud 专属，其他方案静默回退） ----------
+# 管理器 description 安装时缓存，运行时改 module.prop 不生效；ksud config 是唯一覆盖入口。
+MODULE_DESC_ZH='开机自启和保活 Termux 服务与二进制服务，并提供定时/亮屏/ WIFI 启停服务和 WebUI 聚合管理'
+MODULE_DESC_EN='Boot-start and keep-alive for Termux and binary services, with scheduled / screen / Wi-Fi start-stop rules and a WebUI'
+
+# 找 ksud（探测不到返回 1，调用方静默跳过）
+ksud_bin() {
+	[ "${KSU:-}" = "true" ] || return 1
+	if command -v ksud >/dev/null 2>&1; then
+		command -v ksud
+		return 0
+	fi
+	local p
+	for p in /data/adb/ksu/bin/ksud /data/adb/ksud/ksud; do
+		[ -x "$p" ] && { printf '%s\n' "$p"; return 0; }
+	done
+	return 1
+}
+
+# 按当前语言覆盖管理器 description（非 KernelSU 零操作）
+desc_override_apply() {
+	local ksud desc
+	ksud=$(ksud_bin) || return 0
+	if [ "$UI_LANG" = "en" ]; then
+		desc=$MODULE_DESC_EN
+	else
+		desc=$MODULE_DESC_ZH
+	fi
+	"$ksud" module config set override.description "$desc" >/dev/null 2>&1 || true
 	return 0
 }
 

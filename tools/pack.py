@@ -12,7 +12,7 @@ import zipfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# 刷机必需文件（18 个）：脚本 + 配置 + 前端 + CGI + PWA + META-INF
+# 刷机必需文件（17 个）：脚本 + 前端 + CGI + PWA + META-INF
 REQUIRED_FILES = [
     "module.prop",
     "customize.sh",
@@ -22,7 +22,6 @@ REQUIRED_FILES = [
     "uninstall.sh",
     "lib.sh",
     "httpd.sh",
-    "config/web.conf",
     "webroot/index.html",
     "webroot/manifest.json",
     "webroot/sw.js",
@@ -32,6 +31,10 @@ REQUIRED_FILES = [
     "system/etc/resolv.conf",
     "META-INF/com/google/android/update-binary",
     "META-INF/com/google/android/updater-script",
+]
+
+# 本地存在的可选文件
+OPTIONAL_LOCAL_FILES = [
 ]
 
 # 设备上必须可执行：刷入后 zip 内权限位生效（busybox 按可执行判定 CGI）
@@ -48,6 +51,11 @@ def module_version():
             if line.startswith("version="):
                 return line.split("=", 1)[1].strip()
     sys.exit("module.prop 缺少 version 字段")
+
+
+def pack_files():
+    """实际入包文件：必需清单 + 本地存在的可选文件"""
+    return REQUIRED_FILES + [rel for rel in OPTIONAL_LOCAL_FILES if os.path.isfile(os.path.join(REPO, rel))]
 
 
 def check():
@@ -73,7 +81,7 @@ def pack(tag=None):
         out = os.path.join(dist, "SvcHub_v%s%s_%d.zip" % (ver, ("_" + tag) if tag else "", n))
         n += 1
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        for rel in REQUIRED_FILES:
+        for rel in pack_files():
             p = os.path.join(REPO, rel)
             zi = zipfile.ZipInfo.from_file(p, rel)
             # Windows 无 POSIX 权限位，手动写权限：脚本 755 / 资源 644

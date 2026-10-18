@@ -87,7 +87,11 @@ function copyScripts() {
         fs.copyFileSync(path.join(REPO, f), path.join(sandbox, f));
     }
     fs.copyFileSync(path.join(REPO, 'lib.sh'), path.join(sandbox, 'lib.sh'));
-    fs.copyFileSync(path.join(REPO, 'config', 'web.conf'), path.join(sandbox, 'config', 'web.conf'));
+    // web.conf 不入库，本地存在才拷；缺失时 load_web_conf 回退内置默认（5555/3600/30/5/300）
+    const webConf = path.join(REPO, 'config', 'web.conf');
+    if (fs.existsSync(webConf)) {
+        fs.copyFileSync(webConf, path.join(sandbox, 'config', 'web.conf'));
+    }
     fs.copyFileSync(path.join(REPO, 'webroot', 'index.html'), path.join(sandbox, 'webroot', 'index.html'));
     fs.copyFileSync(path.join(REPO, 'webroot', 'cgi-bin', 'api.cgi'), path.join(sandbox, 'webroot', 'cgi-bin', 'api.cgi'));
     // 沙盒专用：api.cgi shebang 换成 Git Bash 的 Windows 路径。busybox httpd 在 Windows 上按

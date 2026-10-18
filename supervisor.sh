@@ -6,11 +6,11 @@ MODDIR=${0%/*}
 
 # 单实例（supervisor 自身防重复）
 if old=$(pidfile_alive "$SPPID" 2>/dev/null); then
-	sup_log "supervisor 已在运行 (old=$old)，退出"
+	sup_log "$(ui_msg 'supervisor 已在运行 (old=%s)，退出' "$old")"
 	exit 0
 fi
 echo "$$" > "$SPPID"
-sup_log "supervisor 启动 pid=$$"
+sup_log "$(ui_msg 'supervisor 启动 pid=%s' "$$")"
 
 # 分三阶段等待，全部就绪后才进行首次巡检：
 # 阶段一（系统启动）：sys.boot_completed=1 且开机动画结束（init.svc.bootanim=stopped）
@@ -20,7 +20,7 @@ sup_log "supervisor 启动 pid=$$"
 wait_boot_stages() {
 	local i=0 stage=1 boot_done= anim_done= ce_ready= su_state su_bin
 	if [ "$SVCHUB_MOCK" = "1" ]; then
-		sup_log "mock 环境，跳过启动等待，直接巡检"
+		sup_log "$(ui_msg 'mock 环境，跳过启动等待，直接巡检')"
 		return 0
 	fi
 	while [ "$i" -lt 300 ]; do
@@ -29,19 +29,19 @@ wait_boot_stages() {
 			anim_done=$(getprop init.svc.bootanim 2>/dev/null)
 			if { [ "$boot_done" = "1" ] || [ "$boot_done" = "true" ]; } &&
 				{ [ -z "$anim_done" ] || [ "$anim_done" = "stopped" ]; }; then
-				sup_log "系统启动完成"
+				sup_log "$(ui_msg '系统启动完成')"
 				stage=2
 			fi
 		elif [ "$stage" -eq 2 ]; then
 			ce_ready=$(getprop sys.user.0.ce_available 2>/dev/null)
 			# /data/media/0 是 CE 存储，必须解锁后才能读取；仅判断 -d 不够，需判断可读
 			if [ "$ce_ready" = "true" ] || [ -z "$ce_ready" ] || ls /data/media/0 >/dev/null 2>&1; then
-				sup_log "设备解锁，服务存储可访问"
+				sup_log "$(ui_msg '设备解锁，服务存储可访问')"
 				stage=3
 			fi
 		else
 			if su_bin=$(get_su_bin 2>/dev/null); then
-				sup_log "su 就绪：$su_bin，开始巡检"
+				sup_log "$(ui_msg 'su 就绪：%s，开始巡检' "$su_bin")"
 				break
 			fi
 		fi
@@ -50,7 +50,7 @@ wait_boot_stages() {
 	done
 	if [ "$i" -ge 300 ]; then
 		if get_su_bin >/dev/null 2>&1; then su_state=yes; else su_state=no; fi
-		sup_log "等待系统启动/解锁/su 超时(300s)，继续巡检 (boot=$boot_done anim=$anim_done ce=$ce_ready su=$su_state)"
+		sup_log "$(ui_msg '等待系统启动/解锁/su 超时(300s)，继续巡检 (boot=%s anim=%s ce=%s su=%s)' "$boot_done" "$anim_done" "$ce_ready" "$su_state")"
 	fi
 }
 
@@ -67,32 +67,32 @@ patrol_start_rows() {
 		if [ -n "$allow_names" ]; then
 			name_in_set "$name" "$allow_names" || continue
 		elif [ "$auto" != start ]; then
-			sup_log_bare "    跳过 $name"
+			sup_log_bare "$(ui_msg '    跳过 %s' "$name")"
 			continue
 		fi
 		if wifi_should_skip "$name"; then
 			if [ "$WIFI_POLICY" = "block" ]; then
-				sup_log_bare "    跳过 $name (WIFI 已断开，连接组不启动)"
+				sup_log_bare "$(ui_msg '    跳过 %s (WIFI 已断开，连接组不启动)' "$name")"
 			else
-				sup_log_bare "    跳过 $name (WIFI 已连接，断开组不启动)"
+				sup_log_bare "$(ui_msg '    跳过 %s (WIFI 已连接，断开组不启动)' "$name")"
 			fi
 			continue
 		fi
 		# 启动禁令单点判定：亮屏未解锁/熄屏非白名单（定时窗已在轮首整轮跳过）
 		if reason=$(starts_blocked_reason "$name"); then
-			sup_log_bare "    跳过 $name ($reason)"
+			sup_log_bare "$(ui_msg '    跳过 %s (%s)' "$name" "$reason")"
 			continue
 		fi
 		if name_in_set "$name" "$runset"; then
 			# 名单模式只输出启动动作，已运行静默
-			[ -z "$allow_names" ] && sup_log_bare "    已运行 $name"
+			[ -z "$allow_names" ] && sup_log_bare "$(ui_msg '    已运行 %s' "$name")"
 			continue
 		fi
 		if launch_svc "$kind" "$name" "$cmd"; then
 			sleep 0.3
-			svc_running "$name" && sup_log_bare "    已启动 $name" || sup_log_bare "    启动未生效 $name（请检查该服务日志/命令）"
+			svc_running "$name" && sup_log_bare "$(ui_msg '    已启动 %s' "$name")" || sup_log_bare "$(ui_msg '    启动未生效 %s（请检查该服务日志/命令）' "$name")"
 		else
-			sup_log_bare "    启动失败 $name (服务目录不存在或命令错误)"
+			sup_log_bare "$(ui_msg '    启动失败 %s (服务目录不存在或命令错误)' "$name")"
 		fi
 	done <<EOF
 $rows
@@ -127,7 +127,7 @@ patrol_once() {
 		# 窗内日志边沿化：进窗首轮说明一次，窗内期间静默
 		if [ -z "$SCHED_LOGGED" ]; then
 			SCHED_LOGGED=1
-			sup_log "巡检开始 启停功能策略（定时停止窗内 ${SCHEDULE_STOP}~${SCHEDULE_START}），暂停拉起"
+			sup_log "$(ui_msg '巡检开始 启停功能策略（定时停止窗内 %s~%s），暂停拉起' "$SCHEDULE_STOP" "$SCHEDULE_START")"
 		fi
 		calc_wifi_policy
 		sync_wifi_service_policy "$WIFI_POLICY" on
@@ -144,11 +144,11 @@ patrol_once() {
 	PATROL_BOOT=""
 	# 边沿恢复轮头部标明"启停功能策略"，避免 interval 让用户误以为周期巡检仍在跑
 	if [ "$resume_kind" = boot ]; then
-		sup_log "巡检开始 开机启动"
+		sup_log "$(ui_msg '巡检开始 开机启动')"
 	elif [ -n "$resume_kind" ]; then
-		sup_log "巡检开始 启停功能策略"
+		sup_log "$(ui_msg '巡检开始 启停功能策略')"
 	else
-		sup_log "巡检开始 interval=${SLEEP_INTERVAL}s"
+		sup_log "$(ui_msg '巡检开始 interval=%ss' "$SLEEP_INTERVAL")"
 	fi
 	calc_wifi_policy
 	sync_wifi_service_policy "$WIFI_POLICY" on
@@ -156,13 +156,13 @@ patrol_once() {
 	runset=$(compute_runset)
 	# 亮屏白名单恢复轮：名单非空仅启动名单内服务；空名单=正常巡检恢复
 	if [ -n "$resume_allow" ]; then
-		sup_log_bare "    亮屏白名单恢复：仅启动名单内服务"
+		sup_log_bare "$(ui_msg '    亮屏白名单恢复：仅启动名单内服务')"
 	fi
-	sup_log_bare " ------- Termux 服务 ------- "
+	sup_log_bare "$(ui_msg ' ------- Termux 服务 ------- ')"
 	patrol_start_rows termux "$TERMUX_SERVICES" "$runset" "$resume_allow"
-	sup_log_bare " ------- 二进制服务 ------- "
+	sup_log_bare "$(ui_msg ' ------- 二进制服务 ------- ')"
 	patrol_start_rows binary "$BINARY_SERVICES" "$runset" "$resume_allow"
-	sup_log "巡检完成"
+	sup_log "$(ui_msg '巡检完成')"
 }
 
 # 巡检后的分片休眠：长间隔拆成 <=60s 的分片，每片后重读配置，实现间隔热更新；
@@ -195,7 +195,7 @@ sleep_slice() {
 		load_cfg_sh
 		target=$SLEEP_INTERVAL
 		if [ "$target" != "$old_target" ]; then
-			sup_log "检查间隔更新为 ${target}s"
+			sup_log "$(ui_msg '检查间隔更新为 %ss' "$target")"
 		fi
 
 		# 定时停止窗边沿检测（放 Wi-Fi 检查之前：先停后禁启，避免本分片 Wi-Fi 把刚停的拉起）
@@ -204,7 +204,7 @@ sleep_slice() {
 		if [ "$SCHEDULE_ENABLED" != "1" ]; then
 			if [ "$SCHED_IN_WINDOW" = "1" ]; then
 				SCHED_IN_WINDOW="0"
-				sched_log "定时启停已关闭，恢复巡检"
+				sched_log "$(ui_msg '定时启停已关闭，恢复巡检')"
 				PATROL_RESUME=sched
 				break
 			fi
@@ -219,9 +219,9 @@ sleep_slice() {
 				SCHED_IN_WINDOW="$now_in"
 				if [ "$now_in" = "1" ]; then
 					stop_all
-					sched_log "进入定时停止窗（${SCHEDULE_STOP}~${SCHEDULE_START}），已停止全部服务"
+					sched_log "$(ui_msg '进入定时停止窗（%s~%s），已停止全部服务' "$SCHEDULE_STOP" "$SCHEDULE_START")"
 				else
-					sched_log "退出定时停止窗（${SCHEDULE_STOP}~${SCHEDULE_START}），立即巡检恢复服务"
+					sched_log "$(ui_msg '退出定时停止窗（%s~%s），立即巡检恢复服务' "$SCHEDULE_STOP" "$SCHEDULE_START")"
 					# 出窗立即结束本轮休眠进入巡检：避免 sleep_interval=3600 时恢复延迟一小时
 					PATROL_RESUME=sched
 					break
@@ -231,12 +231,12 @@ sleep_slice() {
 			# 半配置（时间非法或缺一边，含 stop==start）：视为窗外，仅首次警告一次
 			if [ "$SCHED_IN_WINDOW" = "1" ]; then
 				SCHED_IN_WINDOW="0"
-				sched_log "退出定时停止窗（${SCHEDULE_STOP}~${SCHEDULE_START}），立即巡检恢复服务"
+				sched_log "$(ui_msg '退出定时停止窗（%s~%s），立即巡检恢复服务' "$SCHEDULE_STOP" "$SCHEDULE_START")"
 				PATROL_RESUME=sched
 				break
 			fi
 			if [ -z "$SCHED_WARNED" ]; then
-				sched_log "定时时间配置无效（stop=${SCHEDULE_STOP} start=${SCHEDULE_START}），已暂停定时启停"
+				sched_log "$(ui_msg '定时时间配置无效（stop=%s start=%s），已暂停定时启停' "$SCHEDULE_STOP" "$SCHEDULE_START")"
 				SCHED_WARNED="1"
 			fi
 		else
@@ -254,31 +254,31 @@ sleep_slice() {
 				if [ "$SCREEN_UNLOCK_OK" = "1" ]; then
 					if [ "$SCHED_IN_WINDOW" = "1" ]; then
 						# 定时窗优先级高于亮屏恢复：窗内不恢复，日志如实说明
-						screen_log "亮屏且已解锁，定时停止窗内，暂停拉起"
+						screen_log "$(ui_msg '亮屏且已解锁，定时停止窗内，暂停拉起')"
 					else
-						screen_log "亮屏且已解锁，立即巡检恢复服务"
+						screen_log "$(ui_msg '亮屏且已解锁，立即巡检恢复服务')"
 						PATROL_RESUME=screen
 						break
 					fi
 				else
-					screen_log "亮屏（锁屏中，待解锁后恢复）"
+					screen_log "$(ui_msg '亮屏（锁屏中，待解锁后恢复）')"
 				fi
 			else
 				stop_all "$SCREEN_SERVICE_NAMES"
-				screen_log "进入熄屏，停止非白名单服务"
+				screen_log "$(ui_msg '进入熄屏，停止非白名单服务')"
 			fi
 		elif [ "$SCREEN_ON" = "1" ] && [ "$SCREEN_UNLOCK_OK" != "$old_unlock" ]; then
 			old_unlock=$SCREEN_UNLOCK_OK
 			if [ "$SCREEN_UNLOCK_OK" = "1" ]; then
 				if [ "$SCHED_IN_WINDOW" = "1" ]; then
-					screen_log "亮屏已解锁，定时停止窗内，暂停拉起"
+					screen_log "$(ui_msg '亮屏已解锁，定时停止窗内，暂停拉起')"
 				else
-					screen_log "亮屏已解锁，立即巡检恢复服务"
+					screen_log "$(ui_msg '亮屏已解锁，立即巡检恢复服务')"
 					PATROL_RESUME=screen
 					break
 				fi
 			else
-				screen_log "亮屏又进入锁屏（不拉起，运行中服务保留）"
+				screen_log "$(ui_msg '亮屏又进入锁屏（不拉起，运行中服务保留）')"
 			fi
 		fi
 
@@ -300,8 +300,8 @@ sleep_slice() {
 					rm -f "$RUNDIR/httpd.pid"
 				fi
 				sh "$MODDIR/httpd.sh" start >/dev/null 2>&1 && \
-					webui_log "httpd 保活拉起（分片巡检）" || \
-					webui_log "httpd 保活拉起失败，见 webui.log"
+					webui_log "$(ui_msg 'httpd 保活拉起（分片巡检）')" || \
+					webui_log "$(ui_msg 'httpd 保活拉起失败，见 webui.log')"
 			fi
 		fi
 
@@ -327,7 +327,7 @@ PATROL_BOOT="1"
 if [ "$SCHEDULE_ENABLED" = "1" ] && [ -n "$SCHEDULE_STOP" ] && [ -n "$SCHEDULE_START" ]; then
 	if sched_in_window "$SCHEDULE_STOP" "$SCHEDULE_START" "$(date '+%H:%M')"; then
 		SCHED_IN_WINDOW="1"
-		sched_log "supervisor 启动时已在定时停止窗内（${SCHEDULE_STOP}~${SCHEDULE_START}），暂停拉起"
+		sched_log "$(ui_msg 'supervisor 启动时已在定时停止窗内（%s~%s），暂停拉起' "$SCHEDULE_STOP" "$SCHEDULE_START")"
 	fi
 fi
 
@@ -335,14 +335,14 @@ fi
 # （此时无受管服务在跑，不需 stop_all）
 refresh_screen_gate
 if [ "$SCREEN_ON" != "1" ]; then
-	screen_log "启动时熄屏，暂停非白名单拉起"
+	screen_log "$(ui_msg '启动时熄屏，暂停非白名单拉起')"
 elif [ "$SCREEN_UNLOCK_OK" != "1" ]; then
-	screen_log "启动时亮屏未解锁（锁屏中），暂停拉起"
+	screen_log "$(ui_msg '启动时亮屏未解锁（锁屏中），暂停拉起')"
 fi
 
 while :; do
 	if [ -f "$DISABLE_FILE" ]; then
-		sup_log "检测到 disable，停止全部受管服务"
+		sup_log "$(ui_msg '检测到 disable，停止全部受管服务')"
 		stop_all
 		sh "$MODDIR/httpd.sh" stop >/dev/null 2>&1
 		rm -f "$SPPID"
