@@ -1,12 +1,12 @@
 schemaVersion: 1
 id: SvcHub               
 name: SvcHub
-summary: 一个开机启动和保活 Termux 服务和二进制服务的管理模块，支持多种启停功能，并带有 WebUI 聚合管理
+summary: 一个开机启动和保活 Termux 服务和二进制服务的管理模块，支持多种启停策略，并带有 WebUI 聚合管理
 description: README.md
 license: GPL-3.0-only
-homepage: https://github.com/LimpidMo/SvcHub
+homepage: https://limpidmo.github.io/SvcHub
 support: https://github.com/LimpidMo/SvcHub/issues
 tags: [termux,service,tools]
-icon: docs/images/icon.png
+icon: docs/public/images/icon.png
 release:
   assetPattern: "SvcHub-*.zip"

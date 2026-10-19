@@ -4,10 +4,13 @@
 
 #项目相关文件
 dist/
-docs/*
-!docs/images/
 AGENTS.md
 
+# 文档站忽略（源文件入库，只排除规格/依赖/构建产物）
+docs/superpowers/
+docs/node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 # 日志与运行期临时文件
 *.log
 *.tmp

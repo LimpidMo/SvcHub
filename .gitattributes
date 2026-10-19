@@ -6,6 +6,7 @@ module.prop text eol=lf
 *.cgi text eol=lf
 *.html text eol=lf
 *.json text eol=lf
+*.md text eol=lf
 # 打包文件夹及文件夹排除
 docs export-ignore
 tools export-ignore
