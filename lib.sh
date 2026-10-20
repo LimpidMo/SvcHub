@@ -1496,13 +1496,21 @@ webui_status_fast() {
 	printf '%s %s\n' "$e" "$h"
 }
 
-# WEBUI_PORT 是否处于 LISTEN（/proc/net/tcp*）：
+# WEBUI_PORT 状态：0=LISTEN 1=未监听 2=无法探测（无 /proc/net，如 PC 沙盒）。
 # 断网/省电后进程可能活着但监听 socket 被 ROM 摘除，pid 探活探不出，端口探活补这个盲区。
-webui_port_listening() {
+webui_port_state() {
 	local hex
 	hex=$(printf '%04X' "$WEBUI_PORT" 2>/dev/null)
-	[ -n "$hex" ] || return 1
-	awk 'NR>1 { split($2,a,":"); if (toupper(a[2]) == "'"$hex"'" && $4 == "0A") exit 0 } END { exit 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+	[ -n "$hex" ] || return 2
+	[ -r /proc/net/tcp ] || [ -r /proc/net/tcp6 ] || return 2
+	# 数据行按 local_address 格式识别（首列 sl 是 "0:" 带冒号，不能按纯数字匹配）
+	awk -v hex="$hex" '$2 ~ /^[0-9A-Fa-f]+:[0-9A-Fa-f]+$/ { split($2, a, ":"); if (toupper(a[2]) == hex && $4 == "0A") found = 1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+}
+
+# 保活判定：只有「确定未监听」才算异常，未知按可用处理，避免误杀健康实例。
+webui_port_down() {
+	webui_port_state
+	[ $? -eq 1 ]
 }
 
 # 找含 httpd 的 busybox，输出路径。

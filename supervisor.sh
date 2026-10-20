@@ -294,8 +294,8 @@ sleep_slice() {
 		# 外部访问保活：启用且有密码、httpd 未运行或端口无监听则拉起。
 		# 断网/省电后进程可能活着但监听 socket 被 ROM 摘除（pid 探活探不出），端口探活补盲区。
 		if [ "$WEBUI_ENABLED" = "1" ] && [ -n "$WEBUI_PASSWORD_HASH" ]; then
-			if ! svc_running httpd || ! webui_port_listening; then
-				if webui_port_listening || svc_running httpd; then
+			if ! svc_running httpd || webui_port_down; then
+				if ! webui_port_down || svc_running httpd; then
 					kill_by_name httpd 2>/dev/null
 					rm -f "$RUNDIR/httpd.pid"
 				fi

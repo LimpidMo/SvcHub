@@ -296,7 +296,7 @@ status)
     cgi_ok "{\"online\":true,\"has_password\":$hp}"
     ;;
 login)
-    [ "$REQUEST_METHOD" = "POST" ] || { cgi_fail "405 Method Not Allowed" "$(ui_msg 仅支持 POST)"; exit 0; }
+    [ "$REQUEST_METHOD" = "POST" ] || { cgi_fail "405 Method Not Allowed" "$(ui_msg '仅支持 POST')"; exit 0; }
     if fail_locked; then
         cgi_status "429 Too Many Requests" "Retry-After: $FAIL_LOCK" "{\"success\":false,\"error\":\"$(ui_msg '尝试过多，请 %s 秒后再试' "$FAIL_LOCK")\"}"
         exit 0
@@ -315,7 +315,7 @@ login)
     if [ -z "$ok" ]; then
         fail_add
         webui_log "$(ui_msg '登录失败：%s' "$(client_ip)")"
-        cgi_fail "401 Unauthorized" "$(ui_msg 密码或 Token 错误)"
+        cgi_fail "401 Unauthorized" "$(ui_msg '密码或 Token 错误')"
         exit 0
     fi
     fail_clear
@@ -376,7 +376,7 @@ webuipasswd|webuiregen)
     # regen 不读表单；passwd 限 POST 并校验体长。
     case "$R" in
     webuipasswd)
-        [ "$REQUEST_METHOD" = "POST" ] || { cgi_fail "405 Method Not Allowed" "$(ui_msg 仅支持 POST)"; exit 0; }
+        [ "$REQUEST_METHOD" = "POST" ] || { cgi_fail "405 Method Not Allowed" "$(ui_msg '仅支持 POST')"; exit 0; }
         cgi_check_body
         FORM_BODY=$(cat)
         ;;

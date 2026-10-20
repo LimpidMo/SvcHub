@@ -22,10 +22,8 @@ start)
         webui_log "$(ui_msg '启动失败：api.cgi 无可执行权限（CGI 会 404）')"
         exit 5
     fi
-    # 端口被占直接失败（旧实例残留先关外部访问再重开）。
-    # 精确匹配 local_address 字段（第 2 列），子串 grep 会误伤（如 555 命中 5555）。
-    PORTHEX=$(printf '%04X' "$WEBUI_PORT" 2>/dev/null)
-    if [ -n "$PORTHEX" ] && awk 'NR>1 { split($2,a,":"); if (toupper(a[2]) == "'"$PORTHEX"'" && $4 == "0A") exit 0 } END { exit 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
+    # 端口被占直接失败（旧实例残留先关外部访问再重开）。探测唯一实现见 lib.sh。
+    if webui_port_state; then
         webui_log "$(ui_msg '启动失败：端口 %s 被占用（若为旧实例残留，先关闭外部访问再重开）' "$WEBUI_PORT")"
         exit 3
     fi
