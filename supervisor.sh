@@ -101,7 +101,7 @@ EOF
 
 # 单轮巡检：定时停止窗内只做 Wi-Fi 同步的停止分支（禁启由 lib.sh 守卫）；
 # 自动巡检禁用时静默跳过周期拉起（零输出）——开机首轮、出停止窗/亮屏解锁的边沿恢复仍放行一次，
-# Wi-Fi 条件启停在 sleep_slice 分片里照常执行，不经此处；
+# Wi-Fi 条件启停在 slice_tick 分片里照常执行，不经此处；
 # "巡检开始/完成"头日志在此输出（禁用静默轮不出，避免刷屏）；
 # 窗外先算 Wi-Fi 策略并同步（在计算 runset 之前执行，确保新启动的服务能被正确识别为已运行），
 # 再按配置巡检启动 auto=start 且未运行的服务。
@@ -169,15 +169,19 @@ patrol_once() {
 # 防止从 3600s 调回 120s 需等待整个旧周期才能生效。
 # 期间实时响应：disable 提前结束、定时窗边沿（进窗停全部/出窗立即巡检）、Wi-Fi 策略变化。
 sleep_slice() {
-	local elapsed=0 target=$SLEEP_INTERVAL chunk old_target old_policy old_screen old_unlock now_in
+	local start now chunk target=$SLEEP_INTERVAL old_target
+	# 用绝对截止时间计时：每片的读配置/屏幕/Wi-Fi 检查耗时也从间隔里扣，避免 60 片累积出分钟级误差
+	start=$(date +%s)
 	# 入口取当前屏幕/解锁状态，避免开机即锁屏时误触发边沿
-	old_screen=$SCREEN_ON
-	old_unlock=$SCREEN_UNLOCK_OK
-	while [ "$elapsed" -lt "$target" ]; do
+	SLICE_SCREEN_SEEN=$SCREEN_ON
+	SLICE_UNLOCK_SEEN=$SCREEN_UNLOCK_OK
+	while :; do
 		# disable 优先响应，避免睡完整个长周期
 		[ -f "$DISABLE_FILE" ] && break
 
-		chunk=$((target - elapsed))
+		now=$(date +%s)
+		chunk=$((start + target - now))
+		[ "$chunk" -le 0 ] && break
 		[ "$chunk" -gt 60 ] && chunk=60
 		# 亮屏启停开启时：熄屏（等亮屏边沿）与亮屏锁屏中（等解锁边沿）压到 10s 短分片，以便快速识别到亮屏解锁恢复巡检
 		if [ "$SCREEN_SERVICE_ENABLED" = "1" ] && [ "$chunk" -gt 10 ]; then
@@ -187,7 +191,6 @@ sleep_slice() {
 		fi
 
 		sleep "$chunk" || break
-		elapsed=$((elapsed + chunk))
 
 		# 每片后重读设置，检查间隔是否被修改（服务行只在轮首读，分片不碰）
 		old_target=$target
@@ -199,117 +202,123 @@ sleep_slice() {
 		if [ "$target" != "$old_target" ]; then
 			sup_log "$(ui_msg '检查间隔更新为 %ss' "$target")"
 		fi
+		# 边沿检查要求立即巡检时结束休眠
+		slice_tick || break
+	done
+}
 
-		# 定时停止窗边沿检测（放 Wi-Fi 检查之前：先停后禁启，避免本分片 Wi-Fi 把刚停的拉起）
-		# 仅边沿动作 + 写 schedule.log，分片内无变化零输出
-		# 关闭状态静默：不警告、不写无效日志；窗内关闭则退出并立即巡检恢复
-		if [ "$SCHEDULE_ENABLED" != "1" ]; then
-			if [ "$SCHED_IN_WINDOW" = "1" ]; then
-				SCHED_IN_WINDOW="0"
-				sched_log "$(ui_msg '定时启停已关闭，恢复巡检')"
-				PATROL_RESUME=sched
-				break
-			fi
-			SCHED_WARNED=""
-		elif [ -n "$SCHEDULE_STOP" ] && [ -n "$SCHEDULE_START" ]; then
-			if sched_in_window "$SCHEDULE_STOP" "$SCHEDULE_START" "$(date '+%H:%M')"; then
-				now_in=1
+# 分片边沿检查与保活：定时窗、屏幕/解锁、Wi-Fi、httpd。
+# 返回 1 表示需要立即结束休眠进入巡检，0 表示继续。
+slice_tick() {
+	local old_policy now_in
+
+	# 定时停止窗边沿检测（放 Wi-Fi 检查之前：先停后禁启，避免本分片 Wi-Fi 把刚停的拉起）
+	# 仅边沿动作 + 写 schedule.log，分片内无变化零输出
+	# 关闭状态静默：不警告、不写无效日志；窗内关闭则退出并立即巡检恢复
+	if [ "$SCHEDULE_ENABLED" != "1" ]; then
+		if [ "$SCHED_IN_WINDOW" = "1" ]; then
+			SCHED_IN_WINDOW="0"
+			sched_log "$(ui_msg '定时启停已关闭，恢复巡检')"
+			PATROL_RESUME=sched
+			return 1
+		fi
+		SCHED_WARNED=""
+	elif [ -n "$SCHEDULE_STOP" ] && [ -n "$SCHEDULE_START" ]; then
+		if sched_in_window "$SCHEDULE_STOP" "$SCHEDULE_START" "$(date '+%H:%M')"; then
+			now_in=1
+		else
+			now_in=0
+		fi
+		if [ "$now_in" != "$SCHED_IN_WINDOW" ]; then
+			SCHED_IN_WINDOW="$now_in"
+			if [ "$now_in" = "1" ]; then
+				stop_all
+				sched_log "$(ui_msg '进入定时停止窗（%s~%s），已停止全部服务' "$SCHEDULE_STOP" "$SCHEDULE_START")"
 			else
-				now_in=0
-			fi
-			if [ "$now_in" != "$SCHED_IN_WINDOW" ]; then
-				SCHED_IN_WINDOW="$now_in"
-				if [ "$now_in" = "1" ]; then
-					stop_all
-					sched_log "$(ui_msg '进入定时停止窗（%s~%s），已停止全部服务' "$SCHEDULE_STOP" "$SCHEDULE_START")"
-				else
-					sched_log "$(ui_msg '退出定时停止窗（%s~%s），立即巡检恢复服务' "$SCHEDULE_STOP" "$SCHEDULE_START")"
-					# 出窗立即结束本轮休眠进入巡检：避免 sleep_interval=3600 时恢复延迟一小时
-					PATROL_RESUME=sched
-					break
-				fi
-			fi
-		elif [ -n "$SCHEDULE_STOP" ] || [ -n "$SCHEDULE_START" ]; then
-			# 半配置（时间非法或缺一边，含 stop==start）：视为窗外，仅首次警告一次
-			if [ "$SCHED_IN_WINDOW" = "1" ]; then
-				SCHED_IN_WINDOW="0"
 				sched_log "$(ui_msg '退出定时停止窗（%s~%s），立即巡检恢复服务' "$SCHEDULE_STOP" "$SCHEDULE_START")"
 				PATROL_RESUME=sched
-				break
+				return 1
 			fi
-			if [ -z "$SCHED_WARNED" ]; then
-				sched_log "$(ui_msg '定时时间配置无效（stop=%s start=%s），已暂停定时启停' "$SCHEDULE_STOP" "$SCHEDULE_START")"
-				SCHED_WARNED="1"
-			fi
-		else
-			SCHED_IN_WINDOW="0"
-			SCHED_WARNED=""
 		fi
+	elif [ -n "$SCHEDULE_STOP" ] || [ -n "$SCHEDULE_START" ]; then
+		# 半配置（时间非法或缺一边，含 stop==start）：视为窗外，仅首次警告一次
+		if [ "$SCHED_IN_WINDOW" = "1" ]; then
+			SCHED_IN_WINDOW="0"
+			sched_log "$(ui_msg '退出定时停止窗（%s~%s），立即巡检恢复服务' "$SCHEDULE_STOP" "$SCHEDULE_START")"
+			PATROL_RESUME=sched
+			return 1
+		fi
+		if [ -z "$SCHED_WARNED" ]; then
+			sched_log "$(ui_msg '定时时间配置无效（stop=%s start=%s），已暂停定时启停' "$SCHEDULE_STOP" "$SCHEDULE_START")"
+			SCHED_WARNED="1"
+		fi
+	else
+		SCHED_IN_WINDOW="0"
+		SCHED_WARNED=""
+	fi
 
-		# 屏幕/解锁边沿：亮屏且已解锁才结束休眠进巡检恢复，锁屏中亮屏只等解锁边沿
-		refresh_screen_gate
-		if [ "$SCREEN_ON" != "$old_screen" ]; then
-			old_screen=$SCREEN_ON
-			# 同步解锁态：熄屏期间 SCREEN_UNLOCK_OK 恒 1，不同步会掩盖随后的 0→1 解锁边沿
-			old_unlock=$SCREEN_UNLOCK_OK
-			if [ "$SCREEN_ON" = "1" ]; then
-				if [ "$SCREEN_UNLOCK_OK" = "1" ]; then
-					if [ "$SCHED_IN_WINDOW" = "1" ]; then
-						# 定时窗优先级高于亮屏恢复：窗内不恢复，日志如实说明
-						screen_log "$(ui_msg '亮屏且已解锁，定时停止窗内，暂停拉起')"
-					else
-						screen_log "$(ui_msg '亮屏且已解锁，立即巡检恢复服务')"
-						PATROL_RESUME=screen
-						break
-					fi
-				else
-					screen_log "$(ui_msg '亮屏（锁屏中，待解锁后恢复）')"
-				fi
-			else
-				stop_all "$SCREEN_SERVICE_NAMES"
-				screen_log "$(ui_msg '进入熄屏，停止非白名单服务')"
-			fi
-		elif [ "$SCREEN_ON" = "1" ] && [ "$SCREEN_UNLOCK_OK" != "$old_unlock" ]; then
-			old_unlock=$SCREEN_UNLOCK_OK
+	# 屏幕/解锁边沿：亮屏且已解锁才结束休眠进巡检恢复，锁屏中亮屏只等解锁边沿
+	refresh_screen_gate
+	if [ "$SCREEN_ON" != "$SLICE_SCREEN_SEEN" ]; then
+		SLICE_SCREEN_SEEN=$SCREEN_ON
+		# 同步解锁态：熄屏期间 SCREEN_UNLOCK_OK 恒 1，不同步会掩盖随后的 0→1 解锁边沿
+		SLICE_UNLOCK_SEEN=$SCREEN_UNLOCK_OK
+		if [ "$SCREEN_ON" = "1" ]; then
 			if [ "$SCREEN_UNLOCK_OK" = "1" ]; then
 				if [ "$SCHED_IN_WINDOW" = "1" ]; then
-					screen_log "$(ui_msg '亮屏已解锁，定时停止窗内，暂停拉起')"
+					# 定时窗优先级高于亮屏恢复：窗内不恢复，日志如实说明
+					screen_log "$(ui_msg '亮屏且已解锁，定时停止窗内，暂停拉起')"
 				else
-					screen_log "$(ui_msg '亮屏已解锁，立即巡检恢复服务')"
+					screen_log "$(ui_msg '亮屏且已解锁，立即巡检恢复服务')"
 					PATROL_RESUME=screen
-					break
+					return 1
 				fi
 			else
-				screen_log "$(ui_msg '亮屏又进入锁屏（不拉起，运行中服务保留）')"
+				screen_log "$(ui_msg '亮屏（锁屏中，待解锁后恢复）')"
 			fi
+		else
+			stop_all "$SCREEN_SERVICE_NAMES"
+			screen_log "$(ui_msg '进入熄屏，停止非白名单服务')"
 		fi
-
-		# Wi-Fi 策略变化检测与同步（在分片休眠中实时响应网络变化，无需等待下一个完整巡检周期）
-		# 窗内 sync 的 do_start 分支已被 SCHED_IN_WINDOW 守卫禁启（见 lib.sh），只执行停止分支
-		old_policy=$WIFI_POLICY
-		calc_wifi_policy
-		if [ "$WIFI_POLICY" != "$old_policy" ]; then
-			sync_wifi_service_policy "$WIFI_POLICY" on
-			sync_wifi_service_policy "$WIFI_POLICY" off
-		fi
-
-		# 外部访问保活：启用且有密码、httpd 未运行或端口无监听则拉起。
-		# 断网/省电后进程可能活着但监听 socket 被 ROM 摘除（pid 探活探不出），端口探活补盲区。
-		if [ "$WEBUI_ENABLED" = "1" ] && [ -n "$WEBUI_PASSWORD_HASH" ]; then
-			if ! svc_running httpd || webui_port_down; then
-				if ! webui_port_down || svc_running httpd; then
-					kill_by_name httpd 2>/dev/null
-					rm -f "$RUNDIR/httpd.pid"
-				fi
-				sh "$MODDIR/httpd.sh" start >/dev/null 2>&1 && \
-					webui_log "$(ui_msg 'httpd 保活拉起（分片巡检）')" || \
-					webui_log "$(ui_msg 'httpd 保活拉起失败，见 webui.log')"
+	elif [ "$SCREEN_ON" = "1" ] && [ "$SCREEN_UNLOCK_OK" != "$SLICE_UNLOCK_SEEN" ]; then
+		SLICE_UNLOCK_SEEN=$SCREEN_UNLOCK_OK
+		if [ "$SCREEN_UNLOCK_OK" = "1" ]; then
+			if [ "$SCHED_IN_WINDOW" = "1" ]; then
+				screen_log "$(ui_msg '亮屏已解锁，定时停止窗内，暂停拉起')"
+			else
+				screen_log "$(ui_msg '亮屏已解锁，立即巡检恢复服务')"
+				PATROL_RESUME=screen
+				return 1
 			fi
+		else
+			screen_log "$(ui_msg '亮屏又进入锁屏（不拉起，运行中服务保留）')"
 		fi
+	fi
 
-		# 新间隔已到或已过，立即结束本轮休眠进入巡检
-		[ "$elapsed" -ge "$target" ] && break
-	done
+	# Wi-Fi 策略变化检测与同步（在分片休眠中实时响应网络变化，无需等待下一个完整巡检周期）
+	# 窗内 sync 的 do_start 分支已被 SCHED_IN_WINDOW 守卫禁启（见 lib.sh），只执行停止分支
+	old_policy=$WIFI_POLICY
+	calc_wifi_policy
+	if [ "$WIFI_POLICY" != "$old_policy" ]; then
+		sync_wifi_service_policy "$WIFI_POLICY" on
+		sync_wifi_service_policy "$WIFI_POLICY" off
+	fi
+
+	# 外部访问保活：启用且有密码、httpd 未运行或端口无监听则拉起。
+	# 断网/省电后进程可能活着但监听 socket 被 ROM 摘除（pid 探活探不出），端口探活补盲区。
+	if [ "$WEBUI_ENABLED" = "1" ] && [ -n "$WEBUI_PASSWORD_HASH" ]; then
+		if ! svc_running httpd || webui_port_down; then
+			if ! webui_port_down || svc_running httpd; then
+				kill_by_name httpd 2>/dev/null
+				rm -f "$RUNDIR/httpd.pid"
+			fi
+			sh "$MODDIR/httpd.sh" start >/dev/null 2>&1 && \
+				webui_log "$(ui_msg 'httpd 保活拉起（分片巡检）')" || \
+				webui_log "$(ui_msg 'httpd 保活拉起失败，见 webui.log')"
+		fi
+	fi
+
+	return 0
 }
 
 wait_boot_stages

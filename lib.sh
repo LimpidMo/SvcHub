@@ -536,19 +536,20 @@ WAKE_LOCK_NAME=svchub_wakelock
 
 # 可用性探测：直接真写一次再释放，不依赖 -w（root 与 sysfs 下权限位不可靠）。
 wake_lock_supported() {
-	echo "$WAKE_LOCK_NAME" > /sys/power/wake_lock 2>/dev/null || return 1
-	echo "$WAKE_LOCK_NAME" > /sys/power/wake_unlock 2>/dev/null
+	[ -e /sys/power/wake_lock ] || return 1
+	echo "$WAKE_LOCK_NAME" 2>/dev/null > /sys/power/wake_lock || return 1
+	echo "$WAKE_LOCK_NAME" 2>/dev/null > /sys/power/wake_unlock
 	return 0
 }
 
 wake_lock_release() {
-	echo "$WAKE_LOCK_NAME" > /sys/power/wake_unlock 2>/dev/null
+	echo "$WAKE_LOCK_NAME" 2>/dev/null > /sys/power/wake_unlock
 	return 0
 }
 
 wake_lock_sync() {
 	if [ "$WAKE_LOCK_ENABLED" = "1" ]; then
-		 echo "$WAKE_LOCK_NAME" > /sys/power/wake_lock 2>/dev/null
+		echo "$WAKE_LOCK_NAME" 2>/dev/null > /sys/power/wake_lock
 	else
 		wake_lock_release
 	fi
@@ -589,7 +590,9 @@ start_svc() {
 	(
 		cd "$dir"
 		: > "$log"
-		setsid "$su_bin" $extra -c "$cmdtext; wait" </dev/null >>"$log" 2>&1 &
+		# wait 用换行拼接：命令以 & 结尾时 "&; wait" 是语法错误，换行才是两条语句
+		setsid "$su_bin" $extra -c "$cmdtext
+wait" </dev/null >>"$log" 2>&1 &
 		leader=$!
 		printf '%s\n' "$leader" > "$pidf"
 	) >> "$log" 2>&1 &
