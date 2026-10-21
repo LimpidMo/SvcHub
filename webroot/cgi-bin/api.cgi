@@ -349,8 +349,18 @@ logout)
     ;;
 webuitoken)
     # 仅会话 Cookie 可查（防 ?token= 进代理日志扩散）。
-    sess_valid "$(cookie SVC_SESS)" || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
-    OUT=$(api_webui_token_show 2>/dev/null)
+    TOKEN_SESS=$(cookie SVC_SESS)
+    sess_valid "$TOKEN_SESS" || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
+    # 仅 Token 会话（tsess_*）显示剩余天数；密码会话不冒充 Token 有效期
+    LEFT_DAYS=""
+    if [ -f "$WEBUI_TSESS_PREFIX$TOKEN_SESS" ]; then
+        TOKEN_LEFT=$(sess_left "$TOKEN_SESS" 2>/dev/null)
+        case "$TOKEN_LEFT" in
+        ''|*[!0-9]*) ;;
+        *) LEFT_DAYS=$(( (TOKEN_LEFT + 86399) / 86400 )) ;;
+        esac
+    fi
+    OUT=$(api_webui_token_show "$LEFT_DAYS" 2>/dev/null)
     cgi_authed "$OUT"
     ;;
 whoami)

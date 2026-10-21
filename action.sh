@@ -376,10 +376,10 @@ api_webui_regen_token() {
 	printf '{"success":true,"token":"%s"}\n' "$WEBUI_TOKEN"
 }
 
-# 查询长期 Token 明文。
+# 查询长期 Token 明文；$1=当前 Token 会话剩余天数（管理器通道无会话，留空）。
 api_webui_token_show() {
 	load_cfg_sh
-	printf '{"success":true,"token":"%s"}\n' "$WEBUI_TOKEN"
+	printf '{"success":true,"token":"%s","days":"%s"}\n' "$WEBUI_TOKEN" "${1:-}"
 }
 
 # 外部访问状态（轻量读取，不跑全量 load）。

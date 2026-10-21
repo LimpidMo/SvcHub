@@ -340,7 +340,7 @@
                             <div id="webui-manage" style="display:none;">
                                 <div style="display:flex;gap:6px;margin-bottom:10px;">
                                     <button class="btn btn-lg" style="flex:1;" onclick="showWebuiPasswd()" data-i18n="btn.passwd">修改密码</button>
-                                    <button class="btn btn-lg" style="flex:1;" onclick="showWebuiToken()" data-i18n="btn.token">长期 Token</button>
+                                    <button class="btn btn-lg" style="flex:1;" id="btn-webui-token" onclick="showWebuiToken()" data-i18n="btn.token">长期 Token</button>
                                     <button class="btn btn-lg" onclick="showLog('webui')" data-i18n="btn.log">日志</button>
                                 </div>
                                 <div id="webui-passwd-box" style="display:none;margin-bottom:10px;">
@@ -764,6 +764,7 @@
                 'btn.refresh': '刷新', 'btn.sort': '排序', 'btn.sortOk': '确认', 'btn.add': '添加',
                 'btn.edit': '编辑', 'btn.delete': '删除', 'btn.save': '保存', 'btn.cancel': '取消',
                 'btn.ok': '确定', 'btn.log': '日志', 'btn.passwd': '修改密码', 'btn.token': '长期 Token',
+                'btn.tokenDays': 'Token ({d}d)',
                 'btn.copy': '复制', 'btn.show': '显示', 'btn.hide': '隐藏', 'btn.clearPick': '清空选择',
                 'btn.open': '打开', 'btn.start': '启动', 'btn.stop': '停止', 'btn.restart': '重启',
                 'btn.termuxRun': '以termux运行', 'btn.run': '运行', 'btn.stopcmd': '收尾命令',
@@ -863,7 +864,7 @@
                 'btn.refresh': 'Refresh', 'btn.sort': 'Sort', 'btn.sortOk': 'Done', 'btn.add': 'Add',
                 'btn.edit': 'Edit', 'btn.delete': 'Delete', 'btn.save': 'Save', 'btn.cancel': 'Cancel',
                 'btn.ok': 'OK', 'btn.log': 'Logs', 'btn.passwd': 'Change Password',
-                'btn.token': 'Token', 'btn.copy': 'Copy', 'btn.show': 'Show', 'btn.hide': 'Hide',
+                'btn.token': 'Token', 'btn.tokenDays': 'Token ({d}d)', 'btn.copy': 'Copy', 'btn.show': 'Show', 'btn.hide': 'Hide',
                 'btn.clearPick': 'Clear', 'btn.open': 'Open', 'btn.start': 'Start', 'btn.stop': 'Stop',
                 'btn.restart': 'Restart', 'btn.termuxRun': 'Run as Termux', 'btn.run': 'Run',
                 'btn.stopcmd': 'Finish Cmd', 'btn.regen': 'Regenerate (old token dies instantly)',
@@ -1649,9 +1650,16 @@
             }
         }
 
+        // 日志请求序号：切换日志或并发刷新时，只允许最新一次响应写入 DOM
+        let logReqSeq = 0;
+
         async function refreshLog(toBottom = false) {
             if (!currentLogName) return;
-            const r = await invoke('readlog ' + sq(currentLogName) + ' 500');
+            const name = currentLogName;
+            const seq = ++logReqSeq;
+            const r = await invoke('readlog ' + sq(name) + ' 500');
+            // 请求期间切走了日志或又发了新请求：丢弃过期响应，避免串台
+            if (seq !== logReqSeq || name !== currentLogName) return;
             if (r.stdout) {
                 try {
                     const d = JSON.parse(r.stdout);
@@ -1702,7 +1710,11 @@
             };
         }
 
-        function closeLogModal() { stopLogAutoRefresh(); logAutoRefresh = false; hideAnyModal('modal-log'); }
+        function closeLogModal() {
+            stopLogAutoRefresh();
+            logAutoRefresh = false;
+            currentLogName = ''; 
+            hideAnyModal('modal-log'); }
 
         function logToTop() {
             const el = document.getElementById('log-content');
@@ -2301,7 +2313,12 @@
             const r = await invoke('webuitoken');
             try {
                 const d = JSON.parse(r.stdout || '{}');
-                if (d.success) input.value = d.token || '';
+                if (d.success) {
+                    input.value = d.token || '';
+                    const days = parseInt(d.days, 10);
+                    document.getElementById('btn-webui-token').textContent =
+                        days > 0 ? t('btn.tokenDays', { d: days }) : t('btn.token');
+                }
                 else toast(d.error || t('toast.getFail'), true);
             } catch (e) { toast(t('toast.getFail'), true); }
         }
