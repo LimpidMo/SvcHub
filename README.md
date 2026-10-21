@@ -57,10 +57,6 @@
 - **巡检保活**：默认 60 秒巡检一次（可选 10~84600 秒），自动拉起带有 `start` 标签的服务，日志自动轮转。
 - **WebUI**：中英双语支持，统一界面管理服务启停、启动配置、查看日志。支持管理器内 WebUI 与浏览器网页直连双通道，支持 PWA 安装
 
-## 项目文档
-
-完整使用说明与开发文档见 [https://limpidmo.github.io/SvcHub](https://limpidmo.github.io/SvcHub)。
-
 ## 快速开始
 
 1. [Releases](https://github.com/LimpidMo/SvcHub/releases/) 中下载模块 ZIP
@@ -76,6 +72,9 @@
 - 所有脚本为 POSIX sh，兼容 Android `/system/bin/sh`
 - 玩机有风险，请自行备份数据。代码全公开，请自行检阅后按需刷入
 
+## 项目文档
+
+完整使用说明与开发文档见 [https://limpidmo.github.io/SvcHub](https://limpidmo.github.io/SvcHub)。
 
 ## 许可证
 

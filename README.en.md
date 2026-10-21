@@ -54,10 +54,6 @@
 - **Patrol keep-alive**: patrols every 60 seconds by default (configurable 10~84600), automatically revives services tagged `start`, and rotates logs automatically.
 - **WebUI**: Chinese/English bilingual, with one interface for service start/stop, configuration and log viewing. Supports both the in-manager WebUI and direct browser access, plus PWA installation
 
-## Documentation
-
-Full user guide and development docs: [https://limpidmo.github.io/SvcHub](https://limpidmo.github.io/SvcHub).
-
 ## Getting Started
 
 1. Download the module ZIP from [Releases](https://github.com/LimpidMo/SvcHub/releases/)
@@ -73,6 +69,9 @@ Full user guide and development docs: [https://limpidmo.github.io/SvcHub](https:
 - All scripts are POSIX sh, compatible with Android `/system/bin/sh`
 - Modding has risks — back up your data. The code is fully public; review it before flashing
 
+## Documentation
+
+Full user guide and development docs: [https://limpidmo.github.io/SvcHub](https://limpidmo.github.io/SvcHub).
 
 ## License
 

@@ -23,4 +23,4 @@ Once enabled, services start/stop by the selected group; the two groups are mutu
 - **SSID**: shared by both groups, one Wi-Fi name per line; empty = any Wi-Fi
 - Best paired with services without the start tag
 
-> Note: this module does not hold a WakeLock. Depending on the device, Doze may delay feature resume until the screen turns on; this generally does not affect daily use.
+> Note: no WakeLock is held by default. Enable Wake Lock in Basic Settings to reduce Doze delays or CPU sleep in feature resume (unsupported on some kernels).

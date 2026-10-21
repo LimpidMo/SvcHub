@@ -13,4 +13,4 @@ A patrol runs every fixed interval (default 60 seconds, configurable 10~86400; i
 ## What It Does Not Do
 
 - Never kills running stop-tagged services, so temporarily started services are not mistakenly killed
-- Holds no WakeLock; depending on the device, Doze may delay feature resume until the screen turns on — this generally does not affect daily use
+- Holds no WakeLock by default; enable Wake Lock in Basic Settings to reduce Doze delays (unsupported on some kernels)

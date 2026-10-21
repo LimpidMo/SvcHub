@@ -32,7 +32,8 @@ export default defineConfig({
                 { text: '启停功能', link: '/guide/features' },
                 { text: '巡检保活', link: '/guide/keepalive' },
                 { text: '服务配置示例', link: '/guide/examples' },
-                { text: '注意事项', link: '/guide/notes' }
+                { text: '注意事项', link: '/guide/notes' },
+                { text: '常见问题', link: '/guide/faq' }
               ]
             },
             {
@@ -93,7 +94,8 @@ export default defineConfig({
                 { text: 'Start/Stop Services', link: '/en/guide/features' },
                 { text: 'Patrol Keep-alive', link: '/en/guide/keepalive' },
                 { text: 'Service Examples', link: '/en/guide/examples' },
-                { text: 'Notes', link: '/en/guide/notes' }
+                { text: 'Notes', link: '/en/guide/notes' },
+                { text: 'FAQ', link: '/en/guide/faq' }
               ]
             },
             {
