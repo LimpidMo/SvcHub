@@ -33,7 +33,7 @@
     </a>
   </p>
   <p>
-    在线文档：<a href="https://limpidmo.github.io/SvcHub">impidmo.github.io/SvcHub<a>
+    在线文档：<a href="https://limpidmo.github.io/SvcHub">limpidmo.github.io/SvcHub<a>
   </p>
   <p>
     <b>初衷就是为了聚合运行一些服务，省得一个服务装一个模块，统一管理服务。若你觉得好用，欢迎给仓库来个 Star ⭐~</b>
@@ -56,6 +56,10 @@
 - **多种启停策略**：支持定时启停、亮屏启停、Wi-Fi 启停等策略满足多样化启停需求
 - **巡检保活**：默认 60 秒巡检一次（可选 10~84600 秒），自动拉起带有 `start` 标签的服务，日志自动轮转。
 - **WebUI**：中英双语支持，统一界面管理服务启停、启动配置、查看日志。支持管理器内 WebUI 与浏览器网页直连双通道，支持 PWA 安装
+
+## 项目文档
+
+完整使用说明与开发文档见 [https://limpidmo.github.io/SvcHub](https://limpidmo.github.io/SvcHub)。
 
 ## 快速开始
 
