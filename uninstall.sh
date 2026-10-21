@@ -12,6 +12,8 @@ rm -f "$SPPID"
 stop_all
 # 外部访问收尾：停 httpd
 sh "$MODDIR/httpd.sh" stop >/dev/null 2>&1
+# 释放唤醒锁，避免卸载后仍持有
+wake_lock_release
 rm -rf "$RUNDIR"
 
 exit 0

@@ -66,7 +66,7 @@ mkdir -p "$RUNDIR" "$LOG_DIR" "$RUNDIR/session"
 # ---------- 配置（config/setting.conf 设置项 + config/services.conf 服务项） ----------
 # 配置 schema 唯一定义全键：新增设置键需同步补全 load_settings / write_settings / action.sh cfg_apply_one 及前端字段；
 # 新增服务类型只需在 load_services / write_services 加一个 type 分支。
-SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names termux_root_names patrol_enabled language webui_enabled webui_password_hash webui_token'
+SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names termux_root_names patrol_enabled wake_lock_enabled language webui_enabled webui_password_hash webui_token'
 
 # JSON 字符串编码：\ " tab CR 转义、换行转字面 \n；逐字符拼接（gsub 替换串反斜杠 busybox/gawk 语义不一致，禁用）
 enc_js() {
@@ -166,6 +166,7 @@ ui_msg() {
 	'=== 执行 %s 收尾命令 %s ===') printf '=== Running finish command for %s at %s ===' "$1" "$2" ;;
 	# ---- 开关日志（action.sh 保存设置） ----
 	'自动巡检已%s') printf 'Auto patrol turned %s' "$1" ;;
+	'唤醒锁已%s') printf 'Wake lock turned %s' "$1" ;;
 	'Wi-Fi 启停服务已%s') printf 'Wi-Fi start/stop service turned %s' "$1" ;;
 	'定时启停服务已%s') printf 'Schedule start/stop service turned %s' "$1" ;;
 	'亮屏启停服务已%s') printf 'Screen start/stop service turned %s' "$1" ;;
@@ -230,6 +231,8 @@ ui_msg() {
 	'亮屏白名单服务名不合法: %s') printf 'Invalid unlock-whitelist service name: %s' "$1" ;;
 	'root 运行服务名不合法: %s') printf 'Invalid root-run service name: %s' "$1" ;;
 	'巡检开关必须为 0 或 1') printf 'Patrol toggle must be 0 or 1' ;;
+	'唤醒锁开关必须为 0 或 1') printf 'Wake lock toggle must be 0 or 1' ;;
+	'内核不支持唤醒锁或SELinux限制') printf 'This kernel does not support wake lock or SELinux is restricting it' ;;
 	'未知配置键') printf 'Unknown config key' ;;
 	'配置内容为空') printf 'Config content is empty' ;;
 	'停止时间与启动时间不能相同') printf 'Stop time and start time cannot be the same' ;;
@@ -328,6 +331,7 @@ write_settings() {
 	printf 'screen_resume_names=%s\n'     "$(printf '%s' "$SCREEN_RESUME_NAMES" | enc_js)"
 	printf 'termux_root_names=%s\n'       "$(printf '%s' "$TERMUX_ROOT_NAMES" | enc_js)"
 		printf 'patrol_enabled=%s\n'          "$(printf '%s' "$PATROL_ENABLED" | enc_js)"
+		printf 'wake_lock_enabled=%s\n'       "$(printf '%s' "$WAKE_LOCK_ENABLED" | enc_js)"
 		printf 'language=%s\n'                "$(printf '%s' "$UI_LANG" | enc_js)"
 		printf 'webui_enabled=%s\n'           "$(printf '%s' "$WEBUI_ENABLED" | enc_js)"
 		printf 'webui_password_hash=%s\n'     "$(printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js)"
@@ -526,6 +530,31 @@ compute_runset() {
 	} | detect_running
 }
 
+# 唤醒锁：内核 PM_WAKELOCKS 接口（写名字持锁 / 写 wake_unlock 释放）。
+# 持锁与释放必须用同一名字，抽常量防改一处漏一处。
+WAKE_LOCK_NAME=svchub_wakelock
+
+# 可用性探测：直接真写一次再释放，不依赖 -w（root 与 sysfs 下权限位不可靠）。
+wake_lock_supported() {
+	echo "$WAKE_LOCK_NAME" > /sys/power/wake_lock 2>/dev/null || return 1
+	echo "$WAKE_LOCK_NAME" > /sys/power/wake_unlock 2>/dev/null
+	return 0
+}
+
+wake_lock_release() {
+	echo "$WAKE_LOCK_NAME" > /sys/power/wake_unlock 2>/dev/null
+	return 0
+}
+
+wake_lock_sync() {
+	if [ "$WAKE_LOCK_ENABLED" = "1" ]; then
+		 echo "$WAKE_LOCK_NAME" > /sys/power/wake_lock 2>/dev/null
+	else
+		wake_lock_release
+	fi
+	return 0
+}
+
 # 按服务类型启动：$1=kind(termux|binary) $2=名称 $3=命令文本。
 # 统一启动收口（巡检/Wi-Fi/WebUI）：termux 默认以完整 Termux 用户身份运行，命中 termux_root_names 名单则
 # 不注入 su 参数改以 root 运行（工作目录与 TERMUX_ENV 不变）；cmd 库存字面 \n，执行前还原为真换行。
@@ -690,6 +719,7 @@ load_settings() {
 	SCREEN_SERVICE_ENABLED=""; SCREEN_SERVICE_NAMES=""; SCREEN_RESUME_NAMES=""
 	TERMUX_ROOT_NAMES=""
 	PATROL_ENABLED=""
+	WAKE_LOCK_ENABLED=""
 	UI_LANG=""
 	WEBUI_ENABLED=""; WEBUI_PASSWORD_HASH=""; WEBUI_TOKEN=""
 	[ -f "$f" ] || return 0
@@ -698,7 +728,7 @@ load_settings() {
 		case "$line" in ''|'#'*) continue ;; esac
 		k=${line%%=*}
 		case "$k" in
-		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|screen_service_enabled|screen_service_names|screen_resume_names|termux_root_names|patrol_enabled|language|webui_enabled|webui_password_hash|webui_token) ;;
+		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|screen_service_enabled|screen_service_names|screen_resume_names|termux_root_names|patrol_enabled|wake_lock_enabled|language|webui_enabled|webui_password_hash|webui_token) ;;
 		*) continue ;;
 		esac
 		v=${line#*=}
@@ -720,6 +750,7 @@ load_settings() {
 		screen_resume_names) SCREEN_RESUME_NAMES=$v ;;
 		termux_root_names) TERMUX_ROOT_NAMES=$v ;;
 		patrol_enabled) PATROL_ENABLED=$v ;;
+		wake_lock_enabled) WAKE_LOCK_ENABLED=$v ;;
 		language) UI_LANG=$v ;;
 		webui_enabled) WEBUI_ENABLED=$v ;;
 		webui_password_hash) WEBUI_PASSWORD_HASH=$v ;;
@@ -867,6 +898,13 @@ load_cfg_sh() {
 		PATROL_ENABLED="1"
 	elif [ "$PATROL_ENABLED" != "0" ] && [ "$PATROL_ENABLED" != "1" ]; then
 		PATROL_ENABLED="1"
+	fi
+
+	# 唤醒锁：缺键默认关闭（内核不支持时同样静默降级）
+	if [ -z "$WAKE_LOCK_ENABLED" ]; then
+		WAKE_LOCK_ENABLED="0"
+	elif [ "$WAKE_LOCK_ENABLED" != "0" ] && [ "$WAKE_LOCK_ENABLED" != "1" ]; then
+		WAKE_LOCK_ENABLED="0"
 	fi
 
 	# 界面语言：缺键/空/非法按中文，与改前行为一致。

@@ -194,6 +194,8 @@ sleep_slice() {
 		LOAD_CFG_DONE=""
 		load_cfg_sh
 		target=$SLEEP_INTERVAL
+		# 每片按当前配置同步唤醒锁（开关切换后最迟一个分片生效）
+		wake_lock_sync
 		if [ "$target" != "$old_target" ]; then
 			sup_log "$(ui_msg '检查间隔更新为 %ss' "$target")"
 		fi
@@ -314,6 +316,8 @@ wait_boot_stages
 
 # 首轮加载一次配置
 load_cfg_sh
+# 按配置立即同步唤醒锁（手工重启 supervisor 时也能马上生效）
+wake_lock_sync
 
 # 定时停止窗首轮判定：重启落在窗内直接守住，巡检不拉起（无需持久化名单）
 SCHED_IN_WINDOW="0"
@@ -345,6 +349,7 @@ while :; do
 		sup_log "$(ui_msg '检测到 disable，停止全部受管服务')"
 		stop_all
 		sh "$MODDIR/httpd.sh" stop >/dev/null 2>&1
+		wake_lock_release
 		rm -f "$SPPID"
 		exit 0
 	fi

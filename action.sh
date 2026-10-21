@@ -223,6 +223,8 @@ api_get_settings() {
 		printf '%s' "$TERMUX_ROOT_NAMES" | enc_js
 		printf '","patrol_enabled":"'
 		printf '%s' "$PATROL_ENABLED" | enc_js
+		printf '","wake_lock_enabled":"'
+		printf '%s' "$WAKE_LOCK_ENABLED" | enc_js
 		printf '","language":"'
 		printf '%s' "$UI_LANG" | enc_js
 		printf '","webui_enabled":"'
@@ -502,6 +504,20 @@ cfg_apply_one() {
 		*) echo "{\"success\":false,\"error\":\"$(ui_msg '巡检开关必须为 0 或 1')\"}"; exit 1 ;;
 		esac
 		;;
+	wake_lock_enabled)
+		case "$val" in
+		0|1)
+			# 内核不支持时拒绝开启：避免开关显示已开但实际无效
+			if [ "$val" = "1" ] && ! wake_lock_supported; then
+				echo "{\"success\":false,\"error\":\"$(ui_msg '内核不支持唤醒锁或SELinux限制')\"}"
+				exit 1
+			fi
+			[ "$WAKE_LOCK_ENABLED" != "$val" ] && TOGGLE_LOG="$TOGGLE_LOG wake_lock_enabled=$val"
+			WAKE_LOCK_ENABLED=$val
+			;;
+		*) echo "{\"success\":false,\"error\":\"$(ui_msg '唤醒锁开关必须为 0 或 1')\"}"; exit 1 ;;
+		esac
+		;;
 	language)
 		case "$val" in
 		zh|en)
@@ -539,6 +555,8 @@ api_save_settings() {
 	fi
 	write_settings || { echo "{\"success\":false,\"error\":\"$(ui_msg '配置写入失败')\"}"; exit 1; }
 	cfg_verify_written
+	# 开关即时生效：写盘成功后立刻持锁/释放
+	wake_lock_sync
 	# 落盘成功后才记开关日志，避免写失败时日志与实际状态不一致
 	for tkey in $TOGGLE_LOG; do
 		tval=${tkey#*=}
@@ -549,6 +567,7 @@ api_save_settings() {
 		wifi_service_enabled)   wifi_log   "$(ui_msg 'Wi-Fi 启停服务已%s' "$tstate")" ;;
 		schedule_enabled)       sched_log  "$(ui_msg '定时启停服务已%s' "$tstate")" ;;
 		screen_service_enabled) screen_log "$(ui_msg '亮屏启停服务已%s' "$tstate")" ;;
+		wake_lock_enabled)      sup_log    "$(ui_msg '唤醒锁已%s' "$tstate")" ;;
 		esac
 	done
 	# 语言本次有变：落盘成功后同步管理器 description 覆盖（KernelSU 生效，其他方案零操作）

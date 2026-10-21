@@ -317,6 +317,16 @@
                             <div class="form-error" id="error-sleep"></div>
                         </div>
                     </div>
+                    <div class="form">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label class="form-label-strong" style="margin:0;" data-i18n="label.wakeLock">唤醒锁</label>
+                            <label class="switch" data-i18n-attr="title:title.wakeLock" title="保持 CPU 唤醒，减少锁屏休眠解决巡检/启停响应延后问题，耗电略增">
+                                <input type="checkbox" id="wakelock-switch" onclick="toggleWakeLock(this)">
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-hint" data-i18n="hint.wakeLock">保持 CPU 唤醒，减少锁屏休眠解决巡检/启停响应延后问题，耗电略增</div>
+                    </div>
                 <div class="form">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                         <label class="form-label-strong" style="margin:0;" data-i18n="label.webui">外部访问</label>
@@ -609,6 +619,7 @@
             screen_service_enabled: false, screen_service_names: new Set(), screen_resume_names: new Set(),
             termux_root_names: new Set(),
             patrol_enabled: false,
+            wake_lock_enabled: false,
             language: 'zh',
             webui_enabled: false, webui_port: 5555
         };
@@ -762,6 +773,8 @@
                 'label.serverDir': '服务目录', 'hint.serverDir': '务必将二进制文件设为可执行权限',
                 'hint.serverDirPh': '/storage/emulated/0/ → 自动转换可执行目录 /data/media/0/',
                 'label.patrol': '巡检保活', 'title.patrol': '自动巡检：关闭后仅停周期拉起；出停止窗/亮屏解锁/Wi-Fi 条件满足的恢复照常',
+                'label.wakeLock': '唤醒锁', 'title.wakeLock': '保持 CPU 唤醒，减少锁屏休眠解决巡检/启停响应延后问题，耗电略增',
+                'hint.wakeLock': '保持 CPU 唤醒，减少锁屏休眠解决巡检/启停响应延后问题，耗电略增',
                 'label.sleep': '检查间隔 (秒)，最小10秒，建议60秒', 'err.sleep': '最小值为10秒',
                 'label.webui': '外部访问', 'status.webuiLoading': '状态：加载中...',
                 'status.webuiRunning': '状态：运行中（http://本机IP:{port}），默认密码admin',
@@ -862,6 +875,8 @@
                 'hint.serverDir': 'Make sure the binary has the executable permission',
                 'hint.serverDirPh': '/storage/emulated/0/ → auto-converted to /data/media/0/',
                 'label.patrol': 'Keep-alive Patrol',
+                'label.wakeLock': 'Wake Lock', 'title.wakeLock': 'Keep the CPU awake so services are not suspended while the screen is off; some kernels do not support this',
+                'hint.wakeLock': 'Keeps the CPU awake so patrols and start/stop features respond promptly after screen-off; power use rises slightly',
                 'title.patrol': 'Auto patrol: when off, only periodic restarts stop; stop-window exit / screen unlock / Wi-Fi recovery still apply',
                 'label.sleep': 'Interval (sec), min 10, 60 recommended', 'err.sleep': 'Minimum is 10 seconds',
                 'label.webui': 'Web Access', 'status.webuiLoading': 'Status: loading...',
@@ -1769,6 +1784,7 @@
                     configData.screen_resume_names = new Set((d.screen_resume_names || '').split('\n').map(s => s.trim()).filter(Boolean));
                     configData.termux_root_names = new Set((d.termux_root_names || '').split('\n').map(s => s.trim()).filter(Boolean));
                     configData.patrol_enabled = d.patrol_enabled === '1';
+                    configData.wake_lock_enabled = d.wake_lock_enabled === '1';
                     configData.language = d.language === 'en' ? 'en' : 'zh';
                     configData.webui_enabled = d.webui_enabled === '1';
                     isSettingsLoaded = true;
@@ -1791,6 +1807,9 @@
                     if (typeof patrolToggling !== 'undefined' && patrolToggling) {
                         document.getElementById('patrol-switch').checked = configData.patrol_enabled;
                         document.getElementById('patrol-panel').style.display = configData.patrol_enabled ? 'block' : 'none';
+                    }
+                    if (typeof wakeLockToggling !== 'undefined' && wakeLockToggling) {
+                        document.getElementById('wakelock-switch').checked = configData.wake_lock_enabled;
                     }
                     if (typeof webuiToggling !== 'undefined' && webuiToggling) {
                         document.getElementById('webui-switch').checked = configData.webui_enabled;
@@ -1844,6 +1863,9 @@
             if (typeof patrolToggling === 'undefined' || !patrolToggling) {
                 document.getElementById('patrol-switch').checked = configData.patrol_enabled;
                 document.getElementById('patrol-panel').style.display = configData.patrol_enabled ? 'block' : 'none';
+            }
+            if (typeof wakeLockToggling === 'undefined' || !wakeLockToggling) {
+                document.getElementById('wakelock-switch').checked = configData.wake_lock_enabled;
             }
             renderConfigLists();
         }
@@ -2114,6 +2136,26 @@
                     sw.checked = !on;
                     document.getElementById('patrol-panel').style.display = !on ? 'block' : 'none';
                     toast(t('toast.saveFail'), true);
+                }
+            });
+        }
+        // —— 唤醒锁开关 ——
+
+        let wakeLockToggling = false;
+        function toggleWakeLock(el) {
+            if (wakeLockToggling) return;
+            const sw = el || document.getElementById('wakelock-switch');
+            const on = sw.checked;
+            wakeLockToggling = true;
+            sw.disabled = true;
+            configData.wake_lock_enabled = on;
+            saveSettingsKeySilent('wake_lock_enabled', on ? '1' : '0', (ok) => {
+                wakeLockToggling = false;
+                sw.disabled = false;
+                if (ok) toast(t(on ? 'toast.on' : 'toast.off'));
+                else {
+                    configData.wake_lock_enabled = !on;
+                    sw.checked = !on;
                 }
             });
         }
@@ -2469,7 +2511,14 @@
                     toast(msg, true);
                 } catch (e) { toast(t('toast.saveFail'), true); }
             } else if (r.errno !== 401 && r.errno !== 404) {
-                toast(t('toast.saveFail'), true);
+                // 管理器通道校验失败会带非零退出码 + JSON 错误体，优先展示后端文案
+                let msg = t('toast.saveFail');
+                try {
+                    const d = JSON.parse((r.stdout || '').trim() || '{}');
+                    if (d && d.error) msg = d.error;
+                } catch (e) { /* 非 JSON 回包走通用文案 */ }
+                if (errEl) errEl.textContent = msg;
+                toast(msg, true);
             }
             return false;
         }
@@ -2480,6 +2529,7 @@
             if (ok) {
                 if (key === 'wifi_service_enabled') configData.wifi_service_enabled = (value === '1');
                 else if (key === 'patrol_enabled') configData.patrol_enabled = (value === '1');
+                else if (key === 'wake_lock_enabled') configData.wake_lock_enabled = (value === '1');
                 else if (key === 'wifi_ssids') configData.wifi_ssids = value;
                 else if (key === 'screen_service_enabled') configData.screen_service_enabled = (value === '1');
                 if (!silent) toast(t('toast.saved'));
@@ -2488,6 +2538,11 @@
             }
             if (done) done(ok);
             return ok;
+        }
+
+        // 静默保存：错误只由 saveConfigPayload 弹一次，调用方只负责回滚 UI
+        function saveSettingsKeySilent(key, value, done) {
+            return saveSettingsKey(key, value, done, true);
         }
 
         function updateWifiPickBtn() {
