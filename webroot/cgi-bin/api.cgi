@@ -58,14 +58,36 @@ urldec() {
     done
 }
 
-# 取查询参数 $1=名（已解码）。
+# 取查询参数 $1=名（含 % 才解码）；纯 shell 切分零 fork（原 tr+sed+head+urldec 每请求 5 次）
 qparam() {
-    printf '%s' "$QUERY_STRING" | tr '&' '\n' | sed -n "s/^$1=//p" | head -n 1 | { IFS= read -r v || [ -n "$v" ]; urldec "$v"; }
+    local rest=${QUERY_STRING} kv pair found=""
+    while [ -n "$rest" ]; do
+        kv=${rest%%&*}
+        [ "$kv" = "$rest" ] && rest="" || rest=${rest#*&}
+        case "$kv" in
+        "$1"=*) pair=${kv#*=}; found=1; break ;;
+        esac
+    done
+    [ -n "$found" ] || return 1
+    case "$pair" in
+    *%*) urldec "$pair" ;;
+    *) printf '%s' "$pair" ;;
+    esac
 }
 
-# 取 Cookie $1=名。
+# 取 Cookie $1=名；纯 shell 逐段切分零 fork（原 tr+sed+sed+head 每请求 4 次）
 cookie() {
-    printf '%s' "$HTTP_COOKIE" | tr ';' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed -n "s/^$1=//p" | head -n 1
+    local rest=${HTTP_COOKIE} kv
+    while [ -n "$rest" ]; do
+        kv=${rest%%;*}
+        [ "$kv" = "$rest" ] && rest="" || rest=${rest#*;}
+        # 浏览器以 "; " 分隔，去掉段首空格后再按名精确匹配（防 MY_SVC_SESS 之类误命中）
+        while [ "${kv# }" != "$kv" ]; do kv=${kv# }; done
+        case "$kv" in
+        "$1="*) printf '%s' "${kv#*=}"; return 0 ;;
+        esac
+    done
+    return 1
 }
 
 # 取 Bearer Token。
@@ -87,10 +109,15 @@ client_ip() {
     printf '%s' "${REMOTE_ADDR:-unknown}" | tr -c 'A-Za-z0-9.:_' '_'
 }
 
-# Origin 兜底（老 WebView 不认 SameSite）：带 Origin 必须同源；头缺失则放行，自定义请求头仍是主防线。
+# Origin 兜底（老 WebView 不认 SameSite）：带 Origin 的主机名须与 Host 一致；头缺失则放行，自定义请求头仍是主防线。
+# 只比 host:port 不比 scheme：反代/内网穿透（cloudflared 等）会把 http 升成 https，Origin 的 scheme 必然
+# 与 Host 不同，字面整串比较会误判为跨站，导致穿透访问一保存就掉登录。
 cgi_origin_ok() {
-    [ -n "$HTTP_ORIGIN" ] && [ -n "$HTTP_HOST" ] || return 0
-    [ "$HTTP_ORIGIN" = "http://$HTTP_HOST" ]
+	[ -n "$HTTP_ORIGIN" ] && [ -n "$HTTP_HOST" ] || return 0
+	# 去掉 Origin 的 scheme 前缀（:// 前的部分），余下 host[:port] 与 Host 比对
+	local oh=${HTTP_ORIGIN#*://}
+	[ "$oh" != "$HTTP_ORIGIN" ] || return 1
+	[ "$oh" = "$HTTP_HOST" ]
 }
 
 # 审计日志压行：换行/回车转分号，防多行参数伪造日志行（runcmd 分支同款处理）。
@@ -286,9 +313,11 @@ sess_sweep() {
 	done
 }
 
-load_cfg_sh
 R=$(route)
 [ -n "$R" ] || { cgi_fail "404 Not Found" "$(ui_msg 未知接口)"; exit 0; }
+
+# 所有分支都依赖配置变量（status 读哈希、login 读哈希/Token/TTL），故不可整体跳过
+load_cfg_sh
 
 case "$R" in
 status)
@@ -408,7 +437,7 @@ webuistart|webuistop)
     # 开关走管理器，CGI 不代理。
     cgi_fail "403 Forbidden" "$(ui_msg 请在管理器内操作)"
     ;;
-svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|execboot|runcmd|runcmdtermux)
+svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|runcmd|runcmdtermux)
     auth_check 1 || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
     # 滑动过期：每次有效访问续满 TTL，锁屏回来不断登。
     case "$R" in
@@ -425,7 +454,7 @@ svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|read
         OUT=$(api_get_services 2>/dev/null)
         cgi_authed "$OUT"
         ;;
-    savesettings|saveservices|runcmd|runcmdtermux|execboot)
+    savesettings|saveservices|runcmd|runcmdtermux)
         # body 透传 stdin；空 body 直接拒，防“已保存”假成功。
         cgi_check_body
         case "$SUB" in
@@ -433,7 +462,6 @@ svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|read
         saveservices) webui_log "$(ui_msg '保存服务项：%s' "$(client_ip)")"; OUT=$(cat | api_save_services 2>/dev/null) ;;
         runcmd) BODY=$(cat); webui_log "$(ui_msg '测试命令（普通）来源 %s：%s' "$(client_ip)" "$(printf '%s' "$BODY" | tr '\n' ';')")"; OUT=$(printf '%s' "$BODY" | api_run_cmd 2>/dev/null) ;;
         runcmdtermux) BODY=$(cat); webui_log "$(ui_msg '测试命令（Termux）来源 %s：%s' "$(client_ip)" "$(printf '%s' "$BODY" | tr '\n' ';')")"; OUT=$(printf '%s' "$BODY" | api_run_cmd termux 2>/dev/null) ;;
-        execboot) webui_log "$(ui_msg '手动执行开机命令：%s' "$(client_ip)")"; OUT=$(api_exec_boot 2>/dev/null) ;;
         esac
         cgi_authed "$OUT"
         ;;

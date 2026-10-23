@@ -39,28 +39,28 @@ validate_name_list() {
 }
 
 # 服务行校验：合法输出空，非法输出首个非法行号（saveservices 指明行号共用）。
+# 单次 awk 完成全部校验；end_cmd 恒末段可含 |（从第 5 段重拼），故 cmd 禁 | 只约束第 4 段。
 validate_rows() {
-	# 两类校验规则一致，无需按 kind 分支；$1 保留供调用方传键名
-	local r=0 line name port auto cmd endcmd
-	while IFS= read -r line; do
-		[ -z "$line" ] && continue
-		r=$((r + 1))
-		if [ "$r" -gt 500 ]; then printf '%s' "$r"; return 0; fi
-		IFS='|' read -r name port auto cmd endcmd <<EOF
-$line
-EOF
-		# 段数不足时 endcmd 为空，由下方非空校验拦住（end_cmd 可含 | ，末变量保留原始分隔符）
-		valid_name "$name" || { printf '%s' "$r"; return 0; }
-		[ -n "$cmd" ] || { printf '%s' "$r"; return 0; }
-		case "$auto" in start|stop) ;; *) printf '%s' "$r"; return 0 ;; esac
-		case "$port" in *\|*) printf '%s' "$r"; return 0 ;; esac
-		[ "${#port}" -le 32 ] || { printf '%s' "$r"; return 0; }
-		# 启动命令段禁 |（段切分无法区分段符与管道；末段 end_cmd 不受限）；管道需求用 sh -c 'a | b' 包装
-		case "$cmd" in *\|*) printf '%s' "$r"; return 0 ;; esac
-		[ "${#cmd}" -le 8192 ] || { printf '%s' "$r"; return 0; }
-		[ "${#endcmd}" -le 4096 ] || { printf '%s' "$r"; return 0; }
-	done
-	return 0
+	awk '
+	function valid_name(s) { return s ~ /^[A-Za-z0-9._-]+$/ }
+	BEGIN { FS = "|" }
+	{
+		if ($0 == "") next
+		r++
+		if (r > 500) { printf "%s", r; exit }
+		name = $1; port = $2; auto = $3; cmd = $4
+		endcmd = $5
+		for (i = 6; i <= NF; i++) endcmd = endcmd "|" $i
+		if (!valid_name(name)) { printf "%s", r; exit }
+		if (cmd == "") { printf "%s", r; exit }
+		if (auto != "start" && auto != "stop") { printf "%s", r; exit }
+		if (index(port, "|") > 0) { printf "%s", r; exit }
+		if (length(port) > 32) { printf "%s", r; exit }
+		if (index(cmd, "|") > 0) { printf "%s", r; exit }
+		if (length(cmd) > 8192) { printf "%s", r; exit }
+		if (length(endcmd) > 4096) { printf "%s", r; exit }
+	}
+	'
 }
 
 clear_log() {
@@ -69,11 +69,18 @@ clear_log() {
 	: > "$LOG_DIR/$name.log"
 }
 
-# 行列表 -> JSON 对象数组：单个 awk 完成字段转义与运行状态注入，避免逐字段 fork。
-# 运行名单经环境变量 RUNSET 传入（$1）；行列表从 stdin 读。两类内存统一 4 段，输出结构相同。
+# 行列表 -> JSON 对象数组：单个 awk 完成转义与状态注入，避免逐字段 fork。
+# $1=运行名单（经 ENVIRON 传入），行列表从 stdin 读；两类内存统一 5 段，输出结构相同。
+# 传 $2/$3 时顺带输出 boot_id/server_dir 头部（省两次 enc_js fork），按参数个数判断。
 rows_to_json() {
-	RUNSET=$1 awk '
-BEGIN { FS = "|"; runset = ENVIRON["RUNSET"] }
+	local head=""
+	[ $# -ge 2 ] && head=1
+	RUNSET=$1 BOOT_ID=$2 SERVER_DIR_V=$3 awk -v head="$head" '
+BEGIN {
+	FS = "|"; runset = ENVIRON["RUNSET"]
+	if (head == "1")
+		printf "{\"boot_id\":\"%s\",\"server_dir\":\"%s\",\"termux_services\":[", esc(ENVIRON["BOOT_ID"]), esc(ENVIRON["SERVER_DIR_V"])
+}
 function esc(s,   o, i, n, c) {
 	o = ""; n = length(s)
 	for (i = 1; i <= n; i++) {
@@ -82,6 +89,7 @@ function esc(s,   o, i, n, c) {
 		else if (c == "\"") o = o "\\\""
 		else if (c == "\t") o = o "\\t"
 		else if (c == "\r") o = o "\\r"
+		else if (c == "\n") o = o "\\n"
 		else o = o c
 	}
 	return o
@@ -102,9 +110,10 @@ api_get_status() {
 	load_cfg_sh
 	# 批量检测全部服务运行状态（单次遍历 pid 文件），避免逐服务 fork
 	runset=$(compute_runset)
-	boot_id=$(cat "$BOOTID_FILE" 2>/dev/null)
-	printf '{"boot_id":"%s","server_dir":"%s","termux_services":[' "$(printf '%s' "$boot_id" | enc_js)" "$(printf '%s' "$SERVER_DIR" | enc_js)"
-	rows_to_json "$runset" <<EOF
+	boot_id=""
+	if [ -r "$BOOTID_FILE" ]; then read -r boot_id < "$BOOTID_FILE" || true; fi
+	# boot_id/server_dir 的转义并进首段的 rows_to_json awk，省两次独立 enc_js fork
+	rows_to_json "$runset" "$boot_id" "$SERVER_DIR" <<EOF
 $TERMUX_SERVICES
 EOF
 	printf '],"binary_services":['
@@ -189,48 +198,62 @@ api_read_log() {
 	}
 }
 
-# 设置页按需读：15 设置键（不含服务行）。
+# 设置页按需读：18 设置键（SETTING_KEYS 去掉哈希与 Token）；一次 awk 批量转义，免逐键 fork enc_js。
 api_get_settings() {
 	load_cfg_sh
 	{
-		printf '{"sleep_interval":"'
-		printf '%s' "$SLEEP_INTERVAL" | enc_js
-		printf '","server_dir":"'
-		printf '%s' "$SERVER_DIR" | enc_js
-		printf '","boot_commands":"'
-		printf '%s' "$BOOT_COMMANDS" | enc_js
-		printf '","wifi_service_enabled":"'
-		printf '%s' "$WIFI_SERVICE_ENABLED" | enc_js
-		printf '","wifi_service_names":"'
-		printf '%s' "$WIFI_SERVICE_NAMES" | enc_js
-		printf '","wifi_service_names_off":"'
-		printf '%s' "$WIFI_SERVICE_NAMES_OFF" | enc_js
-		printf '","wifi_ssids":"'
-		printf '%s' "$WIFI_SSIDS" | enc_js
-		printf '","schedule_enabled":"'
-		printf '%s' "$SCHEDULE_ENABLED" | enc_js
-		printf '","schedule_stop":"'
-		printf '%s' "$SCHEDULE_STOP" | enc_js
-		printf '","schedule_start":"'
-		printf '%s' "$SCHEDULE_START" | enc_js
-		printf '","screen_service_enabled":"'
-		printf '%s' "$SCREEN_SERVICE_ENABLED" | enc_js
-		printf '","screen_service_names":"'
-		printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js
-		printf '","screen_resume_names":"'
-		printf '%s' "$SCREEN_RESUME_NAMES" | enc_js
-		printf '","termux_root_names":"'
-		printf '%s' "$TERMUX_ROOT_NAMES" | enc_js
-		printf '","patrol_enabled":"'
-		printf '%s' "$PATROL_ENABLED" | enc_js
-		printf '","wake_lock_enabled":"'
-		printf '%s' "$WAKE_LOCK_ENABLED" | enc_js
-		printf '","language":"'
-		printf '%s' "$UI_LANG" | enc_js
-		printf '","webui_enabled":"'
-		printf '%s' "$WEBUI_ENABLED" | enc_js
-		printf '"}\n'
+		cat <<KVEOF
+sleep_interval=$SLEEP_INTERVAL
+server_dir=$SERVER_DIR
+boot_commands=$BOOT_COMMANDS
+wifi_service_enabled=$WIFI_SERVICE_ENABLED
+wifi_service_names=$WIFI_SERVICE_NAMES
+wifi_service_names_off=$WIFI_SERVICE_NAMES_OFF
+wifi_ssids=$WIFI_SSIDS
+schedule_enabled=$SCHEDULE_ENABLED
+schedule_stop=$SCHEDULE_STOP
+schedule_start=$SCHEDULE_START
+screen_service_enabled=$SCREEN_SERVICE_ENABLED
+screen_service_names=$SCREEN_SERVICE_NAMES
+screen_resume_names=$SCREEN_RESUME_NAMES
+termux_root_names=$TERMUX_ROOT_NAMES
+patrol_enabled=$PATROL_ENABLED
+wake_lock_enabled=$WAKE_LOCK_ENABLED
+language=$UI_LANG
+webui_enabled=$WEBUI_ENABLED
+KVEOF
+	} | KEYS_ORDER="sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names termux_root_names patrol_enabled wake_lock_enabled language webui_enabled" awk '
+	function esc(s,   o, i, n, c) {
+		o = ""; n = length(s)
+		for (i = 1; i <= n; i++) {
+			c = substr(s, i, 1)
+			if (c == "\\") o = o "\\\\"
+			else if (c == "\"") o = o "\\\""
+			else if (c == "\t") o = o "\\t"
+			else if (c == "\r") o = o "\\r"
+			else if (c == "\n") o = o "\\n"
+			else o = o c
+		}
+		return o
 	}
+	# 只有「下一个键的精确前缀」才算新键，值里形如 foo=bar 的续行不会被误判
+	BEGIN {
+		nf = split(ENVIRON["KEYS_ORDER"], K, " ")
+		ki = 1; pend = K[1]; val = ""; first = 1
+		printf "{"
+	}
+	{
+		if (ki < nf && index($0, K[ki + 1] "=") == 1) {
+			printf "%s\"%s\":\"%s\"", (n++ ? "," : ""), pend, esc(val)
+			ki++; pend = K[ki]; val = substr($0, length(K[ki]) + 2)
+		} else if (first) {
+			val = substr($0, length(K[ki]) + 2)
+			first = 0
+		} else {
+			val = val "\n" $0
+		}
+	}
+	END { printf "%s\"%s\":\"%s\"", (n++ ? "," : ""), pend, esc(val); printf "}\n" }'
 }
 
 # 服务页按需读：两类服务行（前端 parseRows 不动）。
@@ -587,7 +610,7 @@ api_save_services() {
 		termux_services|binary_services) ;;
 		*) echo "{\"success\":false,\"error\":\"$(ui_msg '未知配置键')\"}"; exit 1 ;;
 		esac
-		bad=$(printf '%s\n' "$KV_VAL" | validate_rows "$KV_KEY")
+		bad=$(printf '%s\n' "$KV_VAL" | validate_rows)
 		[ -z "$bad" ] || { echo "{\"success\":false,\"error\":\"$(ui_msg '服务配置格式错误（第 %s 行）' "$bad")\"}"; exit 1; }
 		if [ "$KV_KEY" = termux_services ]; then TERMUX_SERVICES=$KV_VAL; else BINARY_SERVICES=$KV_VAL; fi
 		provided="$provided $KV_KEY"

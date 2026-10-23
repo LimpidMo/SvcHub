@@ -20,10 +20,8 @@ WEB_CONF="$CONFIG_DIR/web.conf"
 DEFAULT_SERVER_DIR="/data/media/0/Server"
 
 # Termux 运行环境：TERMUX_HOME、TERMUX_UID、TERMUX_ENV、DNS_GID
-# 沙盒中 TERMUX_HOME 为空跳过，对实机路径无影响 
+# 沙盒中 TERMUX_HOME 为空跳过，对实机路径无影响
 [ -n "$SVCHUB_TERMUX_HOME" ] && TERMUX_HOME="$SVCHUB_TERMUX_HOME" || TERMUX_HOME="/data/data/com.termux/files/home"
-TERMUX_UID=$(stat -c '%u' "$TERMUX_HOME" 2>/dev/null)
-TERMUX_GID=$(stat -c '%g' "$TERMUX_HOME" 2>/dev/null)
 # PATH 末段的 $PATH 不带反斜杠：由服务 shell 运行时展开为 su 继承的 PATH（带 \ 会变字面死串）；
 # 再并上系统默认 PATH 保底，Termux 目录缺失时（如 PC 联调沙盒）仍能找到 sleep 等基础命令。
 TERMUX_PATH_SYS='/system/bin:/system/xbin:/vendor/bin:/data/local/bin:/bin:/usr/bin'
@@ -32,14 +30,19 @@ TERMUX_ENV='export LANG=en_US.UTF-8;export LC_ALL=en_US.UTF-8; export PREFIX=/da
 if [ "$SVCHUB_MOCK" = "1" ]; then
 	TERMUX_ENV='export LANG=en_US.UTF-8;export LC_ALL=en_US.UTF-8; export PREFIX=/data/data/com.termux/files/usr; export PATH=$PREFIX/bin:$PREFIX/bin/applets:$PATH:'"$TERMUX_PATH_SYS"';'
 fi
-DNS_GID=$(stat -c '%g' /dev/socket/dnsproxyd 2>/dev/null)
 
-# termux 服务完整以 termux 用户运行的 su 附加参数（惰性缓存）：uid + 主组 + inet 组（探测失败缺省回退）
+# termux 服务的 su 附加参数（uid/主组/inet 组首次使用时才探测，免每次 source 白付 fork）
 termux_user_args() {
+	if [ -z "$TERMUX_ENV_PROBED" ]; then
+		TERMUX_ENV_PROBED=1
+		TERMUX_UID=$(stat -c '%u' "$TERMUX_HOME" 2>/dev/null)
+		TERMUX_GID=$(stat -c '%g' "$TERMUX_HOME" 2>/dev/null)
+		DNS_GID=$(stat -c '%g' /dev/socket/dnsproxyd 2>/dev/null)
+	fi
 	[ -n "$TERMUX_UID" ] || TERMUX_UID=0
 	[ -n "$TERMUX_GID" ] || TERMUX_GID=$TERMUX_UID
 	[ -n "$DNS_GID" ] || DNS_GID=3003
-	printf '%s\n' "-g $TERMUX_UID -G $DNS_GID $TERMUX_UID" 
+	printf '%s\n' "-g $TERMUX_UID -G $DNS_GID $TERMUX_UID"
 }
 
 
@@ -76,6 +79,34 @@ enc_js() {
 # JSON 字符串解码：左到右单遍，\n \t \r \" \\ 还原明文，孤立 \ 原样保留
 dec_js() {
 	awk 'function unesc(s,   o, i, n, c) { o = ""; n = length(s); for (i = 1; i <= n; i++) { c = substr(s, i, 1); if (c != "\\") { o = o c; continue } i++; c = substr(s, i, 1); if (c == "n") o = o "\n"; else if (c == "t") o = o "\t"; else if (c == "r") o = o "\r"; else if (c == "\"") o = o "\""; else if (c == "\\") o = o "\\"; else o = o "\\" c } return o } { printf "%s", unesc($0) }'
+}
+
+# 批量解码 setting.conf：单次 awk 输出 key\0value\0（值可含换行，故不用 tab/换行分隔）
+dec_js_rows() {
+	awk '
+	function unesc(s,   o, i, n, c) {
+		o = ""; n = length(s)
+		for (i = 1; i <= n; i++) {
+			c = substr(s, i, 1)
+			if (c != "\\") { o = o c; continue }
+			i++; c = substr(s, i, 1)
+			if (c == "n") o = o "\n"
+			else if (c == "t") o = o "\t"
+			else if (c == "r") o = o "\r"
+			else if (c == "\"") o = o "\""
+			else if (c == "\\") o = o "\\"
+			else o = o "\\" c
+		}
+		return o
+	}
+	{
+		sub(/\r$/, "")
+		p = index($0, "=")
+		if (p == 0) next
+		k = substr($0, 1, p - 1); v = substr($0, p + 1)
+		if (index(v, "\\") > 0) v = unesc(v)
+		printf "%s%c%s%c", k, 0, v, 0
+	}'
 }
 
 # ---------- 后端文案双语 ----------
@@ -310,33 +341,64 @@ valid_name() {
 	return 0
 }
 
-# 设置项写成 setting.conf（KEY=value 行格式，多行值经 enc_js 转义存单行；原子替换，600 权限）。
-# 无参：直接从 load_cfg_sh 的同名全局变量读取。
+# 设置项写成 setting.conf（KEY=value，多行值转义存单行；原子替换，600 权限）。
 write_settings() {
 	local tmp="$SETTING_FILE.tmp"
 	mkdir -p "$CONFIG_DIR" 2>/dev/null
 	{
-		printf 'sleep_interval=%s\n'          "$(printf '%s' "$SLEEP_INTERVAL" | enc_js)"
-		printf 'server_dir=%s\n'              "$(printf '%s' "$SERVER_DIR" | enc_js)"
-		printf 'boot_commands=%s\n'           "$(printf '%s' "$BOOT_COMMANDS" | enc_js)"
-		printf 'wifi_service_enabled=%s\n'    "$(printf '%s' "$WIFI_SERVICE_ENABLED" | enc_js)"
-		printf 'wifi_service_names=%s\n'      "$(printf '%s' "$WIFI_SERVICE_NAMES" | enc_js)"
-		printf 'wifi_service_names_off=%s\n'  "$(printf '%s' "$WIFI_SERVICE_NAMES_OFF" | enc_js)"
-		printf 'wifi_ssids=%s\n'              "$(printf '%s' "$WIFI_SSIDS" | enc_js)"
-		printf 'schedule_enabled=%s\n'        "$(printf '%s' "$SCHEDULE_ENABLED" | enc_js)"
-		printf 'schedule_stop=%s\n'           "$(printf '%s' "$SCHEDULE_STOP" | enc_js)"
-		printf 'schedule_start=%s\n'          "$(printf '%s' "$SCHEDULE_START" | enc_js)"
-		printf 'screen_service_enabled=%s\n'  "$(printf '%s' "$SCREEN_SERVICE_ENABLED" | enc_js)"
-		printf 'screen_service_names=%s\n'    "$(printf '%s' "$SCREEN_SERVICE_NAMES" | enc_js)"
-	printf 'screen_resume_names=%s\n'     "$(printf '%s' "$SCREEN_RESUME_NAMES" | enc_js)"
-	printf 'termux_root_names=%s\n'       "$(printf '%s' "$TERMUX_ROOT_NAMES" | enc_js)"
-		printf 'patrol_enabled=%s\n'          "$(printf '%s' "$PATROL_ENABLED" | enc_js)"
-		printf 'wake_lock_enabled=%s\n'       "$(printf '%s' "$WAKE_LOCK_ENABLED" | enc_js)"
-		printf 'language=%s\n'                "$(printf '%s' "$UI_LANG" | enc_js)"
-		printf 'webui_enabled=%s\n'           "$(printf '%s' "$WEBUI_ENABLED" | enc_js)"
-		printf 'webui_password_hash=%s\n'     "$(printf '%s' "$WEBUI_PASSWORD_HASH" | enc_js)"
-		printf 'webui_token=%s\n'             "$(printf '%s' "$WEBUI_TOKEN" | enc_js)"
-	} > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$SETTING_FILE"
+		cat <<KVEOF
+sleep_interval=$SLEEP_INTERVAL
+server_dir=$SERVER_DIR
+boot_commands=$BOOT_COMMANDS
+wifi_service_enabled=$WIFI_SERVICE_ENABLED
+wifi_service_names=$WIFI_SERVICE_NAMES
+wifi_service_names_off=$WIFI_SERVICE_NAMES_OFF
+wifi_ssids=$WIFI_SSIDS
+schedule_enabled=$SCHEDULE_ENABLED
+schedule_stop=$SCHEDULE_STOP
+schedule_start=$SCHEDULE_START
+screen_service_enabled=$SCREEN_SERVICE_ENABLED
+screen_service_names=$SCREEN_SERVICE_NAMES
+screen_resume_names=$SCREEN_RESUME_NAMES
+termux_root_names=$TERMUX_ROOT_NAMES
+patrol_enabled=$PATROL_ENABLED
+wake_lock_enabled=$WAKE_LOCK_ENABLED
+language=$UI_LANG
+webui_enabled=$WEBUI_ENABLED
+webui_password_hash=$WEBUI_PASSWORD_HASH
+webui_token=$WEBUI_TOKEN
+KVEOF
+	# 值含真换行时 heredoc 已拆成多行：只有「下一个键的精确前缀」才算新键，
+	# 键序须与上方 heredoc 及 SETTING_KEYS 一致。
+	} | KEYS_ORDER="$SETTING_KEYS" awk '
+	function esc(s,   o, i, n, c) {
+		o = ""; n = length(s)
+		for (i = 1; i <= n; i++) {
+			c = substr(s, i, 1)
+			if (c == "\\") o = o "\\\\"
+			else if (c == "\"") o = o "\\\""
+			else if (c == "\t") o = o "\\t"
+			else if (c == "\r") o = o "\\r"
+			else if (c == "\n") o = o "\\n"
+			else o = o c
+		}
+		return o
+	}
+	BEGIN { nk = split(ENVIRON["KEYS_ORDER"], K, " "); ki = 1; pend = K[1] "="; val = ""; first = 1 }
+	{
+		if (ki < nk && index($0, K[ki + 1] "=") == 1) {
+			print pend esc(val)
+			ki++
+			pend = K[ki] "="
+			val = substr($0, length(K[ki]) + 2)
+		} else if (first) {
+			val = substr($0, length(K[ki]) + 2)
+			first = 0
+		} else {
+			val = val "\n" $0
+		}
+	}
+	END { print pend esc(val) }' > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$SETTING_FILE"
 	LOAD_CFG_DONE=""
 }
 
@@ -344,20 +406,18 @@ write_settings() {
 # 首行 # svc-v1.4.0 为格式标记（附段序说明）：无标记按旧格式解析（旧 5 段补空 end_cmd、更旧 6 段丢 extra），写回即升级。
 # 无参：直接从 load_cfg_sh 的 TERMUX_SERVICES / BINARY_SERVICES（内存统一 5 段 name|port|auto|cmd|end_cmd）读取。
 write_services() {
-	local tmp="$SERVICES_FILE.tmp" line
+	local tmp="$SERVICES_FILE.tmp"
 	mkdir -p "$CONFIG_DIR" 2>/dev/null
-	{
-		echo '# svc-v1.4.0 type|name|port|auto|cmd|end_cmd'
-		printf '%s\n' "$TERMUX_SERVICES" | while IFS= read -r line || [ -n "$line" ]; do
-			[ -n "$line" ] || continue
-			printf 'termux|%s\n' "$line"
-		done
-		echo '# binary'
-		printf '%s\n' "$BINARY_SERVICES" | while IFS= read -r line || [ -n "$line" ]; do
-			[ -n "$line" ] || continue
-			printf 'binary|%s\n' "$line"
-		done
-	} > "$tmp" && mv -f "$tmp" "$SERVICES_FILE"
+	# 单次 awk 拼装（原两个 printf|while 子 shell）：逐行加前缀、剔空行、补标记行
+	TERMUX_SV=$TERMUX_SERVICES BINARY_SV=$BINARY_SERVICES awk '
+	BEGIN {
+		printf "# svc-v1.4.0 type|name|port|auto|cmd|end_cmd\n"
+		n = split(ENVIRON["TERMUX_SV"], a, "\n")
+		for (i = 1; i <= n; i++) if (a[i] != "") printf "termux|%s\n", a[i]
+		printf "# binary\n"
+		n = split(ENVIRON["BINARY_SV"], b, "\n")
+		for (i = 1; i <= n; i++) if (b[i] != "") printf "binary|%s\n", b[i]
+	}' > "$tmp" && mv -f "$tmp" "$SERVICES_FILE"
 	LOAD_CFG_DONE=""
 }
 
@@ -608,42 +668,60 @@ kill_by_name() {
 	is_int "$pid" || { rm -f "$pidf"; return 1; }
 	[ "$pid" -gt 1 ] || { rm -f "$pidf"; return 1; }
 
-	# 1. 发送 SIGTERM (15) 优雅终止,让程序自行执行退出程序防止残留
-	kill -15 -- -"$pid" 2>/dev/null || kill -15 "-$pid" 2>/dev/null
+	# 1. SIGTERM 优雅终止：进程组优先，组形式失败补单 pid
+	kill -15 -- -"$pid" 2>/dev/null || kill -15 "-$pid" 2>/dev/null || kill -15 "$pid" 2>/dev/null
 
-	# 2. 轮询等待退出（最多 2 秒，间隔 0.5 秒）
-	local i=0
-	while [ $i -lt 4 ] && kill -0 "$pid" 2>/dev/null; do
-		sleep 0.5
+	# 2. 探活等待：间隔 0.1→0.2→0.3→0.5 递增（上限 2s），进程早死即返回
+	local w=1 total=0 i=0
+	while kill -0 "$pid" 2>/dev/null; do
+		[ $((total + w)) -le 20 ] || break
+		sleep "0.${w}"
+		total=$((total + w))
 		i=$((i + 1))
+		case $i in
+		1) w=2 ;;
+		2) w=3 ;;
+		3) w=5 ;;
+		4) w=4 ;;
+		*) w=5 ;;
+		esac
 	done
 
-	# 3. 若仍存活，发送 SIGKILL (9) 强杀
+	# 3. 仍存活则 SIGKILL（组优先、单 pid 兜底），再短确认
 	if kill -0 "$pid" 2>/dev/null; then
-		kill -9 -- -"$pid" 2>/dev/null || kill -9 "-$pid" 2>/dev/null
+		kill -9 -- -"$pid" 2>/dev/null || kill -9 "-$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null
+		sleep 0.2
 	fi
 
 	return 0
 }
 
 
-# 停止服务：按 pid 文件终止进程组，清理 pid 文件与该服务日志；
-# 停止前确在运行（was_running）才执行该服务配置的收尾命令。
+# 停止服务：按 pid 文件终止进程组，清理 pid 文件与该服务日志。
+# 未运行直接返回：省两次 rm fork，且不删日志保留排错信息（stop_all 会遍历全部服务）。
 stop_svc() {
-	local name=$1 pidf="$RUNDIR/$1.pid" was_running=1 i=0
+	local name=$1 pidf="$RUNDIR/$1.pid" w=1 total=0 i=0
 	valid_name "$name" || return 0
-	# 布尔判定须吞 stdout（pidfile_alive 成功输出 pid）
-	pidfile_alive "$pidf" >/dev/null || was_running=""
+	# 布尔判定须吞 stdout（pidfile_alive 成功输出 pid）；未运行则它已清掉过期 pid 文件
+	pidfile_alive "$pidf" >/dev/null || return 0
 	kill_by_name "$name"
 	rm -f "$LOG_DIR/$1.log"
-	# 短等待直至进程消失（防 fork 竞争残留）
-	while [ "$i" -lt 20 ]; do
-		svc_running "$name" || break
-		sleep 0.2
+	# 探活直至进程消失（防 fork 竞争残留）：短间隔递增，上限 4s
+	while svc_running "$name"; do
+		[ $((total + w)) -le 40 ] || break
+		sleep "0.${w}"
+		total=$((total + w))
 		i=$((i + 1))
+		case $i in
+		1) w=2 ;;
+		2) w=3 ;;
+		3) w=5 ;;
+		4) w=4 ;;
+		*) w=5 ;;
+		esac
 	done
 	rm -f "$pidf"
-	[ -n "$was_running" ] && run_end_cmd "$name"
+	run_end_cmd "$name"
 	return 0
 }
 
@@ -680,18 +758,35 @@ EOF
 	return 0
 }
 
-# 停止配置中已被删除的服务：对比新旧两类行列表，旧有新无且仍在运行则停
+# 停止已被删除的服务：单次 awk 比对新旧名单并去重；svc_running/stop_svc 留在 shell（pid 文件与信号）。
 stop_removed_services() {
-	local old_ts=$1 new_ts=$2 old_sv=$3 new_sv=$4 name
+	local old_ts=$1 new_ts=$2 old_sv=$3 new_sv=$4 name inf="$RUNDIR/srs.$$.in" outf="$RUNDIR/srs.$$.out"
+	# 新名单经环境变量传入（-v 会吞反斜杠），旧名单落临时文件喂 awk（整段重定向，不起子 shell）
+	printf '%s\n%s\n' "$old_ts" "$old_sv" > "$inf"
+	NEW_TS=$new_ts NEW_SV=$new_sv awk '
+	BEGIN {
+		# 新两类名单建集合（经 ENVIRON 读，awk 里直接写变量名是空的）；去重省掉 sort fork
+		n = split(ENVIRON["NEW_TS"] "\n" ENVIRON["NEW_SV"], tmp, "\n")
+		for (i = 1; i <= n; i++) {
+			if (tmp[i] == "") continue
+			sub(/\|.*/, "", tmp[i])
+			if (tmp[i] != "") innew[tmp[i]] = 1
+		}
+	}
 	{
-		printf '%s\n' "$old_ts" | list_names
-		printf '%s\n' "$old_sv" | list_names
-	} | sort -u | while IFS= read -r name; do
+		if ($0 == "") next
+		name = $0
+		sub(/\|.*/, "", name)
+		if (name == "" || (name in innew) || (name in emitted)) next
+		emitted[name] = 1
+		print name
+	}' "$inf" > "$outf"
+	# svc_running/stop_svc 必须留在 shell（涉及 pid 文件与信号）
+	while IFS= read -r name; do
 		[ -n "$name" ] || continue
-		printf '%s\n' "$new_ts" | awk -F'|' -v n="$name" '$1==n{found=1; exit} END{exit !found}' && continue
-		printf '%s\n' "$new_sv" | awk -F'|' -v n="$name" '$1==n{found=1; exit} END{exit !found}' && continue
 		svc_running "$name" && stop_svc "$name"
-	done
+	done < "$outf"
+	rm -f "$inf" "$outf"
 }
 
 # 停止全部已配置服务（$1=可选排除名单，熄屏白名单传入；缺省=全停，disable/定时窗调用不变）
@@ -712,7 +807,33 @@ stop_all() {
 
 # ---------- 配置加载 ----------
 
-# 读 setting.conf 到设置类全局变量（不碰服务行；# 注释与空行忽略，值经 dec_js 还原）。
+# 设置键赋值（两条解析路径共用；未知键直接忽略）
+apply_setting() {
+	case "$1" in
+	sleep_interval) SLEEP_INTERVAL=$2 ;;
+	server_dir) SERVER_DIR=$2 ;;
+	boot_commands) BOOT_COMMANDS=$2 ;;
+	wifi_service_enabled) WIFI_SERVICE_ENABLED=$2 ;;
+	wifi_service_names) WIFI_SERVICE_NAMES=$2 ;;
+	wifi_service_names_off) WIFI_SERVICE_NAMES_OFF=$2 ;;
+	wifi_ssids) WIFI_SSIDS=$2 ;;
+	schedule_enabled) SCHEDULE_ENABLED=$2 ;;
+	schedule_stop) SCHEDULE_STOP=$2 ;;
+	schedule_start) SCHEDULE_START=$2 ;;
+	screen_service_enabled) SCREEN_SERVICE_ENABLED=$2 ;;
+	screen_service_names) SCREEN_SERVICE_NAMES=$2 ;;
+	screen_resume_names) SCREEN_RESUME_NAMES=$2 ;;
+	termux_root_names) TERMUX_ROOT_NAMES=$2 ;;
+	patrol_enabled) PATROL_ENABLED=$2 ;;
+	wake_lock_enabled) WAKE_LOCK_ENABLED=$2 ;;
+	language) UI_LANG=$2 ;;
+	webui_enabled) WEBUI_ENABLED=$2 ;;
+	webui_password_hash) WEBUI_PASSWORD_HASH=$2 ;;
+	webui_token) WEBUI_TOKEN=$2 ;;
+	esac
+}
+
+# 读 setting.conf 到设置类全局变量（不碰服务行；含转义的值走 dec_js_rows 批量解码，免逐值 fork）
 load_settings() {
 	local f="$SETTING_FILE" line k v CR
 	CR=$(printf '\r')
@@ -726,39 +847,23 @@ load_settings() {
 	UI_LANG=""
 	WEBUI_ENABLED=""; WEBUI_PASSWORD_HASH=""; WEBUI_TOKEN=""
 	[ -f "$f" ] || return 0
+	# 无转义值时零 fork：直接按行解析；有转义才起一次 awk 批量解码
+	if grep -q '\\' "$f" 2>/dev/null; then
+		dec_js_rows < "$f" > "$f.dec.$$"
+		# NUL 分隔读 key/value；管道会让 while 进子 shell 丢赋值，故用临时文件
+		while IFS= read -r -d '' k && IFS= read -r -d '' v; do
+			apply_setting "$k" "$v"
+		done < "$f.dec.$$"
+		rm -f "$f.dec.$$"
+		return 0
+	fi
 	while IFS= read -r line || [ -n "$line" ]; do
 		case "$line" in *"$CR") line=${line%"$CR"} ;; esac
 		case "$line" in ''|'#'*) continue ;; esac
 		k=${line%%=*}
-		case "$k" in
-		sleep_interval|server_dir|boot_commands|wifi_service_enabled|wifi_service_names|wifi_service_names_off|wifi_ssids|schedule_enabled|schedule_stop|schedule_start|screen_service_enabled|screen_service_names|screen_resume_names|termux_root_names|patrol_enabled|wake_lock_enabled|language|webui_enabled|webui_password_hash|webui_token) ;;
-		*) continue ;;
-		esac
 		v=${line#*=}
 		[ "$line" = "$k" ] && v=""
-		case "$v" in *\\*) v=$(printf '%s' "$v" | dec_js) ;; esac
-		case "$k" in
-		sleep_interval) SLEEP_INTERVAL=$v ;;
-		server_dir) SERVER_DIR=$v ;;
-		boot_commands) BOOT_COMMANDS=$v ;;
-		wifi_service_enabled) WIFI_SERVICE_ENABLED=$v ;;
-		wifi_service_names) WIFI_SERVICE_NAMES=$v ;;
-		wifi_service_names_off) WIFI_SERVICE_NAMES_OFF=$v ;;
-		wifi_ssids) WIFI_SSIDS=$v ;;
-		schedule_enabled) SCHEDULE_ENABLED=$v ;;
-		schedule_stop) SCHEDULE_STOP=$v ;;
-		schedule_start) SCHEDULE_START=$v ;;
-		screen_service_enabled) SCREEN_SERVICE_ENABLED=$v ;;
-		screen_service_names) SCREEN_SERVICE_NAMES=$v ;;
-		screen_resume_names) SCREEN_RESUME_NAMES=$v ;;
-		termux_root_names) TERMUX_ROOT_NAMES=$v ;;
-		patrol_enabled) PATROL_ENABLED=$v ;;
-		wake_lock_enabled) WAKE_LOCK_ENABLED=$v ;;
-		language) UI_LANG=$v ;;
-		webui_enabled) WEBUI_ENABLED=$v ;;
-		webui_password_hash) WEBUI_PASSWORD_HASH=$v ;;
-		webui_token) WEBUI_TOKEN=$v ;;
-		esac
+		apply_setting "$k" "$v"
 	done < "$f"
 }
 

@@ -380,7 +380,7 @@
                 </div>
                 <div class="section-body">
                     <div class="form" style="border-bottom:none;">
-                        <textarea class="form-input form-textarea" id="input-boot-cmds" onblur="saveBootCmds()" placeholder="请自行确认命令安全性和可用性后再放入" data-i18n-attr="placeholder:label.bootcmds"></textarea>
+                        <textarea class="form-input form-textarea" id="input-boot-cmds" onblur="saveBootCmds()" placeholder="请自行确认命令安全性和可用性后再放入，逐行运行" data-i18n-attr="placeholder:label.bootcmds"></textarea>
                         <div class="form-hint-row">
                             <div class="form-hint" id="boot-cmds-hint" data-i18n="hint.bootcmds">模块启动时执行；编辑完成后点击框外自动保存</div>
                             <div class="actions run-bar" id="test-run-bar" style="display:none;">
@@ -634,6 +634,10 @@
         let svcLoading = null;
         let setLoading = null;
         let confirmCallback = null;
+        // 删除服务的后台落盘任务：未完成时禁用再次删除，防并发写穿（保存是串行的）
+        let deleteInFlight = null;
+        // 已提交但后台尚未落盘的服务名：状态页刷新时过滤掉，避免看到"已删却还在"的旧行
+        const pendingDeleted = new Set();
         // 确认弹窗当前语义：delete 删服务 / clear 清日志（语言切换时按此重刷文案）
         let confirmKind = 'delete';
         const sortMode = { termux: false, binary: false };
@@ -826,7 +830,8 @@
                 'toast.autoRefresh': '自动刷新中', 'toast.logCleared': '已清空', 'toast.logClearFail': '清空失败',
                 'toast.timeout': '请求超时，已保留上次数据，请重试', 'toast.portInvalid': '端口无效',
                 'toast.openFail': '打开失败', 'toast.invalid': '数据无效，请修正',
-                'toast.stopping': '停止 {name}...', 'toast.listCleanFail': '名单清理保存失败',
+                'toast.listCleanFail': '名单清理保存失败',
+                'toast.delPending': '上次删除正在后台保存，请稍候',
                 'toast.required': '请填写必填项', 'toast.noPipe': '启动命令不支持竖线「|」，管道可写 sh -c \'命令1 | 命令2\'',
                 'toast.dupName': '已存在同名配置项', 'toast.rootFail': 'root 运行开关保存失败',
                 'toast.notInit': '请先初始化', 'toast.notLoaded': '配置未加载完成，已取消保存',
@@ -885,7 +890,7 @@
                 'status.webuiNotRun': 'Status: enabled but httpd is not running (toggle off then on, or check the webui log)',
                 'ph.oldPw': 'Current password', 'ph.newPw': 'New password', 'ph.newPw2': 'Repeat password',
                 'ph.token': 'No token shown? Tap regenerate',
-                'label.bootcmds': 'Confirm the command is safe and usable before adding it',
+                'label.bootcmds': 'Confirm the command is safe and usable before adding it, run a command line by line',
                 'hint.bootcmds': 'Runs at module start; saved automatically when you tap outside',
                 'hint.bootcmdsTest': 'Test mode: edits are not saved to the boot command',
                 'hint.bootcmdsRun': 'Boot command: runs at module start, saved when you tap outside',
@@ -938,8 +943,9 @@
                 'toast.logCleared': 'Log cleared', 'toast.logClearFail': 'Clear failed',
                 'toast.timeout': 'Request timed out, keeping last data — retry',
                 'toast.portInvalid': 'Invalid port', 'toast.openFail': 'Open failed',
-                'toast.invalid': 'Invalid data, please fix', 'toast.stopping': 'Stopping {name}...',
+                'toast.invalid': 'Invalid data, please fix',
                 'toast.listCleanFail': 'Failed to save name-list cleanup',
+                'toast.delPending': 'Previous delete is still saving in background, please wait',
                 'toast.required': 'Fill in the required fields',
                 'toast.noPipe': 'Pipes are not supported — wrap them as sh -c \'cmd1 | cmd2\'',
                 'toast.dupName': 'A service with this name already exists',
@@ -1406,21 +1412,30 @@
             document.getElementById('binary-list').innerHTML = '<div class="empty">' + msg + '</div>';
         }
 
-        async function loadStatus(force = false) {
+        // 过滤后台尚未落盘的服务（status 返回的是对象数组）
+        function filterPendingRows(rows) {
+            if (!pendingDeleted.size || !Array.isArray(rows)) return rows;
+            return rows.filter(s => !(s && pendingDeleted.has(s.name)));
+        }
+
+        async function loadStatus(force = false, silent = false) {
             if (!ksuApi && !httpMode) { document.getElementById('termux-list').innerHTML = '<div class="empty">' + t('empty.notInit') + '</div>'; return; }
             if (!force && isStatusLoaded) return;
-            if (force) toast(t('toast.refreshing'));
+            if (force && !silent) toast(t('toast.refreshing'));
             const r = await invoke('status');
             if (r.errno === 401 || r.errno === 404) return; // 已弹登录页
             if (r.errno !== 0 || !r.stdout) {
                 // 超时不断臂：保留旧列表仅提示，用户点刷新重试。
-                if (r.errno === -1) { if (force) toast(t('toast.timeout'), true); return; }
+                if (r.errno === -1) { if (force && !silent) toast(t('toast.timeout'), true); return; }
                 renderStatusFailure(t('toast.parseFail'));
-                if (force) toast(t('toast.refreshFail'), true);
+                if (force && !silent) toast(t('toast.refreshFail'), true);
                 return;
             }
             try {
                 const d = JSON.parse(r.stdout);
+                // 待删服务尚未落盘：过滤掉旧行，避免"删了刷新还在"
+                d.termux_services = filterPendingRows(d.termux_services);
+                d.binary_services = filterPendingRows(d.binary_services);
                 // 跨重启识别：后端 boot_id 变化说明设备已重启，不再用本次之前的覆盖写入
                 try {
                     const lastBoot = localStorage.getItem(STATUS_BOOT_KEY);
@@ -1431,7 +1446,7 @@
                 saveStatusCache(d);
                 renderStatusList('termux-list', d.termux_services, true);
                 renderStatusList('binary-list', d.binary_services, false);
-                if (force) toast(t('toast.refreshed'));
+                if (force && !silent) toast(t('toast.refreshed'));
             } catch (e) {
                 renderStatusFailure(t('toast.parseFail'));
             }
@@ -1607,8 +1622,7 @@
             logAutoRefresh = true;
             updateLogRefreshBtn();
             showAnyModal('modal-log');
-            await refreshLog(true);
-            startLogAutoRefresh();
+            startLogAutoRefresh();   // 首次立即拉取，之后链式排下一次
         }
 
         // 测试区日志按钮：测试开关关 -> 开机命令日志，开 -> 测试运行日志
@@ -1616,9 +1630,12 @@
             showLog(isTestMode ? 'run_test' : 'boot_commands');
         }
 
-        // 日志自动刷新：打开即每 3 秒拉取，按钮在暂停/刷新间切换；每次刷新滑到底部
+        // 日志自动刷新：上次请求完成后再隔 3 秒拉下一次（慢设备单次可能超间隔，避免请求叠加排队）；
+        // 按钮在暂停/刷新间切换，每次刷新滑到底部
         let logAutoRefresh = false;
         let logTimer = null;
+        let logGen = 0;        // 链代号：启停时递增，让在途旧链失效
+        let logInflight = null; // 在途请求：暂停/恢复穿插时也保证同一时刻只有一个 readlog
 
         function updateLogRefreshBtn() {
             document.getElementById('log-refresh-btn').textContent = logAutoRefresh ? t('log.pause') : t('log.resume');
@@ -1630,15 +1647,32 @@
 
         function startLogAutoRefresh() {
             stopLogAutoRefresh();
-            logTimer = setInterval(() => {
-                if (logAutoRefresh && currentLogName && document.getElementById('modal-log').classList.contains('show')) {
-                    refreshLog(true);
+            const gen = ++logGen;
+            const tick = async () => {
+                if (gen !== logGen) return;
+                if (!logAutoRefresh || !currentLogName || !document.getElementById('modal-log').classList.contains('show')) return;
+                // 上一请求还没回来就等它，避免叠加占住 httpd
+                if (logInflight) { try { await logInflight; } catch (e) { /* 忽略 */ } }
+                if (gen !== logGen) return;
+                logInflight = refreshLog(true);
+                let found = true;
+                try { found = await logInflight; } catch (e) { /* 单次失败不中断轮询 */ }
+                finally { logInflight = null; }
+                // 日志文件不存在：停掉轮询减少空转，按钮回到「刷新」，再点可重新检测
+                if (!found) {
+                    stopLogAutoRefresh();
+                    logAutoRefresh = false;
+                    updateLogRefreshBtn();
+                    return;
                 }
-            }, LOG_POLL_MS);
+                if (gen === logGen && logAutoRefresh && currentLogName) logTimer = setTimeout(tick, LOG_POLL_MS);
+            };
+            logTimer = setTimeout(tick, 0);   // 首次立即执行，完成后按间隔续排
         }
 
         function stopLogAutoRefresh() {
-            if (logTimer) { clearInterval(logTimer); logTimer = null; }
+            logGen++;
+            if (logTimer) { clearTimeout(logTimer); logTimer = null; }
         }
 
         function toggleLogRefresh() {
@@ -1646,34 +1680,42 @@
             updateLogRefreshBtn();
             if (logAutoRefresh) {
                 toast(t('toast.autoRefresh'));
-                refreshLog(true);
+                startLogAutoRefresh();   // 恢复时也走链，避免与在途请求叠加
+            } else {
+                stopLogAutoRefresh();
             }
         }
 
         // 日志请求序号：切换日志或并发刷新时，只允许最新一次响应写入 DOM
         let logReqSeq = 0;
 
+        // 返回 false 表示日志文件不存在（调用方据此停掉轮询，避免空转）
         async function refreshLog(toBottom = false) {
-            if (!currentLogName) return;
+            if (!currentLogName) return false;
             const name = currentLogName;
             const seq = ++logReqSeq;
             const r = await invoke('readlog ' + sq(name) + ' 500');
             // 请求期间切走了日志或又发了新请求：丢弃过期响应，避免串台
-            if (seq !== logReqSeq || name !== currentLogName) return;
+            if (seq !== logReqSeq || name !== currentLogName) return true;
+            let exists = true;
             if (r.stdout) {
                 try {
                     const d = JSON.parse(r.stdout);
                     if (d.content) {
                         const content = base64ToUtf8(d.content);
                         document.getElementById('log-content').textContent = content || t('empty.log');
+                    } else if (d.error) {
+                        exists = false;
+                        document.getElementById('log-content').textContent = d.error;
                     } else {
-                        document.getElementById('log-content').textContent = d.error || t('empty.log');
+                        document.getElementById('log-content').textContent = t('empty.log');
                     }
                 } catch (e) {
                     document.getElementById('log-content').textContent = r.stdout;
                 }
             } else { document.getElementById('log-content').textContent = t('empty.log'); }
             if (toBottom) logToBottom();
+            return exists;
         }
 
         function base64ToUtf8(base64) {
@@ -1939,6 +1981,7 @@
         }
 
         function confirmDelete(type, idx) {
+            if (deleteInFlight) { toast(t('toast.delPending'), true); return; }
             const name = svcArr(type)[idx].name;
             document.getElementById('confirm-title').textContent = t('confirm.delTitle');
             document.getElementById('confirm-message').innerHTML = t('confirm.delMsg', { name: escapeHtml(name) });
@@ -1946,9 +1989,11 @@
             confirmKind = 'delete';
             showAnyModal('modal-confirm');
             confirmCallback = async () => {
-                // 先停后删：运行中则先停止，防止配置已删、进程残留
-                toast(t('toast.stopping', { name: name }));
-                await invoke('stop ' + sq(name));
+                const name = svcArr(type)[idx].name;
+                // 该服务是否在 root 名单里（决定后台是否要额外落一次名单）
+                const nameInRootList = configData.termux_root_names.has(name);
+                // 立即更新本地与界面，弹窗即刻关闭（保存放后台，不等 CGI 往返）
+                pendingDeleted.add(name);
                 svcArr(type).splice(idx, 1);
                 // 同步清理名单中的残留，避免名单指向不存在的服务
                 configData.wifi_service_names.delete(name);
@@ -1960,13 +2005,24 @@
                 updateWifiPickBtn();
                 updateScreenPickBtn();
                 updateScreenOnPickBtn();
-                toast(t('toast.saving'));
-                await saveServicesOnly(type);
-                // 名单清理独立落盘（saveservices 不写设置键）；收尾命令随服务行已同步删除
-                const names = [...configData.termux_root_names].join('\n');
-                const rs = await runAction('savesettings', 'termux_root_names=' + toB64(names));
-                if (rs.errno !== 0) toast(t('toast.listCleanFail'), true);
                 closeConfirm();
+                // 后台落盘：先停后删（运行中则先停止，防配置已删、进程残留），再存服务行与名单清理
+                deleteInFlight = (async () => {
+                    try {
+                        await invoke('stop ' + sq(name));
+                        await saveServicesOnly(type, true);
+                        // 名单清理仅当该服务真在名单里时才落盘（省一次 savesettings 往返）
+                        const names = [...configData.termux_root_names].join('\n');
+                        if (nameInRootList) {
+                            const rs = await runAction('savesettings', 'termux_root_names=' + toB64(names));
+                            if (rs.errno !== 0) toast(t('toast.listCleanFail'), true);
+                        }
+                    } catch (e) { /* 保存失败由 saveServicesOnly 自行回读刷新 */ }
+                    // 落盘结束（成败都算）：撤待删标记，停在状态页则静默重拉对齐
+                    pendingDeleted.delete(name);
+                    deleteInFlight = null;
+                    if (document.getElementById('page-status').classList.contains('active')) loadStatus(true, true);
+                })();
             };
         }
 
@@ -2066,7 +2122,10 @@
         }
 
         // 只存本类服务：saveservices 单键（另一类不动，设置不动）；失败回读刷新。返回是否成功。
-        async function saveServicesOnly(type) {
+        // skipPendingWait 仅供删除流程自身调用（其内部已在 deleteInFlight 里，等待会自锁）。
+        async function saveServicesOnly(type, skipPendingWait) {
+            // 删除的后台保存未完成时先等它，防两次 saveservices 交叉覆盖丢改动
+            if (!skipPendingWait && deleteInFlight) { try { await deleteInFlight; } catch (e) { /* 失败由各自回读纠正 */ } }
             if (!backendReady()) { toast(t('toast.notInit'), true); return false; }
             if (!isServicesLoaded) { toast(t('toast.notLoaded'), true); return false; }
             const key = type === 'binary' ? 'binary_services' : 'termux_services';
