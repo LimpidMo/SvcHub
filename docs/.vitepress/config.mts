@@ -8,7 +8,19 @@ export default defineConfig({
   title: 'SvcHub',
   head: [
     ['link', { rel: 'icon', type: 'image/png', href: '/SvcHub/images/icon.png' }],
-    ['meta', { name: 'theme-color', content: '#3aa275' }]
+    ['meta', { name: 'theme-color', content: '#3aa275' }],
+        [
+      'script',
+      { async: '', src: 'https://www.googletagmanager.com/gtag/js?id=G-TLE1T6HYJK' }
+    ],
+    [
+      'script',
+      {},
+      `window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-TLE1T6HYJK');`
+    ]
   ],
   lastUpdated: true,
   locales: {
