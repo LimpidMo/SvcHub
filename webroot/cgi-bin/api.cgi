@@ -34,10 +34,10 @@ cgi_ok() {
 }
 
 cgi_fail() {
-    cgi_status "$1" "" "{\"success\":false,\"error\":\"$2\"}"
+    cgi_status "$1" "" "{\"success\":false,\"error\":\"$(printf '%s' "$2" | json_esc)\"}"
 }
 
-# 读 POST 体前校验长度：空体 400，超 64KB 413（超限必须主 shell exit，包在 $(...) 里拦不住）。
+# 读 POST 体前校验长度：空体 400，超 CGI_BODY_MAX 413（超限必须主 shell exit，包在 $(...) 里拦不住）。
 cgi_check_body() {
     local n=${CONTENT_LENGTH:-0}
     case "$n" in ''|*[!0-9]*) n=0 ;; esac
@@ -45,7 +45,7 @@ cgi_check_body() {
         cgi_fail "400 Bad Request" "$(ui_msg 请求体为空)"
         exit 0
     fi
-    if [ "$n" -gt 65536 ] 2>/dev/null; then
+    if [ "$n" -gt "$CGI_BODY_MAX" ] 2>/dev/null; then
         cgi_fail "413 Payload Too Large" "$(ui_msg 请求体过大)"
         exit 0
     fi
@@ -104,11 +104,6 @@ route() {
     qparam a
 }
 
-# 客户端 IP（只信 REMOTE_ADDR）。
-client_ip() {
-    printf '%s' "${REMOTE_ADDR:-unknown}" | tr -c 'A-Za-z0-9.:_' '_'
-}
-
 # Origin 兜底（老 WebView 不认 SameSite）：带 Origin 的主机名须与 Host 一致；头缺失则放行，自定义请求头仍是主防线。
 # 只比 host:port 不比 scheme：反代/内网穿透（cloudflared 等）会把 http 升成 https，Origin 的 scheme 必然
 # 与 Host 不同，字面整串比较会误判为跨站，导致穿透访问一保存就掉登录。
@@ -123,137 +118,6 @@ cgi_origin_ok() {
 # 审计日志压行：换行/回车转分号，防多行参数伪造日志行（runcmd 分支同款处理）。
 log_flat() {
     printf '%s' "$1" | tr '\n\r' ';;'
-}
-
-# 登录失败记录（次数:解锁时间），锁定期返回 0。
-fail_read() {
-	local f="$WEBUI_FAIL_PREFIX$(client_ip)" n=0 unlock=0
-	if [ -f "$f" ]; then
-		while IFS=':' read -r n unlock; do :; done < "$f" 2>/dev/null
-	fi
-	printf '%s:%s\n' "${n:-0}" "${unlock:-0}"
-}
-
-fail_locked() {
-	local r n unlock now
-	r=$(fail_read); n=${r%%:*}; unlock=${r##*:}
-	now=$(date +%s)
-	if [ "$unlock" -gt "$now" ] 2>/dev/null; then
-		return 0
-	fi
-	# 锁定期已过清零重计。
-	[ "$unlock" -gt 0 ] 2>/dev/null && printf '0:0' > "$WEBUI_FAIL_PREFIX$(client_ip)"
-	return 1
-}
-
-fail_add() {
-	local r n unlock now
-	r=$(fail_read); n=${r%%:*}; unlock=${r##*:}
-	now=$(date +%s)
-	n=$((n + 1))
-	if [ "$n" -ge "$FAIL_MAX" ]; then
-		printf '%s:%s' "$n" "$((now + FAIL_LOCK))" > "$WEBUI_FAIL_PREFIX$(client_ip)"
-		webui_log "$(ui_msg '登录锁定：%s 连续失败 %s 次，锁定 %s 秒' "$(client_ip)" "$n" "$FAIL_LOCK")"
-	else
-		printf '%s:%s' "$n" 0 > "$WEBUI_FAIL_PREFIX$(client_ip)"
-	fi
-}
-
-fail_clear() {
-    rm -f "$WEBUI_FAIL_PREFIX$(client_ip)"
-}
-
-# 清过期失败计数（锁定已解除的文件），防按 IP 无界堆积；正常计数与锁定中的文件保留。
-fail_sweep() {
-    local f unlock now
-    now=$(date +%s)
-    for f in "$WEBUI_FAIL_PREFIX"*; do
-        [ -f "$f" ] || continue
-        unlock=$(cat "$f" 2>/dev/null | tr -dc '0-9:' | sed 's/^.*://')
-        [ "$unlock" -gt 0 ] 2>/dev/null && [ "$unlock" -le "$now" ] 2>/dev/null && rm -f "$f"
-    done
-}
-
-# 会话剩余秒数：$1=token，输出剩余秒。空读只视为本次无效不删文件——并发续期下 mv 瞬间
-sess_left() {
-	local t=$1 f now exp i
-	[ "${#t}" -eq 64 ] || return 1
-	case "$t" in *[!A-Za-z0-9]*) return 1 ;; esac
-	for f in "$WEBUI_SESS_PREFIX$t" "$WEBUI_TSESS_PREFIX$t"; do
-		[ -f "$f" ] || continue
-		exp=""
-		i=0
-		while [ "$i" -lt 2 ] && [ -z "$exp" ]; do
-			exp=$(cat "$f" 2>/dev/null | tr -dc '0-9')
-			[ -n "$exp" ] && break
-			sleep 0.1 2>/dev/null
-			i=$((i + 1))
-		done
-		now=$(date +%s)
-		case "$exp" in
-		''|*[!0-9]*) return 1 ;;                       # 读半截/空：本次无效，文件留给后续请求
-		*) [ "$exp" -gt "$now" ] 2>/dev/null || { rm -f "$f"; return 1; } ;;
-		esac
-		printf '%s' "$((exp - now))"
-		return 0
-	done
-	return 1
-}
-
-# 会话校验：任一前缀命中即有效（过期顺手删文件）。
-sess_valid() {
-	local left
-	left=$(sess_left "$1") && [ -n "$left" ]
-}
-
-# 滑动续期：有效则按同类 TTL 重写过期戳并输出新剩余秒，过期返回 1。
-# 空读/读半截（并发 mv 瞬间）只按本次无效处理，绝不删文件——删错活会话=随机掉登录；
-# 写入失败也保留原文件，续期失败仅本请求不续期，下次请求再试。
-sess_touch() {
-	local t=$1 f now exp ttl tmp i
-	[ "${#t}" -eq 64 ] || return 1
-	case "$t" in *[!A-Za-z0-9]*) return 1 ;; esac
-	now=$(date +%s)
-	for f in "$WEBUI_SESS_PREFIX$t" "$WEBUI_TSESS_PREFIX$t"; do
-		[ -f "$f" ] || continue
-		exp=""
-		i=0
-		while [ "$i" -lt 2 ] && [ -z "$exp" ]; do
-			exp=$(cat "$f" 2>/dev/null | tr -dc '0-9')
-			[ -n "$exp" ] && break
-			sleep 0.1 2>/dev/null
-			i=$((i + 1))
-		done
-		case "$exp" in
-		''|*[!0-9]*) return 1 ;;                       # 读半截：不删，留给下个请求正常续
-		*) [ "$exp" -gt "$now" ] 2>/dev/null || { rm -f "$f"; return 1; } ;;
-		esac
-		case "$f" in
-		*"tsess_"*) ttl=$((TOKEN_DAYS * 86400)) ;;
-		*) ttl=$SESS_TTL ;;
-		esac
-		exp=$((now + ttl))
-		tmp="$f.tmp.$$"
-		if printf '%s' "$exp" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null; then
-			printf '%s' "$ttl"
-			return 0
-		fi
-		rm -f "$tmp"
-		return 1
-	done
-	return 1
-}
-
-# 写会话：$1=token $2=过期戳 $3=1 走 Token 前缀，否则密码前缀（临时文件改名防并发读半截）。
-sess_write() {
-	local f tmp
-	if [ "$3" = "1" ]; then
-		f="$WEBUI_TSESS_PREFIX$1"
-	else
-		f="$WEBUI_SESS_PREFIX$1"
-	fi
-	tmp="$f.tmp.$$"
-	printf '%s' "$2" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null
 }
 
 # 鉴权（滑动续期）：命中有效会话则续期，结果经 AUTH_COOKIE 回显。
@@ -303,21 +167,18 @@ form_field() {
     printf '%s' "$FORM_BODY" | tr '&' '\n' | sed -n "s/^$1=//p" | head -n 1 | { IFS= read -r v || [ -n "$v" ]; urldec "$v"; }
 }
 
-# 清过期会话（有效保留），防超时文件堆积。
-sess_sweep() {
-	local sf st
-	for sf in "$WEBUI_SESS_DIR"/sess_* "$WEBUI_SESS_DIR"/tsess_*; do
-		[ -f "$sf" ] || continue
-		st=${sf##*sess_}
-		sess_valid "$st" || true
-	done
-}
-
 R=$(route)
 [ -n "$R" ] || { cgi_fail "404 Not Found" "$(ui_msg 未知接口)"; exit 0; }
 
 # 所有分支都依赖配置变量（status 读哈希、login 读哈希/Token/TTL），故不可整体跳过
 load_cfg_sh
+
+# 仍是默认密码时，外部通道只放行改密相关接口；业务接口统一 403（whoami/logout/webuipasswd/login 例外）
+require_password_changed() {
+    [ "$WEBUI_PASSWORD_DEFAULT" = "1" ] || return 0
+    cgi_fail "403 Forbidden" "$(ui_msg '请先修改默认密码')"
+    exit 0
+}
 
 case "$R" in
 status)
@@ -380,6 +241,7 @@ webuitoken)
     # 仅会话 Cookie 可查（防 ?token= 进代理日志扩散）。
     TOKEN_SESS=$(cookie SVC_SESS)
     sess_valid "$TOKEN_SESS" || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
+    require_password_changed
     # 仅 Token 会话（tsess_*）显示剩余天数；密码会话不冒充 Token 有效期
     LEFT_DAYS=""
     if [ -f "$WEBUI_TSESS_PREFIX$TOKEN_SESS" ]; then
@@ -393,9 +255,10 @@ webuitoken)
     cgi_authed "$OUT"
     ;;
 whoami)
-    # 登录态自检（滑动续期，每次有效访问续满 TTL）。
+    # 登录态自检（滑动续期，每次有效访问续满 TTL）；顺带告知是否仍为默认密码。
     if auth_check 0; then
-        cgi_authed '{"success":true,"authed":true}'
+        if [ "$WEBUI_PASSWORD_DEFAULT" = "1" ]; then mc=true; else mc=false; fi
+        cgi_authed "{\"success\":true,\"authed\":true,\"must_change_password\":$mc}"
     else
         cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"
     fi
@@ -403,6 +266,7 @@ whoami)
 webuistatus)
     # 浏览器只读（改密/开关走管理器）。
     if auth_check 0; then
+        require_password_changed
         OUT=$(api_webui_status 2>/dev/null)
         cgi_authed "$OUT"
     else
@@ -411,6 +275,8 @@ webuistatus)
     ;;
 webuipasswd|webuiregen)
     auth_check 0 || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
+    # 改密是首次登录唯一放行的操作；Token 轮换仍需先完成改密
+    [ "$R" = webuiregen ] && require_password_changed
     webui_log "$(ui_msg '%s：%s' "$([ "$R" = webuiregen ] && ui_msg '重新生成长期 Token' || ui_msg '修改访问密码')" "$(client_ip)")"
     # regen 不读表单；passwd 限 POST 并校验体长。
     case "$R" in
@@ -439,6 +305,7 @@ webuistart|webuistop)
     ;;
 svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|runcmd|runcmdtermux)
     auth_check 1 || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
+    require_password_changed
     # 滑动过期：每次有效访问续满 TTL，锁屏回来不断登。
     case "$R" in
     svcstatus) SUB=status ;;

@@ -19,10 +19,37 @@ const fs = require('fs');
 const path = require('path');
 const { execFile, execFileSync } = require('child_process');
 
-const PORT = 8090;
 const REPO = path.resolve(__dirname, '..');
 const WHITE = new Set(['status', 'getconfig', 'getsettings', 'getservices', 'saveconfig', 'savesettings', 'saveservices', 'readlog', 'logs', 'start', 'stop', 'clearlog', 'runcmd', 'runcmdtermux', 'webuistart', 'webuistop', 'webuistatus', 'webuipasswd', 'webuiregen', 'webuitoken']);
 const OUT_MAX = 512 * 1024;
+
+// 命令行参数：模式必须是第一个参数（reset/stop/reflash），其余为可选隔离参数。
+// 默认值与原行为完全一致；自动化测试用独立沙盒根 + 独立端口，互不干扰。
+const ARGS = process.argv.slice(2);
+const MODE = ['reset', 'stop', 'reflash'].includes(ARGS[0]) ? ARGS[0] : '';
+function die(msg) {
+    console.error('参数错误：' + msg);
+    process.exit(1);
+}
+function hasArg(name) {
+    return ARGS.includes(name);
+}
+function argValue(name) {
+    const i = ARGS.indexOf(name);
+    if (i < 0) return '';
+    const v = ARGS[i + 1];
+    return v && !v.startsWith('--') ? v : '';
+}
+function portArg(name, def) {
+    if (!hasArg(name)) return def;
+    const v = argValue(name);
+    if (!/^\d+$/.test(v) || Number(v) < 1 || Number(v) > 65535) die(name + ' 需要 1~65535 的端口');
+    return Number(v);
+}
+const PORT = portArg('--bridge-port', 8090);
+const WEB_PORT = hasArg('--web-port') ? portArg('--web-port', 0) : '';
+if (hasArg('--sandbox-root') && !argValue('--sandbox-root')) die('--sandbox-root 需要目录');
+const sandboxRoot = path.resolve(argValue('--sandbox-root') || path.join(REPO, '.mock-sandbox'));
 
 // 定位本机 Git Bash（找不到回退 PATH）
 function findBash() {
@@ -38,8 +65,7 @@ function findBash() {
 }
 const BASH = findBash();
 
-// ---- 固定沙盒：<repo>/.mock-sandbox/modules/SvcHub ----
-const sandboxRoot = path.join(REPO, '.mock-sandbox');
+// ---- 沙盒：默认 <repo>/.mock-sandbox/modules/SvcHub，可用 --sandbox-root 隔离 ----
 const sandbox = path.join(sandboxRoot, 'modules', 'SvcHub');
 const fakebin = path.join(sandbox, 'fakebin');
 
@@ -87,6 +113,9 @@ function copyScripts() {
         fs.copyFileSync(path.join(REPO, f), path.join(sandbox, f));
     }
     fs.copyFileSync(path.join(REPO, 'lib.sh'), path.join(sandbox, 'lib.sh'));
+    // 公共库按职责拆分后整目录覆盖（整体删再拷，避免旧文件残留在沙盒里）
+    fs.rmSync(path.join(sandbox, 'lib'), { recursive: true, force: true });
+    fs.cpSync(path.join(REPO, 'lib'), path.join(sandbox, 'lib'), { recursive: true });
     // web.conf 不入库，本地存在才拷；缺失时 load_web_conf 回退内置默认（5555/3600/30/5/300）
     const webConf = path.join(REPO, 'config', 'web.conf');
     if (fs.existsSync(webConf)) {
@@ -178,7 +207,22 @@ function factoryReset() {
 }
 
 // ---- 启动初始化 ----
-if (process.argv[2] === 'reset') {
+// 测试隔离：把外部访问端口写进沙盒 web.conf（在 service.sh 启动 httpd 之前生效）
+function writeWebConf(port) {
+    const f = path.join(sandbox, 'config', 'web.conf');
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, [
+        'WEBUI_LISTEN=127.0.0.1',
+        'WEBUI_PORT=' + port,
+        'SESS_TTL=3600',
+        'TOKEN_DAYS=30',
+        'FAIL_MAX=5',
+        'FAIL_LOCK=300',
+        '',
+    ].join('\n'));
+}
+
+if (MODE === 'reset') {
     factoryReset();
     process.exit(0);
 }
@@ -219,12 +263,12 @@ function bridgeAlive() {
 
 // reflash：桥活着→热更新（只覆盖文件）；桥不在→杀旧桥走完整冷启动，config 保留
 let hotReflash = false;
-if (process.argv[2] === 'reflash') {
+if (MODE === 'reflash') {
     hotReflash = bridgeAlive();
     if (!hotReflash) killStaleBridge();
 }
 // stop：停桥 + 停 supervisor/服务/pid/log（stopAll 与 Ctrl+C 同一逻辑）
-if (process.argv[2] === 'stop') {
+if (MODE === 'stop') {
     killStaleBridge();
     stopAll();
     console.log('已停止 supervisor 与各服务，沙盒保留供下次复用：' + sandboxRoot);
@@ -233,6 +277,8 @@ if (process.argv[2] === 'stop') {
 copyScripts();
 writeFakebin();
 const created = writeSampleConfig();
+// 冷启动前把测试端口写进 web.conf（热更新不重启 httpd，改了也不生效）
+if (WEB_PORT && !hotReflash) writeWebConf(WEB_PORT);
 applyWifiArgs();
 console.log(created ? '沙盒初始化：已生成示例 config/setting.conf + config/services.conf' : '沙盒复用：保留已有 config/');
 if (hotReflash) {
@@ -468,16 +514,16 @@ function stopAll() {
         '  cl=$(tr "\\0" " " 2>/dev/null < /proc/$p/cmdline)',
         '  case "$cl" in *mock-server*) continue;; esac',
         // cwd 落沙盒内的全收（supervisor/服务/各级 sleep）；httpd cwd 不在沙盒，靠命令行 busybox+沙盒路径命中
-        '  case "$cw" in */.mock-sandbox/modules/SvcHub*) targets="$targets $p"; continue;; esac',
-        '  case "$cl" in *busybox*mock-sandbox*) targets="$targets $p";; esac',
+        '  case "$cw" in *"$SVCHUB_SANDBOX"*) targets="$targets $p"; continue;; esac',
+        '  case "$cl" in *busybox*"$SVCHUB_SANDBOX"*) targets="$targets $p";; esac',
         'done',
         'for p in $targets; do kill -15 $p 2>/dev/null; done',
         'sleep 2',
         'for p in $targets; do kill -0 $p 2>/dev/null && kill -9 $p 2>/dev/null; done',
         'echo done',
     ].join('\n');
-    // 不能用 mockEnv()：stop 先于 sandboxMsys 初始化（TDZ）；清理失败必须打印，不能静默
-    const killEnv = Object.assign({}, process.env);
+    // 不能用 mockEnv()：stop 先于 sandboxMsys 初始化（TDZ）；沙盒路径经环境变量传入，免手拼 shell 引号
+    const killEnv = Object.assign({}, process.env, { SVCHUB_SANDBOX: toMsys(sandbox) });
     killEnv.PATH = '/usr/local/bin:/usr/bin:/bin:' + (killEnv.PATH || '');
     try {
         execFileSync(BASH, ['-c', script], { cwd: sandbox, env: killEnv, timeout: 15000 });

@@ -6,6 +6,11 @@ MODDIR=${0%/*}
 # 取界面语言（日志双语）；端口/监听等键沿用调用方已加载的值，不在此重读 web.conf
 [ -n "$LOAD_CFG_DONE" ] || load_cfg_sh
 
+# 自检走 127.0.0.1 必须直连：busybox wget 不认 no_proxy，http_proxy 会让它拿 502
+clear_proxy_env() {
+	unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
+}
+
 case "$1" in
 start)
     # 单实例：旧端口残留先清再起。
@@ -55,8 +60,8 @@ start)
     sleep 1
     if svc_running httpd; then
         # 进程存活≠端口监听，取一次 status 确认链路；回环固定连 127（配 0.0.0.0 时自检连它会自杀）。
-        if busybox wget -q -O /dev/null "http://127.0.0.1:$WEBUI_PORT/cgi-bin/api.cgi?a=status" 2>/dev/null || \
-           "$BB" wget -q -O /dev/null "http://127.0.0.1:$WEBUI_PORT/cgi-bin/api.cgi?a=status" 2>/dev/null; then
+        if ( clear_proxy_env; busybox wget -q -O /dev/null "http://127.0.0.1:$WEBUI_PORT/cgi-bin/api.cgi?a=status" ) 2>/dev/null || \
+           ( clear_proxy_env; "$BB" wget -q -O /dev/null "http://127.0.0.1:$WEBUI_PORT/cgi-bin/api.cgi?a=status" ) 2>/dev/null; then
             webui_log "$(ui_msg 'httpd 已启动（%s:%s，pid=%s）' "$WEBUI_LISTEN" "$WEBUI_PORT" "$(cat "$RUNDIR/httpd.pid" 2>/dev/null)")"
             exit 0
         fi

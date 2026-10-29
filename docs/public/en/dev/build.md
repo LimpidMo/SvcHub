@@ -9,5 +9,6 @@ python tools/pack.py --tag dev  # test build → dist/SvcHub_v<version>_dev.zip
 ```
 
 - The version is read from the `version` field of `module.prop`, producing `dist/SvcHub_v<version>.zip`; duplicate names are not overwritten — a `_1`/`_2` suffix is appended
-- New module files must be added to the `REQUIRED_FILES` list in `tools/pack.py`
+- New module files must be added to the `REQUIRED_FILES` list in `tools/pack.py` (currently 23, including the six `lib/` modules)
+- Run `sh tools/check.sh` before packing (syntax + lib unit tests + i18n + file list)
 - Each build overwrites `dist/SHA256.txt` (one line: hash + package name)

@@ -51,7 +51,7 @@ This module does not change binary file permissions. Run `chmod +x ./xxx` yourse
 
 ## Magisk users cannot find the WebUI entry
 
-Magisk has no manager Action entry. With external access enabled (on by default), visit `http://127.0.0.1:5555` in a browser; the default password is `admin` — change it right after the first login.
+Magisk has no manager Action entry. External access is on by default on fresh installs; visit `http://127.0.0.1:5555` with default password `admin` — the first login forces a change. KernelSU / APatch start with web access off; change the password in the manager to enable it.
 
 ## Services do not auto-start on boot after turning off "Patrol keep-alive"
 

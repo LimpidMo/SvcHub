@@ -51,7 +51,7 @@ readelf -d ./xxx | grep NEEDED       # 列出所有动态库依赖，标注 not 
 
 ## Magisk 用户找不到 WebUI 入口
 
-Magisk 无管理器 Action 入口。开启外部访问（默认开启）后，浏览器访问 `http://127.0.0.1:5555`，默认密码 `admin`，首次使用请立即改密。
+Magisk 无管理器 Action 入口。首次安装默认开启外部访问，浏览器访问 `http://127.0.0.1:5555`，默认密码 `admin`，首次登录强制修改。KernelSU / APatch 默认关闭外部访问，改密后在管理器内开启。
 
 ## 关闭「巡检保活」后开机不启动服务
 

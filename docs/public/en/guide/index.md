@@ -29,7 +29,7 @@ The original motivation: run services on a bare kernel and manage them in one pl
 3. Reboot after installation; existing configuration is preserved on upgrade
 4. In KernelSU or APatch manager → Modules → open SvcHub → enter the WebUI; swipe to browse pages
 
-> Magisk users have no in-manager WebUI entry. With external access enabled (on by default), visit `http://127.0.0.1:5555` in a browser; default password is `admin`.
+> Magisk users have no in-manager WebUI entry. External access is on by default on fresh installs; visit `http://127.0.0.1:5555` with default password `admin` — the first login forces a change. KernelSU / APatch start with web access off; change the password in the manager to enable it.
 
 Configuration guides for each service type: [Termux Service](/en/guide/termux) and [Binary Service](/en/guide/binary). See [Service Examples](/en/guide/examples) for complete configurations.
 

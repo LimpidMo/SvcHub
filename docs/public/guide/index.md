@@ -29,7 +29,7 @@ SvcHub 是一个 KernelSU / Magisk / APatch 通用 Root 模块，用于**开机�
 3. 安装完成后重启设备，升级时自动保留已有配置
 4. 在 KernelSU 或 APatch 等管理器 → 模块 → 点击打开 SvcHub → 进入 WebUI，页面可左右滑动查看
 
-> Magisk 用户无管理器 WebUI 入口，开启外部访问（默认开启）后浏览器访问 `http://127.0.0.1:5555`，默认密码 `admin`。
+> Magisk 无管理器 WebUI 入口，首次安装默认开启外部访问；浏览器访问 `http://127.0.0.1:5555`，默认密码 `admin`，首次登录强制修改。KernelSU / APatch 默认关闭外部访问，改密后在管理器内开启。
 
 两类服务的配置说明见 [Termux 服务](/guide/termux) 与 [二进制服务](/guide/binary)，完整示例见 [服务配置示例](/guide/examples)。
 

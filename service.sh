@@ -26,8 +26,11 @@ if [ "$WEBUI_PASSWORD_HASH_NEED_SAVE" = "1" ]; then
 	load_cfg_sh
 fi
 
+# 升级迁移：旧配置补写 webui_password_default（仍是默认 admin 则强制首次改密）
+webui_password_default_migrate
+
 # 启动前清遗留会话：密码会话删，Token 长期会话保留（重启不断登）。
-webui_clean_stale_sess
+webui_expire_password_sessions
 
 # 外部访问默认开启（失败不阻塞开机）。
 if [ "$WEBUI_ENABLED" = "1" ] && [ -n "$WEBUI_PASSWORD_HASH" ]; then

@@ -28,3 +28,4 @@ config/
 *~
 .DS_Store
 Thumbs.db
+tools/__pycache__/pack.cpython-313.pyc

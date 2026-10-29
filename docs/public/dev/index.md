@@ -1,14 +1,18 @@
 # 本地开发联调
 
-电脑浏览器直接调 WebUI，脚本在固定沙盒 `.mock-sandbox/` 里真实执行，不需要真机、不碰仓库 `config/`。
+电脑浏览器直接调 WebUI，脚本在默认沙盒 `.mock-sandbox/` 里真实执行，不需要真机、不碰仓库 `config/`。
 
 ```powershell
 node tools/mock-server.js          # 启动联调桥 → http://127.0.0.1:8090
 node tools/mock-server.js stop     # 停桥 + 清理沙盒服务
 node tools/mock-server.js reset    # 恢复出厂配置：删沙盒 config/run/log 重建示例
 node tools/mock-server.js reflash  # 改脚本后热更新文件
+
+sh tools/check.sh                  # 快速校验：语法 + lib 单测 + i18n + 打包清单
+node tools/smoke.js                # 端到端冒烟：临时隔离沙盒，自动清理
 ```
 
+- 隔离实例：加 `--sandbox-root <目录> --bridge-port <端口> --web-port <端口>`（`stop`/`reflash` 同样接受），与日常联调互不干扰
 - Wi-Fi 模拟：`curl "http://127.0.0.1:8090/__wifi?state=on&ssid=Home"`
   - 冷启动可带参数：`node tools/mock-server.js --wifi on --ssid Home`
 - 亮屏锁屏模拟：`curl "http://127.0.0.1:8090/__screen?screen=off&lock=lock"`

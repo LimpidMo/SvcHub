@@ -337,6 +337,7 @@
                         </div>
                         <div id="webui-panel" style="display:none;">
                             <div class="form-hint" id="webui-status" style="margin-bottom:10px;" data-i18n="status.webuiLoading">状态：加载中...</div>
+                            <div class="form-hint" id="webui-default-warn" style="display:none;color:var(--warn-fg);margin-bottom:10px;" data-i18n="status.webuiDefaultPw">当前仍是默认密码，修改后才能开启外部访问</div>
                             <div id="webui-manage" style="display:none;">
                                 <div style="display:flex;gap:6px;margin-bottom:10px;">
                                     <button class="btn btn-lg" style="flex:1;" onclick="showWebuiPasswd()" data-i18n="btn.passwd">修改密码</button>
@@ -557,6 +558,25 @@
 
     <div class="toast" id="toast"></div>
 
+    <div class="modal" id="modal-force-pw">
+        <div class="modal-box">
+            <div class="modal-hd"><span data-i18n="forcePw.title">首次登录请修改默认密码</span></div>
+            <div class="modal-bd">
+                <div class="form-hint" style="margin-bottom:10px;" data-i18n="forcePw.desc">默认密码只用于首次登录，请设置新密码后继续。</div>
+                <label class="form-label" data-i18n="forcePw.old">当前密码</label>
+                <input type="password" class="form-input" id="input-force-old" placeholder="当前密码" autocomplete="current-password" style="margin-bottom:8px;" data-i18n-attr="placeholder:forcePw.old">
+                <div style="display:flex;gap:8px;">
+                    <input type="password" class="form-input" id="input-force-new1" placeholder="新密码" autocomplete="new-password" data-i18n-attr="placeholder:ph.newPw">
+                    <input type="password" class="form-input" id="input-force-new2" placeholder="再次输入" autocomplete="new-password" data-i18n-attr="placeholder:ph.newPw2">
+                </div>
+                <div class="form-error" id="error-force-pw"></div>
+            </div>
+            <div class="modal-ft">
+                <button class="btn btn-primary" style="width:100%;" onclick="submitForcePasswd()" data-i18n="forcePw.btn">确认修改</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal" id="modal-login">
         <div class="modal-box">
             <div class="modal-hd" style="display:flex;justify-content:space-between;align-items:center;">
@@ -593,6 +613,8 @@
         const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
         // 系统进程保留名：进程按 cmdline 子串匹配，此类通用短名会误伤系统进程
         const SYS_NAME_RE = new RegExp('^(init|sh|su|root|shell|system|kernel|logd|logcat|netd|vold|adbd|zygote|servicemanager|surfaceflinger|audioserver|cameraserver|mediaserver|installd|lmkd|keystore|system_server)$');
+        // 与后端 WEBUI_DEFAULT_PASSWORD 一致：仅用于表单预检，真正的执法在后端
+        const DEFAULT_PASSWORD = 'admin';
 
         // 服务名前端校验：返回错误文案，空串表示通过（与后端 valid_name 规则一致）
         // 服务名前端校验：返回 i18n 键名，空串表示通过（与后端 valid_name 规则一致）
@@ -782,7 +804,8 @@
                 'hint.wakeLock': '保持 CPU 唤醒，减少锁屏休眠解决巡检/启停响应延后问题，耗电略增',
                 'label.sleep': '检查间隔 (秒)，最小10秒，建议60秒', 'err.sleep': '最小值为10秒',
                 'label.webui': '外部访问', 'status.webuiLoading': '状态：加载中...',
-                'status.webuiRunning': '状态：运行中（http://本机IP:{port}），默认密码admin',
+                'status.webuiRunning': '状态：运行中（http://本机IP:{port}）',
+                'status.webuiOff': '状态：已关闭', 'status.webuiDefaultPw': '当前仍是默认密码，修改后才能开启外部访问',
                 'status.webuiNotRun': '状态：已开启但 httpd 未运行（请关闭重开，或查看 webui 日志）',
                 'ph.oldPw': '旧密码', 'ph.newPw': '新密码', 'ph.newPw2': '再次输入',
                 'ph.token': '若无token呈现，点击重新生成',
@@ -821,6 +844,9 @@
                 'confirm.clearBtn': '清空',
                 'login.title': '外部访问登录', 'login.tokenMode': '长期 Token 登录',
                 'login.pw': '密码', 'login.token': '长期 Token', 'login.btn': '登录', 'login.submit': '登录',
+                'forcePw.title': '首次登录请修改默认密码', 'forcePw.desc': '默认密码只用于首次登录，请设置新密码后继续。',
+                'forcePw.old': '当前密码', 'forcePw.btn': '确认修改', 'forcePw.success': '密码已修改，请重新登录',
+                'err.pwDefault': '不能使用默认密码 admin',
                 'ph.loginPw': '外部访问密码', 'ph.loginToken': '长期 Token',
                 'toast.saving': '保存中...', 'toast.saved': '已保存', 'toast.saveFail': '保存失败', 'toast.langSaveFail': '语言保存失败，后台日志暂不切换',
                 'toast.refreshing': '刷新中...', 'toast.refreshed': '已刷新', 'toast.refreshFail': '刷新失败',
@@ -886,7 +912,8 @@
                 'title.patrol': 'Auto patrol: when off, only periodic restarts stop; stop-window exit / screen unlock / Wi-Fi recovery still apply',
                 'label.sleep': 'Interval (sec), min 10, 60 recommended', 'err.sleep': 'Minimum is 10 seconds',
                 'label.webui': 'Web Access', 'status.webuiLoading': 'Status: loading...',
-                'status.webuiRunning': 'Status: running (http://<device-ip>:{port}), default password admin',
+                'status.webuiRunning': 'Status: running (http://<device-ip>:{port})',
+                'status.webuiOff': 'Status: off', 'status.webuiDefaultPw': 'The default password is still active; change it before enabling web access',
                 'status.webuiNotRun': 'Status: enabled but httpd is not running (toggle off then on, or check the webui log)',
                 'ph.oldPw': 'Current password', 'ph.newPw': 'New password', 'ph.newPw2': 'Repeat password',
                 'ph.token': 'No token shown? Tap regenerate',
@@ -931,6 +958,9 @@
                 'login.title': 'Web Access Login', 'login.tokenMode': 'Log in with long-term Token',
                 'login.pw': 'Password', 'login.token': 'Long-term Token', 'login.btn': 'Log In',
                 'login.submit': 'Log In',
+                'forcePw.title': 'Change the default password', 'forcePw.desc': 'The default password is only for the first login. Set a new password to continue.',
+                'forcePw.old': 'Current password', 'forcePw.btn': 'Change password', 'forcePw.success': 'Password changed, please log in again',
+                'err.pwDefault': 'The default password "admin" is not allowed',
                 'ph.loginPw': 'Web access password', 'ph.loginToken': 'Long-term Token',
                 'toast.saving': 'Saving...', 'toast.saved': 'Saved', 'toast.saveFail': 'Save failed', 'toast.langSaveFail': 'Language save failed, backend logs stay unchanged',
                 'toast.refreshing': 'Refreshing...', 'toast.refreshed': 'Refreshed',
@@ -1244,14 +1274,62 @@
                 if (d.authed) {
                     httpToken = '';
                     afterLogin();
-                    // 登录后预热三页数据：状态页首屏优先，其余两项随后补（httpd 串行处理 CGI，并行会拖慢首屏）
-                    await loadStatus(true);
-                    loadConfigSvcs(true, true);
-                    loadConfigSettings(true, true);
+                    await httpEnterApp(d);
                 } else {
                     showLogin();
                 }
             } catch (e) { showLogin(); }
+        }
+
+        // 改密表单共用校验：返回 i18n 键，空串表示通过
+        function passwordFormError(oldPw, pw1, pw2) {
+            if (!oldPw) return 'err.pwOld';
+            if (!pw1 || pw1.length < 6) return 'err.pwShort';
+            if (pw1 !== pw2) return 'err.pwDiff';
+            if (pw1 === DEFAULT_PASSWORD) return 'err.pwDefault';
+            return '';
+        }
+
+        // 首次登录强制改密：仍是默认密码时阻塞式弹窗，改完回登录页
+        function showForcePasswd() {
+            hideAnyModal('modal-login');
+            document.querySelector('.container').style.display = 'none';
+            document.querySelector('.nav').style.display = 'none';
+            document.getElementById('nav-logout').style.display = 'none';
+            document.getElementById('input-force-old').value = '';
+            document.getElementById('input-force-new1').value = '';
+            document.getElementById('input-force-new2').value = '';
+            document.getElementById('error-force-pw').textContent = '';
+            showAnyModal('modal-force-pw');
+        }
+
+        async function submitForcePasswd() {
+            const errEl = document.getElementById('error-force-pw');
+            errEl.textContent = '';
+            const old = document.getElementById('input-force-old').value;
+            const pw1 = document.getElementById('input-force-new1').value;
+            const pw2 = document.getElementById('input-force-new2').value;
+            const errKey = passwordFormError(old, pw1, pw2);
+            if (errKey) { errEl.textContent = t(errKey); return; }
+            const r = await postForm('cgi-bin/api.cgi?a=webuipasswd', 'password=' + encodeURIComponent(pw1) + '&old=' + encodeURIComponent(old));
+            if (!parseSuccess(r)) {
+                try { errEl.textContent = (JSON.parse(r.stdout || '{}').error) || t('toast.saveFail'); } catch (e) { errEl.textContent = t('toast.saveFail'); }
+                return;
+            }
+            // 改密清全部会话：回登录页用新密码登录
+            hideAnyModal('modal-force-pw');
+            toast(t('forcePw.success'));
+            showLogin();
+        }
+
+        // 登录后进入应用：whoami 结果由调用方传入（登录/自检各只发一次请求），
+        // 仍为默认密码时先阻塞改密，否则预热三页数据
+        async function httpEnterApp(who) {
+            if (who && who.must_change_password) { showForcePasswd(); return; }
+            // 状态页首屏优先，其余两项随后补（httpd 串行处理 CGI，并行会拖慢首屏）
+            await loadStatus(true);
+            loadConfigSvcs(true, true);
+            loadConfigSettings(true, true);
         }
 
         async function httpLogin() {
@@ -1284,10 +1362,8 @@
                     httpToken = (useToken && tk) ? tk : '';
                     afterLogin();
                     toast(t('toast.loginOk'));
-                    // 登录后预热三页数据：状态页首屏优先，其余两项随后补（httpd 串行处理 CGI，并行会拖慢首屏）
-                    await loadStatus(true);
-                    loadConfigSvcs(true, true);
-                    loadConfigSettings(true, true);
+                    // 复用静默自检入口：whoami 一次完成改密判断与数据预热
+                    await httpCheckAuth();
                 } else {
                     errEl.textContent = d.error || t('err.loginFail');
                 }
@@ -1296,6 +1372,7 @@
 
         function showLogin() {
             if (ksuApi) return; // 管理器内免登录
+            hideAnyModal('modal-force-pw');
             document.querySelector('.container').style.display = 'none';
             document.querySelector('.nav').style.display = 'none';
             showAnyModal('modal-login');
@@ -2258,16 +2335,29 @@
         let webuiPanelCacheTime = 0;
         const WEBUI_PANEL_TTL = 10 * 1000;
 
-        // 面板渲染（纯展示，数据由调用方传入）。
-        function renderWebuiPanel(sw, panel, stEl, manage, enabled, running, port) {
+        function webuiPanelEls() {
+            return {
+                sw: document.getElementById('webui-switch'),
+                panel: document.getElementById('webui-panel'),
+                stEl: document.getElementById('webui-status'),
+                manage: document.getElementById('webui-manage'),
+            };
+        }
+
+        // 面板渲染（纯展示）；state: { enabled, running, port, mustChange }
+        function renderWebuiPanel(state) {
+            const { sw, panel, stEl, manage } = webuiPanelEls();
+            const { enabled, running, port, mustChange } = state;
             configData.webui_port = port;
             document.querySelectorAll('.webui-port').forEach(el => { el.textContent = port; });
             sw.checked = enabled;
-            panel.style.display = enabled ? 'block' : 'none';
+            // 关闭但仍是默认密码时保持面板可见，用户才能改密后再开启
+            panel.style.display = (enabled || mustChange) ? 'block' : 'none';
+            const warn = document.getElementById('webui-default-warn');
+            if (warn) warn.style.display = mustChange ? 'block' : 'none';
             if (!enabled) {
-                stEl.textContent = '';
-                manage.style.display = 'none';
-                document.getElementById('error-webui').textContent = '';
+                stEl.textContent = t('status.webuiOff');
+                manage.style.display = 'block';
                 return;
             }
             stEl.textContent = running === 'running'
@@ -2278,16 +2368,13 @@
         }
 
         async function refreshWebuiPanel(force = false) {
-            const sw = document.getElementById('webui-switch');
-            const panel = document.getElementById('webui-panel');
-            const stEl = document.getElementById('webui-status');
-            const manage = document.getElementById('webui-manage');
+            const { sw, panel, manage } = webuiPanelEls();
             // 直连：开关禁用，改密/Token 可用；状态由登录时 getsettings 附带，免一次 webuistatus。
             if (httpMode) {
                 sw.disabled = true;
                 manage.querySelectorAll('input,button').forEach(el => { el.disabled = false; });
                 panel.style.display = 'block';
-                renderWebuiPanel(sw, panel, stEl, manage, configData.webui_enabled, 'running', configData.webui_port);
+                renderWebuiPanel({ enabled: configData.webui_enabled, running: 'running', port: configData.webui_port, mustChange: false });
                 return;
             }
             manage.querySelectorAll('input,button').forEach(el => { el.disabled = false; });
@@ -2300,7 +2387,12 @@
             const enabled = st ? st.enabled === '1' : configData.webui_enabled;
             configData.webui_enabled = enabled;
             const port = parseInt(st && st.port, 10) || configData.webui_port;
-            renderWebuiPanel(sw, panel, stEl, manage, enabled, st ? st.running : 'stopped', port);
+            renderWebuiPanel({
+                enabled,
+                running: st ? st.running : 'stopped',
+                port,
+                mustChange: !!(st && st.must_change_password),
+            });
         }
 
         let webuiToggling = false;
@@ -2321,10 +2413,12 @@
                 document.getElementById('webui-panel').style.display = on ? 'block' : 'none';
                 toast(t(on ? 'toast.on' : 'toast.off'));
             } else {
-                try { errEl.textContent = (JSON.parse(r.stdout || '{}').error) || t('toast.opFail'); } catch (e) { errEl.textContent = t('toast.opFail'); }
+                // 后端拒绝原因（如默认密码未改）直接提示，面板由 refresh 重新渲染
+                let msg = t('toast.opFail');
+                try { msg = (JSON.parse(r.stdout || '{}').error) || msg; } catch (e) { /* 解析失败用默认 */ }
+                errEl.textContent = msg;
                 sw.checked = !on;
-                document.getElementById('webui-panel').style.display = !on ? 'block' : 'none';
-                toast(t('toast.opFail'), true);
+                toast(msg, true);
             }
             refreshWebuiPanel(true);
         }
@@ -2335,9 +2429,8 @@
             const old = document.getElementById('input-webui-old').value;
             const pw1 = document.getElementById('input-webui-new1').value;
             const pw2 = document.getElementById('input-webui-new2').value;
-            if (!old) { errEl.textContent = t('err.pwOld'); return; }
-            if (!pw1 || pw1.length < 6) { errEl.textContent = t('err.pwShort'); return; }
-            if (pw1 !== pw2) { errEl.textContent = t('err.pwDiff'); return; }
+            const errKey = passwordFormError(old, pw1, pw2);
+            if (errKey) { errEl.textContent = t(errKey); return; }
             toast(t('toast.saving'));
             // 直连发明文表单，管理器发 key=base64 行。
             const r = httpMode

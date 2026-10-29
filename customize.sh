@@ -44,6 +44,8 @@ inst_msg() {
     '- 后期若需挂载DNS配置，手动删除模块文件夹内skip_mount文件或执行:') _im_out=$(printf '%s%s' '- ' "$(printf 'To mount DNS later, delete the skip_mount file in the module folder or run:')") ;;
     '  rm /data/adb/modules/%s/skip_mount 后重启即可') _im_out=$(printf '  rm /data/adb/modules/%s/skip_mount then reboot' "$1") ;;
     '- 已修复脚本可执行权限') _im_out=$(printf '%s%s' '- ' "$(printf 'Fixed script executable permissions')") ;;
+    '- Magisk 默认开启外部访问，首次登录请改默认密码') _im_out=$(printf '%s%s' '- ' "$(printf 'Magisk: external access is on by default; change the default password at first login')") ;;
+    '- 外部访问默认关闭，设置密码后可在管理器内开启') _im_out=$(printf '%s%s' '- ' "$(printf 'External access is off by default; set a password to enable it')") ;;
     '! 可执行权限修复失败，外部访问 CGI 可能 404') _im_out=$(printf '%s%s' '! ' "$(printf 'Failed to fix executable permissions, web access CGI may 404')") ;;
     '! 未检测到 Termux（/data/data/com.termux/files/home）') _im_out=$(printf '%s%s' '! ' "$(printf 'Termux not detected (/data/data/com.termux/files/home)')") ;;
     '! Termux 服务功能不可用；自定义二进制服务与 WebUI 不受影响') _im_out=$(printf '%s%s' '! ' "$(printf 'Termux services unavailable; custom binary services and WebUI are unaffected')") ;;
@@ -51,7 +53,7 @@ inst_msg() {
     '  请选择界面语言 / Choose interface language:') _im_out=$(printf '  Choose interface language:') ;;
     '  音量 +  =  中文（默认）') _im_out=$(printf '  VOL +  =  Chinese (default)') ;;
     '  音量 -  =  English') _im_out=$(printf '  VOL -  =  English') ;;
-    '  请在 %s 秒内按下音量键，超时默认中文... ') _im_out=$(printf '  Press a volume key within %s seconds; timeout defaults to Chinese...' "$1") ;;
+    '  请在 %s 秒内按下音量键，超时默认中文...') _im_out=$(printf '  Press a volume key within %s seconds; timeout defaults to Chinese...' "$1") ;;
     '- 已选择语言: 中文') _im_out=$(printf '%s%s' '- ' "$(printf 'Language selected: Chinese')") ;;
     '- 已选择语言: English') _im_out=$(printf '%s%s' '- ' "$(printf 'Language selected: English')") ;;
     '! 音量键不可用或超时，默认中文') _im_out=$(printf '%s%s' '! ' "$(printf 'Volume keys unavailable or timed out, defaulting to Chinese')") ;;
@@ -136,11 +138,13 @@ chooseport() {
 }
 
 # ==================== 检测 root 方案 ====================
+IS_MAGISK=""
 if [ "${KSU:-}" = "true" ]; then
     ui_print "$(inst_msg '检测到 KernelSU')"
 elif [ "${APATCH:-}" = "true" ]; then
     ui_print "$(inst_msg '检测到 APatch')"
 elif [ "${MAGISK:-}" = "true" ] || [ -d /data/adb/magisk ]; then
+    IS_MAGISK=1
     ui_print "$(inst_msg '检测到 Magisk')"
     ui_print "$(inst_msg '! Magisk 可能不支持模块 WebUI，请使用 KsuWebUI 管理')"
 else
@@ -162,7 +166,7 @@ if [ -n "$MODID" ]; then
                 || ui_print "$(inst_msg '! 配置 config/%s 保留失败，将使用默认配置' "$cf")"
         done
         # 升级沿用旧语言：不重复询问，安装期输出按旧语言走
-        OLD_UI_LANG=$(sed -n 's/^[[:space:]]*language[[:space:]]*=[[:space:]]*//p' "$MODPATH/config/setting.conf" 2>/dev/null | head -n 1 | tr -d '\r')
+        OLD_UI_LANG=$(sed -n 's/^language=//p' "$MODPATH/config/setting.conf" 2>/dev/null | head -n 1 | tr -d '\r')
         case "$OLD_UI_LANG" in
         en|zh) INSTALL_LANG=$OLD_UI_LANG ;;
         esac
@@ -178,6 +182,11 @@ if [ -n "$MODID" ]; then
         fi
     fi
 fi
+
+# ==================== 配置文件路径 ====================
+# 语言选择与外部访问默认值共用同一落盘路径；config/ 已在上方保留段确保存在
+SETF="$MODPATH/config/setting.conf"
+mkdir -p "$MODPATH/config" 2>/dev/null
 
 # ==================== 音量键选择界面语言 ====================
 # 放在 DNS 选择之前：语言是全局基调，先定它；超时 5 秒默认中文（与 DNS 选择同范式）
@@ -211,16 +220,27 @@ else
     fi
 
     # 落盘 language 键；不用 sed -i（toybox/busybox 均不支持），临时文件 + mv 原子替换
-    SETF="$MODPATH/config/setting.conf"
-    mkdir -p "$MODPATH/config" 2>/dev/null
     if [ -f "$SETF" ]; then
-        grep -v '^[[:space:]]*language[[:space:]]*=' "$SETF" > "$SETF.tmp" 2>/dev/null || true
+        grep -v '^language=' "$SETF" > "$SETF.tmp" 2>/dev/null || true
         printf 'language=%s\n' "$INSTALL_LANG" >> "$SETF.tmp" 2>/dev/null
         mv -f "$SETF.tmp" "$SETF" 2>/dev/null
         chmod 600 "$SETF" 2>/dev/null
     else
         printf 'language=%s\n' "$INSTALL_LANG" > "$SETF" 2>/dev/null
         chmod 600 "$SETF" 2>/dev/null
+    fi
+fi
+
+# ==================== 外部访问默认值 ====================
+# Magisk 没有管理器 WebUI，首次安装默认开启外部访问（首次登录强制改密）；
+# 其他方案默认关闭，改密后再开。升级时沿用旧值（键已存在则跳过）。
+if [ -f "$SETF" ] && ! grep -q '^webui_enabled=' "$SETF" 2>/dev/null; then
+    if [ -n "$IS_MAGISK" ]; then
+        printf 'webui_enabled=1\n' >> "$SETF" 2>/dev/null
+        ui_print "$(inst_msg '- Magisk 默认开启外部访问，首次登录请改默认密码')"
+    else
+        printf 'webui_enabled=0\n' >> "$SETF" 2>/dev/null
+        ui_print "$(inst_msg '- 外部访问默认关闭，设置密码后可在管理器内开启')"
     fi
 fi
 
