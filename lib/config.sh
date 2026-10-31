@@ -2,7 +2,7 @@
 
 # 配置 schema 唯一定义：新增设置键需同步补全 setting_var_load / setting_var_set / action.sh cfg_apply_one 及前端字段。
 # 序列化、重置、JSON 输出均按本清单自动跟随。
-SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names termux_root_names patrol_enabled wake_lock_enabled language webui_enabled webui_password_hash webui_password_default webui_token'
+SETTING_KEYS='sleep_interval server_dir boot_commands wifi_service_enabled wifi_service_names wifi_service_names_off wifi_ssids schedule_enabled schedule_stop schedule_start screen_service_enabled screen_service_names screen_resume_names termux_root_names patrol_enabled wake_lock_enabled language webui_enabled webui_password_hash webui_password_default webui_token update_proxy_prefix update_check_interval'
 
 # 对外公开键（去掉密码哈希、长期 Token、默认密码标志三个敏感键），供 api_get_settings 使用；纯 shell 过滤，零 fork。
 SETTING_PUBLIC_KEYS=""
@@ -38,6 +38,8 @@ setting_var_load() {
 	webui_password_hash) SV_VALUE=$WEBUI_PASSWORD_HASH ;;
 	webui_password_default) SV_VALUE=$WEBUI_PASSWORD_DEFAULT ;;
 	webui_token) SV_VALUE=$WEBUI_TOKEN ;;
+	update_proxy_prefix) SV_VALUE=$UPDATE_PROXY_PREFIX ;;
+	update_check_interval) SV_VALUE=$UPDATE_CHECK_INTERVAL ;;
 	*) SV_VALUE=""; return 1 ;;
 	esac
 }
@@ -72,6 +74,8 @@ setting_var_set() {
 	webui_password_hash) WEBUI_PASSWORD_HASH=$2 ;;
 	webui_password_default) WEBUI_PASSWORD_DEFAULT=$2 ;;
 	webui_token) WEBUI_TOKEN=$2 ;;
+	update_proxy_prefix) UPDATE_PROXY_PREFIX=$2 ;;
+	update_check_interval) UPDATE_CHECK_INTERVAL=$2 ;;
 	esac
 }
 
@@ -324,6 +328,13 @@ load_cfg_sh() {
 		WEBUI_ENABLED="1"
 	fi
 
+	# 更新：代理前缀缺键=空（直连）；检查周期只认 0/3600/86400/604800，其余回 0（关闭）。
+	[ -n "$UPDATE_PROXY_PREFIX" ] || UPDATE_PROXY_PREFIX=""
+	case "$UPDATE_CHECK_INTERVAL" in
+	0|3600|86400|604800) ;;
+	*) UPDATE_CHECK_INTERVAL="0" ;;
+	esac
+
 	# 空哈希填默认 admin 哈希并标记落盘。
 	# 盐随机生成（非固定盐），落盘后全设备各异，重启一致。
 	# 生成默认哈希时同步标记「仍是默认密码」，外部通道据此强制首次改密。
@@ -357,6 +368,113 @@ pick_binary() {
 # 从配置行列表提取 name 列（每行一个，跳过空行）
 list_names() {
 	awk -F'|' '$1 != "" { print $1 }'
+}
+
+# ---------- 更新条目（config/update.conf） ----------
+# 条目行格式（10 段）：name|repo|asset|target|mode|svc|ins_ver|vercmd|update_ver|auto
+#   name       条目名（valid_name）
+#   repo       GitHub 仓库 owner/repo
+#   asset      资产文件名模板（{ver} 占位 = 去前导 v 的版本号）
+#   target     目标路径（相对 server_dir，不含 ..）
+#   mode       解包模式 file|dir|raw（raw=下载文件即二进制，不解包）
+#   svc        关联的二进制服务名（可空；非空须存在于 BINARY_SERVICES）
+#   ins_ver    已装版本（可空；更新成功或 vercmd 实测后写入）
+#   vercmd     版本查询参数（可空；实际执行 目标路径+参数，留空按常见参数逐个探测）
+#   update_ver 检查到的最新版本（可空；每次检查后写入，刷新页面不丢）
+#   auto       自动更新开关（1=检查发现新版本自动逐个更新；空/0=只标记）
+# 内存与文件同为 10 段多行文本（UPDATE_ENTRIES）。vercmd 禁 `|`，管道需求写 sh -c 'a | b'。
+
+# 校验更新条目：合法输出空，非法输出首个非法行号（与 validate_rows 同范式）。
+# svc 是否存在由调用方保证（需要 BINARY_SERVICES 已加载）。
+validate_update_rows() {
+	awk '
+	function valid_name(s) { return s ~ /^[A-Za-z0-9._-]+$/ }
+	BEGIN { FS = "|" }
+	{
+		if ($0 == "") next
+		r++
+		if (r > 500) { printf "%s", r; exit }
+		name = $1; repo = $2; asset = $3; target = $4; mode = $5; svc = $6
+		vercmd = $8
+		if (!valid_name(name)) { printf "%s", r; exit }
+		if (seen[name]++) { printf "%s", r; exit }
+		if (repo !~ /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/) { printf "%s", r; exit }
+		if (asset == "" || index(asset, "/") > 0 || index(asset, "|") > 0) { printf "%s", r; exit }
+		if (length(asset) > 256) { printf "%s", r; exit }
+		if (target == "" || target ~ /^\// || index(target, "..") > 0) { printf "%s", r; exit }
+		if (length(target) > 256) { printf "%s", r; exit }
+		if (mode != "file" && mode != "dir" && mode != "raw") { printf "%s", r; exit }
+		if (svc != "") {
+			if (!valid_name(svc)) { printf "%s", r; exit }
+			if (svc !~ /^[A-Za-z0-9._-]+$/) { printf "%s", r; exit }
+		}
+		if (index(vercmd, "|") > 0) { printf "%s", r; exit }
+		# 段数超过 10 说明某段内含 |（会被当分隔符切开），按非法拒绝。
+		# 已知漏网边界：vercmd 恰含一个 | 且 update_ver 为空时切成 10 段、$10 为空恰好通过 auto 校验，
+		# vercmd 被静默截断——前端已拦 |，此处仅剩手改文件的直连场景，不为其加启发式。
+		if (NF > 10) { printf "%s", r; exit }
+		# 版本字段只允许版本号字符：vercmd 里单个 | 会把 update_ver 切出带空格的尾巴，这里兜住
+		if ($7 !~ /^[A-Za-z0-9._+-]*$/ || $9 !~ /^[A-Za-z0-9._+-]*$/) { printf "%s", r; exit }
+		if ($10 != "" && $10 != "0" && $10 != "1") { printf "%s", r; exit }
+		if (length(vercmd) > 512) { printf "%s", r; exit }
+	}
+	'
+}
+
+# 读 update.conf 到 UPDATE_ENTRIES（每行 9 段，缺段补空；非法行跳过记日志）。
+# 单次 awk 完成去 CR、去空行、去注释、补齐段数与格式标记。
+load_update_conf() {
+	local f="$UPDATE_CONF" bad
+	UPDATE_ENTRIES=""
+	[ -f "$f" ] || return 0
+	bad=$(awk '
+	BEGIN { FS = "|" }
+	{
+		sub(/\r$/, "")
+		if ($0 == "" || $0 ~ /^[ \t]*#/) next
+		n = NF
+		line = $1
+		for (i = 2; i <= 10; i++) {
+			if (i <= n) line = line "|" $i
+			else line = line "|"
+		}
+		print line
+	}' "$f" 2>/dev/null) || return 0
+	[ -n "$bad" ] || return 0
+	# 格式校验：非法行整条跳过并记日志（其余条目照常生效）
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		if [ -n "$(printf '%s\n' "$line" | validate_update_rows)" ]; then
+			sup_log "$(ui_msg 'update.conf 非法行已跳过：%s' "$line")"
+			continue
+		fi
+		UPDATE_ENTRIES="${UPDATE_ENTRIES:+$UPDATE_ENTRIES
+}$line"
+	done <<EOF
+$bad
+EOF
+	return 0
+}
+
+# 写 update.conf（原子替换；从 UPDATE_ENTRIES 读）。
+write_update_conf() {
+	local tmp="$UPDATE_CONF.tmp"
+	mkdir -p "$CONFIG_DIR" 2>/dev/null
+	printf '%s\n' "$UPDATE_ENTRIES" | awk '
+		BEGIN { OFS = "|" }
+		$0 != "" { print }' > "$tmp" && mv -f "$tmp" "$UPDATE_CONF" || { rm -f "$tmp"; return 1; }
+	LOAD_CFG_DONE=""
+	return 0
+}
+
+# 按名取更新条目行（7 段原样）；未找到返回 1。
+pick_update_entry() {
+	printf '%s\n' "$UPDATE_ENTRIES" | awk -F'|' -v n="$1" '$1 == n { print; exit }'
+}
+
+# 更新条目列表（每行一个名字）。
+list_update_names() {
+	printf '%s\n' "$UPDATE_ENTRIES" | awk -F'|' '$1 != "" { print $1 }'
 }
 
 # ---------- 外部访问配置（config/web.conf） ----------

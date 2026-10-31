@@ -160,6 +160,162 @@ api_stop_service() {
 	json_ok
 }
 
+# ---------- 二进制更新 ----------
+# 更新条目 JSON：$1=条目行（10 段） $2=has_update（true/false，调用方用 ver_cmp 算）。
+update_entry_json() {
+	printf '%s' "$1" | awk -v has="$2" "$AWK_ESC"'
+	BEGIN { FS = "|" }
+	{
+		printf "%s{\"name\":\"%s\",\"repo\":\"%s\",\"asset\":\"%s\",\"target\":\"%s\",\"mode\":\"%s\",\"svc\":\"%s\",\"ins_ver\":\"%s\",\"vercmd\":\"%s\",\"update_ver\":\"%s\",\"auto\":\"%s\",\"has_update\":%s}",
+			(n++ ? "," : ""), esc($1), esc($2), esc($3), esc($4), esc($5), esc($6), esc($7), esc($8), esc($9), esc($10), has
+	}'
+}
+
+# 读更新条目列表（getupdates）。
+# 条目缺已装版本时顺手实测一次并回写（首次加载即显示版本，无需先点检查）。
+api_get_updates() {
+	load_cfg_sh
+	load_update_conf
+	printf '{"success":true,"items":['
+	local line first=1 name _repo _asset target _mode _svc ins vercmd update_ver detected has rawf
+	rawf="$RUNDIR/.verraw.$$"
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		IFS='|' read -r name _repo _asset target _mode _svc ins vercmd update_ver _auto <<UEOF
+$line
+UEOF
+		# 只在缺已装版本时补测一次（填了参数按参数，留空逐个兜底）：已记录版本直接返回，避免每次加载都执行命令。
+		# 目标二进制不存在/不可执行时连实测都跳过（首次安装前每次加载都白探一轮，还可能撞上挂死的二进制），
+		# 但条目照常输出（ins_ver 留空）。
+		if [ -z "$ins" ] && [ -x "$SERVER_DIR/$target" ]; then
+			if detected=$(update_local_version "$vercmd" "$target" "$rawf"); then
+				update_log "[$name] $(ui_msg '本地版本：%s' "$detected")"
+				update_set_ins_ver "$name" "$detected"
+				ins=$detected
+				line=$(pick_update_entry "$name")
+			else
+				update_log "[$name] $(ui_msg '版本命令未取到版本号（输出：%s）' "$(cat "$rawf" 2>/dev/null || echo '<空>')")"
+			fi
+		fi
+		# 已装/最新都有就版本比较（不联网，刷新页面也有「有更新」判定）
+		has=false
+		if [ -n "$update_ver" ]; then
+			if [ -z "$ins" ] || [ "$(ver_cmp "$update_ver" "$ins")" -gt 0 ]; then
+				has=true
+			fi
+		fi
+		[ "$first" -eq 0 ] && printf ','
+		first=0
+		update_entry_json "$line" "$has"
+	done <<EOF
+$UPDATE_ENTRIES
+EOF
+	rm -f "$rawf"
+	printf ']}\n'
+}
+
+# 保存更新条目（saveupdates）：stdin 读 key=BASE64 行，只接受 update_entries。
+api_save_updates() {
+	local provided= val bad name svc miss=""
+	load_cfg_sh
+	load_update_conf
+	while read_kv_b64; do
+		[ -n "$KV_KEY" ] || continue
+		case "$KV_KEY" in
+		update_entries) ;;
+		*) json_fail '未知配置键'; exit 1 ;;
+		esac
+		provided=1
+		val=$KV_VAL
+	done
+	[ -n "$provided" ] || { json_fail '配置内容为空'; exit 1; }
+	bad=$(printf '%s\n' "$val" | validate_update_rows)
+	[ -z "$bad" ] || { json_fail '更新配置格式错误（第 %s 行）' "$bad"; exit 1; }
+	# 关联服务必须存在于二进制服务列表（软引用失效则拒绝写入）
+	printf '%s\n' "$val" | while IFS='|' read -r name _repo _asset _target _mode svc _ins _vc _uv; do
+		[ -n "$svc" ] || continue
+		printf '%s\n' "$BINARY_SERVICES" | awk -F'|' -v n="$svc" '$1 == n { found = 1; exit } END { exit !found }' || {
+			printf '%s' "$svc" > "$RUNDIR/.upd_missing.$$"
+			exit 0
+		}
+	done
+	if [ -f "$RUNDIR/.upd_missing.$$" ]; then
+		miss=$(cat "$RUNDIR/.upd_missing.$$" 2>/dev/null)
+		rm -f "$RUNDIR/.upd_missing.$$"
+		json_fail '关联的二进制服务不存在：%s' "$miss"
+		exit 1
+	fi
+	UPDATE_ENTRIES="$val"
+	write_update_conf || { json_fail '配置写入失败'; exit 1; }
+	json_ok
+}
+
+# 检查更新（updatecheck）：后台拉起 updater.sh check 立即返回。
+# 探测要逐条目联网（单条 curl 最长 300s），同步执行会把 manager 通道的同步 XHR 卡死——
+# 前端只负责拉起与轮询 updatestatus，结果由 check 写回 update.conf（update_ver/ins_ver），
+# 完成后前端 getupdates 即可拿到 has_update（不联网）。
+api_update_check() {
+	load_cfg_sh
+	load_update_conf
+	[ -n "$UPDATE_ENTRIES" ] || { json_fail '没有配置任何更新条目'; exit 0; }
+	if pidfile_alive "$UPDATE_PID" >/dev/null; then
+		json_fail '已有更新任务在运行，请稍后再试'
+		exit 0
+	fi
+	setsid sh "$MODDIR/updater.sh" check </dev/null >>"$UPDATE_LOG" 2>&1 &
+	json_ok
+}
+
+# 更新任务状态（updatestatus）：前端据此把「更新」按钮切「暂停」。
+api_update_status() {
+	load_cfg_sh
+	if pidfile_alive "$UPDATE_PID" >/dev/null; then
+		printf '{"success":true,"running":true}\n'
+	else
+		printf '{"success":true,"running":false}\n'
+	fi
+}
+
+# 停止更新任务（updatestop）：按 pid 文件杀整个进程组（下载/解包一并终止）。
+api_update_stop() {
+	load_cfg_sh
+	if ! pidfile_alive "$UPDATE_PID" >/dev/null; then
+		json_fail '没有正在运行的更新任务'
+		exit 0
+	fi
+	kill_by_name update
+	rm -f "$UPDATE_PID"
+	update_log "$(ui_msg '更新已手动停止')"
+	json_ok
+}
+
+# 拉起后台更新任务：$1=模式（one|all） $2=条目名。
+api_update_start() {
+	local mode=$1 name=$2
+	load_cfg_sh
+	case "$mode" in
+	one)
+		valid_name "$name" || { json_fail '名称不合法'; exit 0; }
+		load_update_conf
+		[ -n "$(pick_update_entry "$name")" ] || { json_fail '未找到更新条目：%s' "$name"; exit 0; }
+		;;
+	all) ;;
+	*) json_fail '不支持的操作'; exit 0 ;;
+	esac
+	# 已有任务在跑则拒绝（避免并发改同一个文件）
+	if pidfile_alive "$UPDATE_PID" >/dev/null; then
+		json_fail '已有更新任务在运行，请稍后再试'
+		exit 0
+	fi
+	# 后台执行：下载耗时，不能同步等（manager 通道是同步 XHR）
+	if [ "$mode" = one ]; then
+		setsid sh "$MODDIR/updater.sh" update "$name" </dev/null >>"$UPDATE_LOG" 2>&1 &
+	else
+		setsid sh "$MODDIR/updater.sh" updateall </dev/null >>"$UPDATE_LOG" 2>&1 &
+	fi
+	json_ok
+}
+
 api_get_logs() {
 	local first=1 l n
 	printf '{"logs":['
@@ -492,6 +648,29 @@ cfg_apply_one() {
 		*) json_fail '语言只支持 zh 或 en'; exit 1 ;;
 		esac
 		;;
+	update_proxy_prefix)
+		# 代理前缀：留空=直连；只接受 http(s) 开头；末尾无 / 自动补（拼接时依赖）
+		case "$val" in
+		'')
+			setting_var_set update_proxy_prefix ""
+			;;
+		http://*|https://*)
+			case "$val" in
+			*/) setting_var_set update_proxy_prefix "$val" ;;
+			*) setting_var_set update_proxy_prefix "$val/" ;;
+			esac
+			;;
+		*) json_fail '代理前缀须以 http:// 或 https:// 开头'; exit 1 ;;
+		esac
+		;;
+	update_check_interval)
+		case "$val" in
+		0|3600|86400|604800)
+			setting_var_set update_check_interval "$val"
+			;;
+		*) json_fail '检查周期只支持关闭/一小时/一天/一周'; exit 1 ;;
+		esac
+		;;
 	esac
 }
 
@@ -617,6 +796,27 @@ runcmd)
 	;;
 runcmdtermux)
 	api_run_cmd termux
+	;;
+getupdates)
+	api_get_updates
+	;;
+saveupdates)
+	api_save_updates
+	;;
+updatecheck)
+	api_update_check
+	;;
+updateone)
+	api_update_start one "$2"
+	;;
+updateall)
+	api_update_start all
+	;;
+updatestatus)
+	api_update_status
+	;;
+updatestop)
+	api_update_stop
 	;;
 clearlog)
 	if clear_log "$2"; then json_ok; else json_fail '名称不合法'; fi

@@ -152,14 +152,14 @@ else
 fi
 
 # ==================== 升级时保留配置 ====================
-# config/ 三文件保留；Token 长期会话文件（run/session/tsess_*）保留，未过期重装不断登。
+# config/ 四文件保留（含 update.conf 更新条目）；Token 长期会话文件（run/session/tsess_*）保留，未过期重装不断登。
 MODID=${MODID:-$(basename "${MODPATH:-}")}
 OLD_UI_LANG=""
 if [ -n "$MODID" ]; then
     OLD_MOD="/data/adb/modules/$MODID"
     if [ -f "$OLD_MOD/config/setting.conf" ] || [ -f "$OLD_MOD/config/services.conf" ]; then
         mkdir -p "$MODPATH/config" 2>/dev/null
-        for cf in setting.conf services.conf web.conf; do
+        for cf in setting.conf services.conf web.conf update.conf; do
             [ -f "$OLD_MOD/config/$cf" ] || continue
             cp -f "$OLD_MOD/config/$cf" "$MODPATH/config/" 2>/dev/null \
                 && ui_print "$(inst_msg '- 已保留配置 config/%s' "$cf")" \

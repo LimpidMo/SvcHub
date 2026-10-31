@@ -303,7 +303,7 @@ webuistart|webuistop)
     # 开关走管理器，CGI 不代理。
     cgi_fail "403 Forbidden" "$(ui_msg 请在管理器内操作)"
     ;;
-svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|runcmd|runcmdtermux)
+svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|runcmd|runcmdtermux|getupdates|saveupdates|updatecheck|updateone|updateall|updatestatus|updatestop)
     auth_check 1 || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
     require_password_changed
     # 滑动过期：每次有效访问续满 TTL，锁屏回来不断登。
@@ -321,18 +321,27 @@ svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|read
         OUT=$(api_get_services 2>/dev/null)
         cgi_authed "$OUT"
         ;;
-    savesettings|saveservices|runcmd|runcmdtermux)
+    getupdates)
+        OUT=$(api_get_updates 2>/dev/null)
+        cgi_authed "$OUT"
+        ;;
+    updatecheck)
+        OUT=$(api_update_check 2>/dev/null)
+        cgi_authed "$OUT"
+        ;;
+    savesettings|saveservices|saveupdates|runcmd|runcmdtermux)
         # body 透传 stdin；空 body 直接拒，防“已保存”假成功。
         cgi_check_body
         case "$SUB" in
         savesettings) webui_log "$(ui_msg '保存设置项：%s' "$(client_ip)")"; OUT=$(cat | api_save_settings 2>/dev/null) ;;
         saveservices) webui_log "$(ui_msg '保存服务项：%s' "$(client_ip)")"; OUT=$(cat | api_save_services 2>/dev/null) ;;
+        saveupdates) webui_log "$(ui_msg '保存更新配置：%s' "$(client_ip)")"; OUT=$(cat | api_save_updates 2>/dev/null) ;;
         runcmd) BODY=$(cat); webui_log "$(ui_msg '测试命令（普通）来源 %s：%s' "$(client_ip)" "$(printf '%s' "$BODY" | tr '\n' ';')")"; OUT=$(printf '%s' "$BODY" | api_run_cmd 2>/dev/null) ;;
         runcmdtermux) BODY=$(cat); webui_log "$(ui_msg '测试命令（Termux）来源 %s：%s' "$(client_ip)" "$(printf '%s' "$BODY" | tr '\n' ';')")"; OUT=$(printf '%s' "$BODY" | api_run_cmd termux 2>/dev/null) ;;
         esac
         cgi_authed "$OUT"
         ;;
-    start|stop|readlog|clearlog)
+    start|stop|readlog|clearlog|updateone|updateall|updatestatus|updatestop)
         # 查询参数转 argv（白名单函数直调，参数经 valid_name 校验）。
         P1=$(qparam p1)
         P2=$(qparam p2)
@@ -343,6 +352,21 @@ svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|read
         clearlog)
             webui_log "$(ui_msg '清空日志：%s（%s）' "$(log_flat "${P1:-?}")" "$(client_ip)")"
             if clear_log "$P1"; then OUT='{"success":true}'; else OUT="{\"success\":false,\"error\":\"$(ui_msg 名称不合法)\"}"; fi
+            ;;
+        updateone)
+            webui_log "$(ui_msg '触发更新：%s（%s）' "$(log_flat "${P1:-?}")" "$(client_ip)")"
+            OUT=$(api_update_start one "$P1" 2>/dev/null)
+            ;;
+        updateall)
+            webui_log "$(ui_msg '触发全部更新（%s）' "$(client_ip)")"
+            OUT=$(api_update_start all 2>/dev/null)
+            ;;
+        updatestatus)
+            OUT=$(api_update_status 2>/dev/null)
+            ;;
+        updatestop)
+            webui_log "$(ui_msg '停止更新任务（%s）' "$(client_ip)")"
+            OUT=$(api_update_stop 2>/dev/null)
             ;;
         esac
         cgi_authed "$OUT"

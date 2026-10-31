@@ -165,6 +165,29 @@ patrol_once() {
 	sup_log "$(ui_msg '巡检完成')"
 }
 
+# 周期版本检查：到点后后台拉起 updater.sh check（只探测版本，不替换文件）。
+# 间隔取 setting.conf 的 update_check_interval（0=关闭）；上次检查时间记 run/update_last_check。
+# 已有更新任务在跑则跳过（单实例锁由 updater.sh 自己兜底，这里先判省一次 fork）。
+periodic_update_check() {
+	local interval now last
+	[ -n "$LOAD_CFG_DONE" ] || load_cfg_sh
+	interval=$UPDATE_CHECK_INTERVAL
+	case "$interval" in
+	3600|86400|604800) ;;
+	*) return 0 ;;
+	esac
+	now=$(date +%s)
+	last=$(cat "$UPDATE_LAST_CHECK" 2>/dev/null | tr -dc '0-9')
+	[ -n "$last" ] || last=0
+	[ $((now - last)) -ge "$interval" ] || return 0
+	# 上一任务还在跑：本轮不重排，直接返回（下次巡检再试）
+	pidfile_alive "$UPDATE_PID" >/dev/null && return 0
+	# 先写时间戳再拉起：即使拉起失败也不至于每轮重复尝试
+	printf '%s\n' "$now" > "$UPDATE_LAST_CHECK" 2>/dev/null
+	setsid sh "$MODDIR/updater.sh" check </dev/null >>"$UPDATE_LOG" 2>&1 &
+	return 0
+}
+
 # 巡检后的分片休眠：长间隔拆成 <=60s 的分片，每片后重读配置，实现间隔热更新；
 # 防止从 3600s 调回 120s 需等待整个旧周期才能生效。
 # 期间实时响应：disable 提前结束、定时窗边沿（进窗停全部/出窗立即巡检）、Wi-Fi 策略变化。
@@ -365,6 +388,7 @@ while :; do
 
 	patrol_once
 	rotate_all_logs
+	periodic_update_check
 
 	sleep_slice
 done

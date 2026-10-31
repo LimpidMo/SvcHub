@@ -11,6 +11,7 @@ CONFIG_DIR="$MODDIR/config"
 SETTING_FILE="$CONFIG_DIR/setting.conf"
 SERVICES_FILE="$CONFIG_DIR/services.conf"
 WEB_CONF="$CONFIG_DIR/web.conf"
+UPDATE_CONF="$CONFIG_DIR/update.conf"
 DEFAULT_SERVER_DIR="/data/media/0/Server"
 
 # Termux 运行环境：TERMUX_HOME、TERMUX_UID、TERMUX_ENV、DNS_GID
@@ -236,6 +237,8 @@ clean_temp_files() {
 			[ -d "$f" ] && continue
 			rm -f "$f"
 		done
+		# 更新临时目录不被上面的文件循环回收（clean 只删 run 顶层文件），显式清掉
+		rm -rf "$RUNDIR/update_tmp"
 	fi
 	if [ -d "$LOG_DIR" ]; then
 		for f in "$LOG_DIR"/*; do

@@ -460,6 +460,43 @@
                     </div>
                 </div>
             </div>
+
+            <div class="section">
+                <div class="section-hd">
+                    <span class="section-title" data-i18n="sec.update">二进制更新</span>
+                    <div class="actions">
+                        <button class="btn btn-lg btn-primary" id="btn-update-all" onclick="updateAllEntries()" data-i18n="btn.updateAll">更新全部</button>
+                        <button class="btn btn-lg" id="btn-check-updates" onclick="checkAllUpdates()" data-i18n="btn.checkUpdate">检查更新</button>
+                        <button class="btn btn-lg" onclick="openUpdateModal()" data-i18n="btn.addUpdate">添加</button>
+                        <button class="btn btn-lg" onclick="loadUpdateEntries(true, true)" data-i18n="btn.refresh">刷新</button>
+                    </div>
+                </div>
+                <div class="section-body">
+                    <div class="form">
+                        <div style="display:flex;gap:8px;align-items:flex-end;">
+                            <div style="flex:1;min-width:0;">
+                                <label class="form-label" data-i18n="label.proxyPrefix">GitHub 代理加速前缀</label>
+                                <input type="text" class="form-input" id="input-update-proxy" placeholder="留空直连" onblur="saveUpdateProxy()" data-i18n-attr="placeholder:ph.proxyPrefix">
+                            </div>
+                            <div style="flex-shrink:0;">
+                                <label class="form-label" data-i18n="label.checkInterval">检查周期</label>
+                                <select class="btn btn-lg" id="input-update-interval" onchange="saveUpdateInterval(this.value)">
+                                    <option value="0" data-i18n="label.ivOff">关闭</option>
+                                    <option value="3600" data-i18n="label.ivHour">一小时</option>
+                                    <option value="86400" data-i18n="label.ivDay">一天</option>
+                                    <option value="604800" data-i18n="label.ivWeek">一周</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-lg" style="flex-shrink:0;" onclick="showLog('update')" data-i18n="btn.log">日志</button>
+                        </div>
+                        <div class="form-hint" data-i18n="hint.updateProxy">检查只标记新版本；开「自动更新」的条目才自动替换</div>
+                        <div class="form-error" id="error-update"></div>
+                    </div>
+                    <div id="update-list" style="margin-top:4px;">
+                        <div class="empty" data-i18n="empty.noUpdate">暂无更新配置</div>
+                    </div>
+                </div>
+            </div>
         </div>    </div>
 
     <div class="modal" id="modal-svc">
@@ -539,6 +576,84 @@
                 <button class="btn" style="margin-right:auto;" onclick="clearWifiPick()" data-i18n="btn.clearPick">清空选择</button>
                 <button class="btn" onclick="closeWifiModal()" data-i18n="btn.cancel">取消</button>
                 <button class="btn btn-primary" id="wifi-pick-ok" onclick="confirmWifiPick()" data-i18n="btn.ok">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-update">
+        <div class="modal-box">
+            <div class="modal-hd" style="display:flex;justify-content:space-between;align-items:center;">
+                <span id="modal-update-title">添加更新配置</span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;color:var(--muted);" data-i18n="label.autoUpdate">自动更新</span>
+                    <label class="switch" data-i18n-attr="title:title.autoUpdate" title="检查到新版本后自动执行更新">
+                        <input type="checkbox" id="input-update-auto">
+                        <span class="switch-slider"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-bd">
+                <input type="hidden" id="edit-update-idx" value="-1">
+                <div class="form" style="padding:0 0 10px 0;border:none;">
+                    <label class="form-label" data-i18n="label.updName">名称 *（必须）</label>
+                    <input type="text" class="form-input" id="input-update-name" placeholder="如 memos" data-i18n-attr="placeholder:ph.updName">
+                </div>
+                <div class="form" style="padding:0 0 10px 0;border:none;">
+                    <label class="form-label" data-i18n="label.updRepo">GitHub 仓库 *（必须）</label>
+                    <input type="text" class="form-input" id="input-update-repo" placeholder="owner/repo，如 usememos/memos" data-i18n-attr="placeholder:ph.updRepo">
+                </div>
+                <div class="form" style="padding:0 0 10px 0;border:none;">
+                    <label class="form-label" data-i18n="label.updAsset">资产文件名 *（必须）</label>
+                    <input type="text" class="form-input" id="input-update-asset" placeholder="如 memos_{ver}_linux_arm64.tar.gz，{ver} 替换为版本号" data-i18n-attr="placeholder:ph.updAsset">
+                    <div class="form-hint" data-i18n="hint.updAsset">资产名含版本号时用 {ver} 占位</div>
+                </div>
+                <div class="form" style="padding:0 0 10px 0;border:none;">
+                    <label class="form-label" data-i18n="label.updTarget">目标文件路径 *（必须）</label>
+                    <input type="text" class="form-input" id="input-update-target" placeholder="填到二进制文件，如 ./memos/memos" data-i18n-attr="placeholder:ph.updTarget">
+                    <div class="form-hint" data-i18n="hint.updTarget">整个目录模式解压到该文件所在文件夹</div>
+                </div>
+                <div class="form" style="padding:0 0 10px 0;border:none;">
+                    <label class="form-label" data-i18n="label.updVercmd">版本查询参数（可空）</label>
+                    <input type="text" class="form-input" id="input-update-vercmd" placeholder="如 version、--version、v、-v 留空自动逐个试" data-i18n-attr="placeholder:ph.updVercmd">
+                    <div class="form-hint" data-i18n="hint.updVercmd">留空自动按常用参数逐个试</div>
+                </div>
+                <div class="form" style="padding:0 0 10px 0;border:none;">
+                    <label class="form-label" data-i18n="label.updMode">解包方式</label>
+                    <select class="btn btn-lg" id="input-update-mode">
+                        <option value="file" data-i18n="label.updModeFile">单文件（归档内一个可执行文件）</option>
+                        <option value="dir" data-i18n="label.updModeDir">整个目录（覆盖归档内含的文件）</option>
+                        <option value="raw" data-i18n="label.updModeRaw">不解包（下载文件即二进制）</option>
+                    </select>
+                </div>
+                <div class="form" style="padding:0;border:none;">
+                    <label class="form-label" data-i18n="label.updSvc">关联二进制服务（可空）</label>
+                    <select class="btn btn-lg" id="input-update-svc"></select>
+                    <div class="form-hint" data-i18n="hint.updSvc">更新时自动停启该服务，失败自动回滚</div>
+                </div>
+            </div>
+            <div class="modal-ft">
+                <div style="margin-right:auto;display:flex;gap:6px;">
+                    <button class="btn" onclick="copyUpdateJson()" data-i18n="btn.copyJson">复制</button>
+                    <button class="btn" onclick="openImportModal()" data-i18n="btn.importJson">导入</button>
+                </div>
+                <button class="btn" onclick="closeUpdateModal()" data-i18n="btn.cancel">取消</button>
+                <button class="btn btn-primary" onclick="saveUpdateEntry()" data-i18n="btn.save">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-import-update">
+        <div class="modal-box">
+            <div class="modal-hd" data-i18n="modal.importTitle">导入更新配置（JSON）</div>
+            <div class="modal-bd">
+                <textarea class="form-input form-textarea" id="input-import-json" style="min-height:180px;" placeholder='[{"name":"memos","repo":"usememos/memos","asset":"memos_{ver}_linux_arm64.tar.gz","target":"./memos/memos","mode":"file","svc":"memos","vercmd":"version","auto":false}]'></textarea>
+                <div class="form-hint" data-i18n="hint.importJson">同名替换，版本记录沿用设备已有值</div>
+                <div class="form-error" id="error-import-json"></div>
+            </div>
+            <div class="modal-ft">
+                <button class="btn" style="margin-right:auto;" onclick="closeImportModal()" data-i18n="btn.cancel">取消</button>
+                <button class="btn" onclick="applyImport('merge')" data-i18n="upd.importMerge">替换（已有不动）</button>
+                <button class="btn btn-primary" onclick="applyImport('cover')" data-i18n="upd.importCover">覆盖（全换）</button>
             </div>
         </div>
     </div>
@@ -643,8 +758,13 @@
             patrol_enabled: false,
             wake_lock_enabled: false,
             language: 'zh',
-            webui_enabled: false, webui_port: 5555
+            webui_enabled: false, webui_port: 5555,
+            update_proxy_prefix: '', update_check_interval: '0'
         };
+        // 更新条目（配置页独立数据源，不与服务行耦合）
+        let updateEntries = [];
+        let updateCheckInfo = {};   // name -> {latest_ver, has_update}
+        let isUpdatesLoaded = false;
         let statusData = { termux_services: [], binary_services: [] };
         let testCmdData = '';
         let isTestMode = false;
@@ -785,6 +905,7 @@
                 'theme.optAuto': '跟随设备', 'theme.optDark': '深色主题', 'theme.optLight': '浅色主题',
                 'sec.termux': 'Termux 服务', 'sec.binary': '二进制服务', 'sec.basic': '基本设置',
                 'sec.bootcmd': '开机命令 & 测试命令', 'sec.startstop': '启停功能',
+                'sec.update': '二进制更新',
                 'filter.all': '全显示', 'filter.running': '已运行', 'filter.stopped': '已停止',
                 'filter.autoStart': '自启动', 'filter.autoStop': '非自启动',
                 'btn.refresh': '刷新', 'btn.sort': '排序', 'btn.sortOk': '确认', 'btn.add': '添加',
@@ -795,8 +916,18 @@
                 'btn.open': '打开', 'btn.start': '启动', 'btn.stop': '停止', 'btn.restart': '重启',
                 'btn.termuxRun': '以termux运行', 'btn.run': '运行', 'btn.stopcmd': '收尾命令',
                 'btn.regen': '重新生成（旧值立即失效）', 'btn.confirmChange': '确认修改',
+                'btn.checkUpdate': '检查更新', 'btn.updateAll': '更新全部',
+                'btn.pauseCheck': '暂停检查', 'btn.copyJson': '复制', 'btn.importJson': '导入',
+                'label.autoUpdate': '自动更新', 'tag.autoUpdate': '自动', 'title.autoUpdate': '检查到新版本后自动执行更新',
+                'upd.importCover': '覆盖（全换）', 'upd.importMerge': '替换（已有不动）',
+                'modal.importTitle': '导入更新配置（JSON）',
+                'hint.importJson': '同名替换，版本记录沿用设备已有值',
+                'toast.checkStarted': '正在检查更新...', 'toast.taskBusy': '已有任务在运行，请稍后再试',
+                'toast.importOk': '已导入 {n} 条', 'toast.importBad': 'JSON 解析失败或格式不合法',
+                'btn.addUpdate': '添加', 'btn.update': '更新',
                 'empty.loading': '加载中...', 'empty.clickRefresh': '点击刷新加载', 'empty.none': '暂无服务',
                 'empty.noMatch': '无匹配服务', 'empty.notInit': '请先初始化', 'empty.log': '无内容',
+                'empty.noUpdate': '暂无更新配置',
                 'label.serverDir': '服务目录', 'hint.serverDir': '务必将二进制文件设为可执行权限',
                 'hint.serverDirPh': '/storage/emulated/0/ → 自动转换可执行目录 /data/media/0/',
                 'label.patrol': '巡检保活', 'title.patrol': '自动巡检：关闭后仅停周期拉起；出停止窗/亮屏解锁/Wi-Fi 条件满足的恢复照常',
@@ -832,6 +963,27 @@
                 'label.svcEnd': '收尾命令（服务停止后执行一次）',
                 'ph.svcEnd': '可放如：清理注入的 iptables 规则、清理可能的进程残留、删临时文件等命令',
                 'hint.svcEnd': '若放同步命令执行会阻塞停止操作，请避免长时间命令',
+                'label.proxyPrefix': 'GitHub 代理加速前缀', 'ph.proxyPrefix': '留空直连',
+                'label.checkInterval': '检查周期', 'label.ivOff': '关闭', 'label.ivHour': '一小时',
+                'label.ivDay': '一天', 'label.ivWeek': '一周',
+                'hint.updateProxy': '检查只标记新版本；开「自动更新」的条目才自动替换',
+                'label.updName': '名称 *（必须）', 'ph.updName': '如 memos',
+                'label.updRepo': 'GitHub 仓库 *（必须）', 'ph.updRepo': 'owner/repo，如 usememos/memos',
+                'label.updAsset': '资产文件名 *（必须）',
+                'ph.updAsset': '如 memos_{ver}_linux_arm64.tar.gz',
+                'hint.updAsset': '资产名含版本号时用 {ver} 占位',
+                'label.updTarget': '目标文件路径 *（必须）', 'ph.updTarget': '填到二进制文件，如 ./memos/memos',
+                'hint.updTarget': '整个目录模式解压到该文件所在文件夹',
+                'label.updVercmd': '版本查询参数（可空）', 'ph.updVercmd': '如 version、--version、v、-v，留空自动逐个试',
+                'hint.updVercmd': '留空自动按常用参数逐个试',
+                'label.updMode': '解包方式', 'label.updModeFile': '单文件（归档内一个可执行文件）',
+                'label.updModeDir': '整个目录（只覆盖归档内含的文件）', 'label.updModeRaw': '不解包（下载文件即二进制）',
+                'label.updSvc': '关联二进制服务（可空）', 'label.updSvcNone': '不关联（只替换文件）',
+                'hint.updSvc': '更新时自动停启该服务，失败自动回滚',
+                'label.verPair': '{a} → {b}', 'label.upToDate': '已最新',
+                'modal.updAdd': '添加更新配置', 'modal.updEdit': '编辑更新配置',
+                'btn.pause': '暂停', 'btn.updating': '更新中...',
+                'confirm.updDelTitle': '确认删除', 'confirm.updDelMsg': '确定要删除更新配置 <strong>{name}</strong> 吗？',
                 'log.title': '{name} 日志', 'log.pause': '暂停', 'log.resume': '刷新', 'log.clear': '清空',
                 'pick.titleOn': '选择连接组服务（连上时运行，断开则停止）',
                 'pick.titleOff': '选择断开组服务（断开则运行，连上则停止）',
@@ -860,6 +1012,14 @@
                 'toast.delPending': '上次删除正在后台保存，请稍候',
                 'toast.required': '请填写必填项', 'toast.noPipe': '启动命令不支持竖线「|」，管道可写 sh -c \'命令1 | 命令2\'',
                 'toast.dupName': '已存在同名配置项', 'toast.rootFail': 'root 运行开关保存失败',
+                'toast.checkDone': '发现 {n} 个可更新条目',
+                'toast.checkAllLatest': '全部条目均为最新版本', 'toast.checkFail': '检查失败',
+                'toast.updateStarted': '已开始更新，请查看日志', 'toast.updateFail': '更新启动失败',
+                'toast.updateStopSent': '已发送停止请求',
+                'toast.noUpdateEntry': '暂无更新配置', 'toast.badName': '名称只能包含字母、数字、点、下划线和短横线',
+                'toast.badRepo': '仓库格式应为 owner/repo', 'toast.badAsset': '资产文件名不能包含 / 或 |',
+                'toast.badTarget': '目标路径须为相对路径且不含 ..', 'toast.deleted': '已删除',
+                'toast.badVercmd': '版本查询命令不能包含 |，管道请写 sh -c \'a | b\'',
                 'toast.notInit': '请先初始化', 'toast.notLoaded': '配置未加载完成，已取消保存',
                 'toast.emptyPayload': '保存内容为空，已取消', 'toast.emptyResp': '保存失败（空响应）',
                 'toast.settingsLoading': '配置未加载完成，请稍后再试',
@@ -890,6 +1050,7 @@
                 'theme.optAuto': 'System', 'theme.optDark': 'Dark', 'theme.optLight': 'Light',
                 'sec.termux': 'Termux Services', 'sec.binary': 'Binary Services', 'sec.basic': 'General',
                 'sec.bootcmd': 'Boot & Test Commands', 'sec.startstop': 'Start / Stop Rules',
+                'sec.update': 'Binary Updates',
                 'filter.all': 'All', 'filter.running': 'Running', 'filter.stopped': 'Stopped',
                 'filter.autoStart': 'Auto-start', 'filter.autoStop': 'No auto-start',
                 'btn.refresh': 'Refresh', 'btn.sort': 'Sort', 'btn.sortOk': 'Done', 'btn.add': 'Add',
@@ -900,9 +1061,19 @@
                 'btn.restart': 'Restart', 'btn.termuxRun': 'Run as Termux', 'btn.run': 'Run',
                 'btn.stopcmd': 'Finish Cmd', 'btn.regen': 'Regenerate (old token dies instantly)',
                 'btn.confirmChange': 'Confirm',
+                'btn.checkUpdate': 'Check Updates', 'btn.updateAll': 'Update All',
+                'btn.pauseCheck': 'Pause Check', 'btn.copyJson': 'Copy', 'btn.importJson': 'Import',
+                'label.autoUpdate': 'Auto Update', 'tag.autoUpdate': 'Auto', 'title.autoUpdate': 'Update automatically when a new version is found',
+                'upd.importCover': 'Overwrite (replace all)', 'upd.importMerge': 'Merge (keep existing)',
+                'modal.importTitle': 'Import Update Entries (JSON)',
+                'hint.importJson': 'Same name replaces; version records stay from this device',
+                'toast.checkStarted': 'Checking for updates...', 'toast.taskBusy': 'A task is already running, try later',
+                'toast.importOk': 'Imported {n} entries', 'toast.importBad': 'JSON parse failed or invalid format',
+                'btn.addUpdate': 'Add', 'btn.update': 'Update',
                 'empty.loading': 'Loading...', 'empty.clickRefresh': 'Tap refresh to load',
                 'empty.none': 'No services yet', 'empty.noMatch': 'No matching services',
                 'empty.notInit': 'Initialize first', 'empty.log': 'No content',
+                'empty.noUpdate': 'No update entries yet',
                 'label.serverDir': 'Service Directory',
                 'hint.serverDir': 'Make sure the binary has the executable permission',
                 'hint.serverDirPh': '/storage/emulated/0/ → auto-converted to /data/media/0/',
@@ -944,6 +1115,27 @@
                 'label.svcEnd': 'Finish Command (runs once after the service stops)',
                 'ph.svcEnd': 'e.g. flush injected iptables rules, clean leftover processes, delete temp files',
                 'hint.svcEnd': 'A blocking command stalls the stop operation — keep it short',
+                'label.proxyPrefix': 'GitHub Proxy Prefix', 'ph.proxyPrefix': 'Empty = direct',
+                'label.checkInterval': 'Check Interval', 'label.ivOff': 'Off', 'label.ivHour': 'Hourly',
+                'label.ivDay': 'Daily', 'label.ivWeek': 'Weekly',
+                'hint.updateProxy': 'The interval only checks for new versions and marks them; files are replaced only when you click Update',
+                'label.updName': 'Name * (required)', 'ph.updName': 'e.g. memos',
+                'label.updRepo': 'GitHub Repo * (required)', 'ph.updRepo': 'owner/repo, e.g. usememos/memos',
+                'label.updAsset': 'Asset File Name * (required)',
+                'ph.updAsset': 'e.g. memos_{ver}_linux_arm64.tar.gz',
+                'hint.updAsset': 'Use {ver} when the name carries the version',
+                'label.updTarget': 'Target File Path * (required)', 'ph.updTarget': 'The binary itself, e.g. ./memos/memos',
+                'hint.updTarget': 'Dir mode extracts into the containing folder',
+                'label.updVercmd': 'Version Args (optional)', 'ph.updVercmd': 'e.g. version, --version,v, -v; empty = try all',
+                'hint.updVercmd': 'Empty tries common args in turn',
+                'label.updMode': 'Extraction Mode', 'label.updModeFile': 'Single file (one executable in the archive)',
+                'label.updModeDir': 'Whole directory (only overwrites files contained in the archive)',
+                'label.updModeRaw': 'No extraction (the downloaded file is the binary)',
+                'label.updSvc': 'Linked Binary Service (optional)', 'label.updSvcNone': 'None (replace files only)',
+                'hint.updSvc': 'Stops/starts the service on update, rolls back on failure',
+                'label.verPair': '{a} → {b}', 'label.upToDate': 'Up to date',
+                'modal.updAdd': 'Add Update Entry', 'modal.updEdit': 'Edit Update Entry',
+                'btn.pause': 'Pause', 'btn.updating': 'Updating...',
                 'log.title': '{name} Log', 'log.pause': 'Pause', 'log.resume': 'Resume', 'log.clear': 'Clear',
                 'pick.titleOn': 'Pick On-Connect services (run when connected, stop when disconnected)',
                 'pick.titleOff': 'Pick On-Disconnect services (run when disconnected, stop when connected)',
@@ -955,6 +1147,8 @@
                 'confirm.delBtn': 'Delete', 'confirm.dfltMsg': 'Delete this service?',
                 'confirm.clearTitle': 'Confirm Clear',
                 'confirm.clearMsg': 'Clear the <strong>{name}</strong> log?', 'confirm.clearBtn': 'Clear',
+                'confirm.updDelTitle': 'Confirm Delete',
+                'confirm.updDelMsg': 'Delete update entry <strong>{name}</strong>?',
                 'login.title': 'Web Access Login', 'login.tokenMode': 'Log in with long-term Token',
                 'login.pw': 'Password', 'login.token': 'Long-term Token', 'login.btn': 'Log In',
                 'login.submit': 'Log In',
@@ -979,6 +1173,16 @@
                 'toast.required': 'Fill in the required fields',
                 'toast.noPipe': 'Pipes are not supported — wrap them as sh -c \'cmd1 | cmd2\'',
                 'toast.dupName': 'A service with this name already exists',
+                'toast.checkDone': '{n} update(s) available',
+                'toast.checkAllLatest': 'All entries are up to date', 'toast.checkFail': 'Check failed',
+                'toast.updateStarted': 'Update started, see the log', 'toast.updateFail': 'Failed to start the update',
+                'toast.updateStopSent': 'Stop request sent',
+                'toast.noUpdateEntry': 'No update entries yet',
+                'toast.badName': 'Name may only contain letters, digits, dot, underscore and hyphen',
+                'toast.badRepo': 'Repo must look like owner/repo',
+                'toast.badAsset': 'Asset file name may not contain / or |',
+                'toast.badTarget': 'Target path must be relative and contain no ..', 'toast.deleted': 'Deleted',
+                'toast.badVercmd': 'Version command may not contain |; use sh -c \'a | b\' for pipes',
                 'toast.rootFail': 'Failed to save the run-as-root switch',
                 'toast.notInit': 'Initialize first',
                 'toast.notLoaded': 'Settings not loaded yet, save cancelled',
@@ -1430,7 +1634,410 @@
                 }
                 renderConfigFromCache();
                 loadConfigSettings();
+                loadUpdateEntries();
             }
+        }
+
+        // ---------- 二进制更新（设置页独立分区） ----------
+
+        // 读更新条目（getupdates）：独立接口，与服务行解耦。
+        async function loadUpdateEntries(force = false, silent = false) {
+            if (!backendReady()) { toast(t('toast.notInit'), true); return; }
+            if (!force && isUpdatesLoaded) return;
+            let rv = await invoke('getupdates');
+            if (rv.errno !== 0 || !rv.stdout) rv = await invoke('getupdates');
+            if (rv.errno === 401) return;
+            if (rv.errno !== 0 || !rv.stdout) { if (force && !silent) toast(t('toast.refreshFail'), true); return; }
+            try {
+                const v = JSON.parse(rv.stdout);
+                updateEntries = Array.isArray(v.items) ? v.items : [];
+                // getupdates 自带持久化的 ins_ver/update_ver/has_update：刷新页面后判定不丢
+                updateCheckInfo = {};
+                updateEntries.forEach(it => { updateCheckInfo[it.name] = it; });
+                isUpdatesLoaded = true;
+                renderUpdateList();
+            } catch (e) { toast(t('toast.parseFail'), true); }
+        }
+
+        // 条目行渲染：名称 + 版本对（已装 → 最新/已最新）；有新版才显示「更新」按钮。
+        function renderUpdateList() {
+            const el = document.getElementById('update-list');
+            if (!updateEntries.length) {
+                el.innerHTML = '<div class="empty">' + t('empty.noUpdate') + '</div>';
+                return;
+            }
+            el.innerHTML = updateEntries.map((u, i) => {
+                const info = updateCheckInfo[u.name] || {};
+                const latest = info.update_ver || u.update_ver || '';
+                const has = !!info.has_update;
+                // 已装版本优先用本次检查实测值（vercmd 结果），没有才回落到页面加载时的记录
+                const cur = info.ins_ver || u.ins_ver || '-';
+                // 有新版本显示目标版本号，否则显示「已最新」
+                const verText = has && latest
+                    ? t('label.verPair', { a: cur, b: latest })
+                    : t('label.verPair', { a: cur, b: t('label.upToDate') });
+                const updateBtn = !has
+                    ? ''
+                    : (updateRunning
+                        ? (updateRunningName === u.name || updateRunningName === '__all__'
+                            // 运行中：本条目的按钮变「暂停」（黑底），点击停止更新
+                            ? `<button class="btn btn-md" onclick="stopUpdate()">${t('btn.pause')}</button>`
+                            // 其他条目：更新任务单实例，禁用避免并发
+                            : `<button class="btn btn-md" disabled>${t('btn.update')}</button>`)
+                        : `<button class="btn btn-md btn-primary" onclick="updateOneEntry('${escapeHtml(u.name)}')">${t('btn.update')}</button>`);
+                return `
+                <div class="item" onclick="openUpdateModal(${i})">
+                    <div class="item-info">
+                        <div class="item-name"><span>${escapeHtml(u.name)}</span>${u.auto === '1' ? `<span class="tag" data-i18n="tag.autoUpdate">自动</span>` : ''}</div>
+                        <div class="form-hint" style="margin:2px 0 0;">${escapeHtml(verText)}</div>
+                    </div>
+                    <div class="actions" onclick="event.stopPropagation()">
+                        ${updateBtn}
+                        <button class="btn btn-md" onclick="openUpdateModal(${i})">${t('btn.edit')}</button>
+                        <button class="btn btn-md btn-danger" onclick="confirmDeleteUpdate(${i})">${t('btn.delete')}</button>
+                    </div>
+                </div>`;
+            }).join('');
+            renderUpdateAllBtn();
+        }
+
+        // 「更新全部」按钮随运行状态切换：运行中变「暂停」（黑底），点击停止；检查期间禁用
+        function renderUpdateAllBtn() {
+            const b = document.getElementById('btn-update-all');
+            if (!b) return;
+            if (checkBusy) {
+                b.disabled = true;
+                return;
+            }
+            if (updateRunning && updateRunningName === '__all__') {
+                b.textContent = t('btn.pause');
+                b.className = 'btn btn-lg';
+                b.setAttribute('onclick', 'stopUpdate()');
+            } else if (updateRunning) {
+                b.textContent = t('btn.updating');
+                b.className = 'btn btn-lg btn-primary';
+                b.disabled = true;
+            } else {
+                b.textContent = t('btn.updateAll');
+                b.className = 'btn btn-lg btn-primary';
+                b.disabled = false;
+                b.setAttribute('onclick', 'updateAllEntries()');
+            }
+        }
+
+        // 保存代理前缀（失焦即存）。
+        async function saveUpdateProxy() {
+            const v = document.getElementById('input-update-proxy').value.trim();
+            const ok = await saveSettingsKey('update_proxy_prefix', v, null, true);
+            if (ok) { configData.update_proxy_prefix = v; toast(t('toast.saved')); }
+            else { await loadConfigSettings(true, true); renderConfigFromCache(); }
+        }
+
+        // 保存检查周期（0/3600/86400/604800）。
+        async function saveUpdateInterval(v) {
+            const ok = await saveSettingsKey('update_check_interval', String(v), null, true);
+            if (ok) { configData.update_check_interval = String(v); toast(t('toast.saved')); }
+            else { await loadConfigSettings(true, true); renderConfigFromCache(); }
+        }
+
+        // 检查所有条目的新版本（后端实时探测，前端只显示结果）。
+        // 检查更新：后台跑（探测要逐条目联网，同步会卡死界面），这里只拉起并轮询，结束后 getupdates 刷新。
+        let checkBusy = false;
+        let checkPollTimer = null;
+
+        function setCheckBusy(b) {
+            checkBusy = b;
+            const btn = document.getElementById('btn-check-updates');
+            if (btn) {
+                // 检查中按钮变「暂停检查」（黑底、可点击停止），结束后还原
+                btn.textContent = b ? t('btn.pauseCheck') : t('btn.checkUpdate');
+                btn.setAttribute('onclick', b ? 'stopCheck()' : 'checkAllUpdates()');
+            }
+            // 检查与更新共用单实例锁：检查期间「更新全部」同样不可发起新任务
+            const all = document.getElementById('btn-update-all');
+            if (all) all.disabled = b;
+        }
+
+        // 暂停检查：检查与更新共用同一把 pid 锁，updatestop 按进程组终止；轮询发现停止后按钮还原
+        async function stopCheck() {
+            if (!checkBusy) return;
+            const r = await runAction('updatestop');
+            if (parseSuccess(r)) toast(t('toast.updateStopSent'));
+            else toastRunError(r, t('toast.updateFail'));
+        }
+
+        // 更新类操作的失败提示：优先后端 JSON error，回退默认文案。
+        function toastRunError(r, fallbackMsg) {
+            let msg = fallbackMsg;
+            try { const d = JSON.parse((r.stdout || '').trim() || '{}'); if (d && d.error) msg = d.error; } catch (e) { /* 非 JSON */ }
+            toast(msg, true);
+        }
+
+        async function checkAllUpdates() {
+            if (!updateEntries.length) { toast(t('toast.noUpdateEntry'), true); return; }
+            if (checkBusy || updateRunning) { toast(t('toast.taskBusy'), true); return; }
+            const r = await runAction('updatecheck');
+            if (!parseSuccess(r)) { toastRunError(r, t('toast.checkFail')); return; }
+            toast(t('toast.checkStarted'));
+            setCheckBusy(true);
+            if (checkPollTimer) clearInterval(checkPollTimer);
+            checkPollTimer = setInterval(pollCheckStatus, 3000);
+        }
+
+        async function pollCheckStatus() {
+            if (!checkBusy) return;
+            const s = await invoke('updatestatus');
+            let running = true;
+            try {
+                const d = JSON.parse(s.stdout || '{}');
+                if (typeof d.running === 'boolean') running = d.running;
+            } catch (e) { return; } // 单次查询失败保持检查态，下轮再问
+            if (running) return;
+            setCheckBusy(false);
+            if (checkPollTimer) { clearInterval(checkPollTimer); checkPollTimer = null; }
+            await loadUpdateEntries(true, true);
+            renderUpdateList();
+            const n = updateEntries.filter(u => u.has_update).length;
+            toast(n > 0 ? t('toast.checkDone', { n }) : t('toast.checkAllLatest'));
+        }
+
+        // 立即更新单个条目（后台任务，接口立即返回）。
+        async function updateOneEntry(name) {
+            if (checkBusy || updateRunning) { toast(t('toast.taskBusy'), true); return; }
+            // 条目名走子命令参数（sq 包裹），manager 通道转 $2、CGI 通道转 p1，与其他单服务操作同范式
+            const r = await runAction('updateone ' + sq(name));
+            if (parseSuccess(r)) {
+                toast(t('toast.updateStarted'));
+                showLog('update');
+                markUpdateRunning(name);
+            } else {
+                toastRunError(r, t('toast.updateFail'));
+            }
+        }
+
+        // 更新全部条目：逐个串行（后端队列），仅处理检查后有更新的条目。
+        async function updateAllEntries() {
+            if (checkBusy || updateRunning) { toast(t('toast.taskBusy'), true); return; }
+            if (!updateEntries.length) { toast(t('toast.noUpdateEntry'), true); return; }
+            const r = await runAction('updateall');
+            if (parseSuccess(r)) {
+                toast(t('toast.updateStarted'));
+                showLog('update');
+                markUpdateRunning('__all__');
+            } else {
+                toastRunError(r, t('toast.updateFail'));
+            }
+        }
+
+        // 更新运行状态：更新器是单实例，启动成功后按钮变「暂停」，轮询后端直到任务结束。
+        let updateRunning = false;
+        let updateRunningName = '';
+        let updatePollTimer = null;
+
+        function markUpdateRunning(name) {
+            updateRunning = true;
+            updateRunningName = name;
+            renderUpdateList();
+            if (updatePollTimer) clearInterval(updatePollTimer);
+            updatePollTimer = setInterval(pollUpdateStatus, 3000);
+        }
+
+        async function pollUpdateStatus() {
+            if (!updateRunning) return;
+            const r = await invoke('updatestatus');
+            let running = true;
+            try {
+                const d = JSON.parse(r.stdout || '{}');
+                if (typeof d.running === 'boolean') running = d.running;
+            } catch (e) { return; } // 单次查询失败保持运行态，下轮再问
+            if (!running) {
+                updateRunning = false;
+                updateRunningName = '';
+                if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null; }
+                renderUpdateList();
+            }
+        }
+
+        // 暂停：杀掉后台更新任务（进程组），轮询发现已停止后按钮还原
+        async function stopUpdate() {
+            const r = await runAction('updatestop');
+            if (parseSuccess(r)) toast(t('toast.updateStopSent'));
+            else toastRunError(r, t('toast.updateFail'));
+        }
+
+        // 添加/编辑弹窗（单弹窗复用，idx=-1 表示新增）。
+        function openUpdateModal(idx) {
+            const editing = typeof idx === 'number' && idx >= 0;
+            const u = editing ? updateEntries[idx] : { name: '', repo: '', asset: '', target: '', mode: 'file', svc: '', vercmd: '', auto: '0' };
+            document.getElementById('modal-update-title').textContent = editing ? t('modal.updEdit') : t('modal.updAdd');
+            document.getElementById('edit-update-idx').value = editing ? idx : -1;
+            document.getElementById('input-update-name').value = u.name || '';
+            document.getElementById('input-update-repo').value = u.repo || '';
+            document.getElementById('input-update-asset').value = u.asset || '';
+            document.getElementById('input-update-target').value = u.target || '';
+            document.getElementById('input-update-vercmd').value = u.vercmd || '';
+            document.getElementById('input-update-mode').value = u.mode || 'file';
+            document.getElementById('input-update-auto').checked = u.auto === '1';
+            // 关联服务下拉：取二进制服务名单，可空
+            const sel = document.getElementById('input-update-svc');
+            const names = (configData.binary_services || []).map(s => s.name).filter(Boolean);
+            sel.innerHTML = '<option value="">' + escapeHtml(t('label.updSvcNone')) + '</option>' +
+                names.map(n => `<option value="${escapeHtml(n)}"${n === u.svc ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
+            showAnyModal('modal-update');
+        }
+
+        function closeUpdateModal() { hideAnyModal('modal-update'); }
+
+        // 复制：当前条目列表转 JSON（只含 8 个配置字段，版本记录是设备相关的不导出）
+        // 复制：当前条目列表转 JSON（只含 8 个配置字段，版本记录是设备相关的不导出）。
+        // copyText 是回调式（成功调 done，不返回值），成功提示放回调里。
+        function copyUpdateJson() {
+            if (!updateEntries.length) { toast(t('toast.noUpdateEntry'), true); return; }
+            const data = updateEntries.map(u => ({
+                name: u.name || '', repo: u.repo || '', asset: u.asset || '', target: u.target || '',
+                mode: u.mode || 'file', svc: u.svc || '', vercmd: u.vercmd || '', auto: u.auto === '1'
+            }));
+            copyText(JSON.stringify(data, null, 2), () => toast(t('toast.copied')));
+        }
+
+        // 导入：解析 JSON（单对象或数组）→ 选「覆盖（全换）」或「替换（已有不动）」
+        function parseImportJson() {
+            const txt = document.getElementById('input-import-json').value.trim();
+            const errEl = document.getElementById('error-import-json');
+            errEl.textContent = '';
+            let v;
+            try { v = JSON.parse(txt); } catch (e) { errEl.textContent = t('toast.importBad'); return null; }
+            const list = Array.isArray(v) ? v : [v];
+            const out = [];
+            for (const it of list) {
+                if (!it || typeof it !== 'object' || Array.isArray(it)) { errEl.textContent = t('toast.importBad'); return null; }
+                const u = {
+                    name: String(it.name || '').trim(),
+                    repo: String(it.repo || '').trim(),
+                    asset: String(it.asset || '').trim(),
+                    target: String(it.target || '').trim(),
+                    mode: (it.mode === 'dir' || it.mode === 'raw') ? it.mode : 'file',
+                    svc: String(it.svc || '').trim(),
+                    vercmd: String(it.vercmd || '').trim(),
+                    auto: (it.auto === true || it.auto === '1') ? '1' : '0',
+                    ins_ver: '', update_ver: '', has_update: false
+                };
+                if (!u.name || !u.repo || !u.asset || !u.target
+                    || !/^[A-Za-z0-9._-]+$/.test(u.name)
+                    || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(u.repo)
+                    || u.asset.includes('/') || u.asset.includes('|')
+                    || u.target.startsWith('/') || u.target.includes('..')
+                    || u.vercmd.includes('|')) {
+                    errEl.textContent = t('toast.importBad');
+                    return null;
+                }
+                // 导入内部同名取最后一条（后端对重复名整单拒绝，这里先去重）
+                const dup = out.findIndex(x => x.name === u.name);
+                if (dup >= 0) out[dup] = u; else out.push(u);
+            }
+            return out;
+        }
+
+        function openImportModal() {
+            document.getElementById('input-import-json').value = '';
+            document.getElementById('error-import-json').textContent = '';
+            showAnyModal('modal-import-update');
+        }
+
+        function closeImportModal() { hideAnyModal('modal-import-update'); }
+
+        async function applyImport(mode) {
+            const arr = parseImportJson();
+            if (!arr) return;
+            let next;
+            if (mode === 'cover') {
+                next = arr;
+            } else {
+                // 替换：同名条目更新字段（版本记录沿用设备已有值），新增追加，其余保留不动
+                next = updateEntries.map(u => {
+                    const m = arr.find(x => x.name === u.name);
+                    return m ? { ...u, ...m, ins_ver: u.ins_ver || '', update_ver: u.update_ver || '', has_update: u.has_update } : u;
+                });
+                arr.filter(m => !updateEntries.some(u => u.name === m.name)).forEach(m => next.push(m));
+            }
+            closeImportModal();
+            closeUpdateModal();
+            const ok = await saveUpdateEntries(next);
+            await loadUpdateEntries(true, true);
+            renderUpdateList();
+            if (ok) toast(t('toast.importOk', { n: next.length }));
+        }
+
+        // 保存条目：校验后整体提交（后端整单拒绝并带行号）。
+        let updateSaving = false;
+        async function saveUpdateEntry() {
+            if (updateSaving) return;
+            const el = id => document.getElementById(id);
+            const idx = parseInt(el('edit-update-idx').value);
+            const u = {
+                name: el('input-update-name').value.trim(),
+                repo: el('input-update-repo').value.trim(),
+                asset: el('input-update-asset').value.trim(),
+                target: el('input-update-target').value.trim(),
+                vercmd: el('input-update-vercmd').value.trim(),
+                mode: el('input-update-mode').value,
+                svc: el('input-update-svc').value,
+                auto: el('input-update-auto').checked ? '1' : '0'
+            };
+            if (!u.name || !u.repo || !u.asset || !u.target) { toast(t('toast.required'), true); return; }
+            if (!/^[A-Za-z0-9._-]+$/.test(u.name)) { toast(t('toast.badName'), true); return; }
+            if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(u.repo)) { toast(t('toast.badRepo'), true); return; }
+            if (u.asset.includes('/') || u.asset.includes('|')) { toast(t('toast.badAsset'), true); return; }
+            if (u.target.startsWith('/') || u.target.includes('..')) { toast(t('toast.badTarget'), true); return; }
+            if (u.vercmd.includes('|')) { toast(t('toast.badVercmd'), true); return; }
+            const self = idx >= 0 ? updateEntries[idx] : null;
+            if (updateEntries.some(x => x !== self && x.name === u.name)) { toast(t('toast.dupName'), true); return; }
+            // 编辑保留已记录的两个版本字段（ins_ver 已装 / update_ver 检查到的最新）
+            if (self) {
+                u.ins_ver = self.ins_ver || '';
+                u.update_ver = self.update_ver || '';
+                u.has_update = self.has_update;
+            }
+            const arr = updateEntries.slice();
+            if (idx === -1) arr.push(u); else arr[idx] = u;
+            updateSaving = true;
+            closeUpdateModal();
+            try {
+                const ok = await saveUpdateEntries(arr);
+                if (!ok) { await loadUpdateEntries(true, true); renderUpdateList(); return; }
+                await loadUpdateEntries(true, true);
+                renderUpdateList();
+            } finally { updateSaving = false; }
+        }
+
+        // 提交条目数组（update_entries 单键，走 saveupdates）：10 段与 config/update.conf 行格式一致。
+        async function saveUpdateEntries(arr) {
+            const payload = arr.map(u =>
+                [u.name, u.repo, u.asset, u.target, u.mode || 'file', u.svc || '', u.ins_ver || '', u.vercmd || '', u.update_ver || '', u.auto === '1' ? '1' : ''].join('|')
+            ).join('\n');
+            const ok = await saveConfigPayload('update_entries=' + toB64(payload), null, 'saveupdates');
+            if (!ok) return false;
+            isUpdatesLoaded = false;
+            return true;
+        }
+
+        // 删除条目（二次确认，复用通用确认弹窗）。
+        function confirmDeleteUpdate(idx) {
+            const u = updateEntries[idx];
+            if (!u) return;
+            document.getElementById('confirm-title').textContent = t('confirm.updDelTitle');
+            document.getElementById('confirm-message').innerHTML = t('confirm.updDelMsg', { name: escapeHtml(u.name) });
+            document.getElementById('confirm-btn').textContent = t('confirm.delBtn');
+            confirmKind = 'update';
+            showAnyModal('modal-confirm');
+            confirmCallback = async () => {
+                const arr = updateEntries.filter((_, i) => i !== idx);
+                closeConfirm();
+                const ok = await saveUpdateEntries(arr);
+                await loadUpdateEntries(true, true);
+                renderUpdateList();
+                if (ok) toast(t('toast.deleted'));
+            };
         }
 
         // 退出登录。
@@ -1918,6 +2525,8 @@
                     configData.wake_lock_enabled = d.wake_lock_enabled === '1';
                     configData.language = d.language === 'en' ? 'en' : 'zh';
                     configData.webui_enabled = d.webui_enabled === '1';
+                    configData.update_proxy_prefix = d.update_proxy_prefix || '';
+                    configData.update_check_interval = String(d.update_check_interval || '0');
                     isSettingsLoaded = true;
                     renderConfigFromCache();
                     // 后端是语言持久真相：刷新/换设备后以落盘值为准（与本机 localStorage 可能不同）
@@ -1998,6 +2607,9 @@
             if (typeof wakeLockToggling === 'undefined' || !wakeLockToggling) {
                 document.getElementById('wakelock-switch').checked = configData.wake_lock_enabled;
             }
+            document.getElementById('input-update-proxy').value = configData.update_proxy_prefix || '';
+            document.getElementById('input-update-interval').value = String(configData.update_check_interval || '0');
+            document.getElementById('error-update').textContent = '';
             renderConfigLists();
         }
 
