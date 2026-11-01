@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# SvcHub 更新器 CLI：check（只探测版本）| update <name> | updateall（逐条替换）。
+# SvcHub 更新器 CLI：check（探测 + auto 条目自动更新）| update <name> | updateall（逐条替换）。
 # 由 action.sh / supervisor.sh 后台拉起；单实例锁 run/update.pid。
 MODDIR=${0%/*}
 [ -n "$MODDIR" ] && [ -d "$MODDIR" ] || exit 1
@@ -34,56 +34,57 @@ entry_target_path() {
 check_entry() {
 	local name=$1 repo=$2 ins=$3 vercmd=$4 target=$5 tag cmp cur
 	if ! update_fetch_latest "$repo"; then
-		update_log "[$name] $(ui_msg '版本探测失败（网络不可达或代理失效）')"
-		printf '%s||0\n' "$name"
+		# 把实际请求的 URL 写进日志：用户拿去浏览器/adb 一试便知是代理问题还是网络问题
+		update_log "[$name] $(ui_msg '版本探测失败：%s' "$(update_api_url "$repo")")"
+		CHK_CUR=""; CHK_TAG=""; CHK_FLAG=0
 		return 1
 	fi
 	tag=$UPDATE_LATEST_TAG
 	update_set_update_ver "$name" "$tag"
-	# 本地版本优先取 vercmd 实测输出；成功则回写 ins_ver，命令失败才回退记录值。
-	# 目标二进制不存在/不可执行时跳过实测（首次安装前探测必报错，日志会刷屏）
-	cur=$ins
-	if [ -n "$vercmd" ] && [ -x "$SERVER_DIR/$target" ]; then
-		rawf="$UPDATE_TMPDIR/.verraw.$$"
-		if cur=$(update_local_version "$vercmd" "$target" "$rawf"); then
-			update_log "[$name] $(ui_msg '本地版本：%s' "$cur")"
-			[ "$cur" = "$ins" ] || update_set_ins_ver "$name" "$cur"
-		else
-			update_log "[$name] $(ui_msg '版本命令未取到版本号（输出：%s）' "$(cat "$rawf" 2>/dev/null || echo '<空>')")"
-			cur=$ins
-		fi
-		rm -f "$rawf"
-	fi
+	# 本地版本实测+回写统一走 lib 助手（与 update_entry/getupdates 同一口径）
+	cur=$(update_refresh_ins_ver "$name" "$vercmd" "$target" "$ins")
 	if [ -z "$cur" ]; then
 		cmp=1
+		update_log "[$name] $(ui_msg '发现新版本：%s → %s' "-" "$tag")"
 	else
 		cmp=$(ver_cmp "$tag" "$cur")
+		if [ "$cmp" -gt 0 ]; then
+			update_log "[$name] $(ui_msg '发现新版本：%s → %s' "$cur" "$tag")"
+		else
+			update_log "[$name] $(ui_msg '无新版本：%s' "$cur")"
+		fi
 	fi
-	printf '%s|%s|%s|%s\n' "$name" "$cur" "$tag" "$([ "$cmp" -gt 0 ] && echo 1 || echo 0)"
+	# 结果经全局变量传给 cmd_check（不用 $() 子 shell——那会丢 UPDATE_ASSETS）
+	CHK_CUR=$cur
+	CHK_TAG=$tag
+	CHK_FLAG=$([ "$cmp" -gt 0 ] && echo 1 || echo 0)
 	return 0
 }
 
 # 全量探测：遍历条目，逐个处理（串行=天然更新队列）。
 # 条目 auto=1 且探测到新版本 → 直接进入该条目的完整更新流程（自动更新）。
 cmd_check() {
-	local name repo asset target mode svc ins vercmd auto line res flag tag
+	local name repo asset target mode svc ins vercmd auto line total
 	[ -n "$UPDATE_ENTRIES" ] || { update_log "$(ui_msg '没有配置任何更新条目')"; return 0; }
+	total=$(printf '%s\n' "$UPDATE_ENTRIES" | grep -c .)
+	update_log "$(ui_msg '开始检查 %s 个条目' "$total")"
+	# check_entry 必须在父 shell 跑：其内 update_fetch_latest 填充的全局 UPDATE_ASSETS
+	# 供 auto 触发的 update_entry 直接复用；放 $() 子 shell 里会随子 shell 丢失（曾致自动更新全部失败）。
+	# 探测结果经全局 CHK_* 传递，不落盘
 	while IFS= read -r line; do
 		[ -n "$line" ] || continue
 		IFS='|' read -r name repo asset target mode svc ins vercmd _uv auto <<UEOF
 $line
 UEOF
-		res=$(check_entry "$name" "$repo" "$ins" "$vercmd" "$target")
-		flag=${res##*|}
-		[ "$auto" = "1" ] && [ "$flag" = "1" ] || continue
+		check_entry "$name" "$repo" "$ins" "$vercmd" "$target"
+		[ "$auto" = "1" ] && [ "$CHK_FLAG" = "1" ] || continue
 		# 自动更新：check 阶段已 fetch 过，把 tag 传下去省一次请求
-		tag=${res%|*}
-		tag=${tag##*|}
-		update_log "[$name] $(ui_msg '自动更新（检查发现新版本 %s）' "$tag")"
-		update_entry "$name" "$repo" "$asset" "$target" "$mode" "$svc" "$ins" "$vercmd" "$tag"
+		update_log "[$name] $(ui_msg '自动更新（检查发现新版本 %s）' "$CHK_TAG")"
+		update_entry "$name" "$repo" "$asset" "$target" "$mode" "$svc" "$ins" "$vercmd" "$CHK_TAG"
 	done <<EOF
 $UPDATE_ENTRIES
 EOF
+	update_log "$(ui_msg '检查完成')"
 	return 0
 }
 
@@ -135,26 +136,14 @@ update_entry() {
 		tag=$known_tag
 	else
 		if ! update_fetch_latest "$repo"; then
-			update_log "[$name] $(ui_msg '版本探测失败（网络不可达或代理失效）')"
+			update_log "[$name] $(ui_msg '版本探测失败：%s' "$(update_api_url "$repo")")"
 			return 1
 		fi
 		tag=$UPDATE_LATEST_TAG
 	fi
 	update_set_update_ver "$name" "$tag"
-	# 本地版本：填了参数按参数（失败再逐个试）；留空且不知道版本时也逐个探测兜底。
-	# 目标二进制不存在/不可执行时跳过实测（首次安装前探测必报错），条目按「有更新」处理
-	cur=$ins
-	if { [ -n "$vercmd" ] || [ -z "$cur" ]; } && [ -x "$SERVER_DIR/$target" ]; then
-		rawf="$UPDATE_TMPDIR/.verraw.$$"
-		if cur=$(update_local_version "$vercmd" "$target" "$rawf"); then
-			update_log "[$name] $(ui_msg '本地版本：%s' "$cur")"
-			[ "$cur" = "$ins" ] || update_set_ins_ver "$name" "$cur"
-		else
-			update_log "[$name] $(ui_msg '版本命令未取到版本号（输出：%s）' "$(cat "$rawf" 2>/dev/null || echo '<空>')")"
-			cur=$ins
-		fi
-		rm -f "$rawf"
-	fi
+	# 本地版本实测+回写统一走 lib 助手（与 check_entry/getupdates 同一口径）
+	cur=$(update_refresh_ins_ver "$name" "$vercmd" "$target" "$ins")
 	if [ -n "$cur" ]; then
 		cmp=$(ver_cmp "$tag" "$cur")
 		if [ "$cmp" -le 0 ]; then
@@ -162,7 +151,8 @@ update_entry() {
 			return 0
 		fi
 	fi
-	update_log "[$name] $(ui_msg '发现新版本：%s → %s' "$cur" "$tag")"
+	# 已知 tag（自动更新路径）时 check_entry 已记过发现新版本，不重复记
+	[ -n "$known_tag" ] || update_log "[$name] $(ui_msg '发现新版本：%s → %s' "$cur" "$tag")"
 
 	asset=$(update_resolve_asset "$asset_tpl" "$tag")
 	# 资产名可能不含版本号：精确未命中时按目标 basename 在列表里唯一匹配
@@ -287,15 +277,16 @@ update_entry() {
 				update_log "[$name] $(ui_msg '关联服务 %s 启动成功' "$svc")"
 			else
 				update_log "[$name] $(ui_msg '关联服务 %s 启动失败，正在回滚' "$svc")"
-				# dir 模式回滚的是所在文件夹，file/raw 回滚的是二进制文件本身
-				if [ "$mode" = "dir" ]; then
-					rollback_after_fail "$bak" "$abs_dir" "$mode"
-				else
-					rollback_after_fail "$bak" "$abs_target" "$mode"
-				fi
-				# 回滚后重启旧版本（服务本身起不来时也会失败，日志已说明）
+				# 先停服务再回滚：探活失败不代表进程已死，cp 覆盖运行中二进制会失败
 				if [ "$bak" -eq 1 ]; then
 					stop_svc "$svc"
+					# dir 模式回滚的是所在文件夹，file/raw 回滚的是二进制文件本身
+					if [ "$mode" = "dir" ]; then
+						rollback_after_fail "$bak" "$abs_dir" "$mode"
+					else
+						rollback_after_fail "$bak" "$abs_target" "$mode"
+					fi
+					# 回滚后重启旧版本（服务本身起不来时也会失败，日志已说明）
 					launch_svc binary "$svc" "$svc_cmd"
 				fi
 				return 1

@@ -211,9 +211,12 @@ ui_msg() {
 	'update.conf 非法行已跳过：%s') printf 'Invalid update.conf line skipped: %s' "$1" ;;
 	'已有更新任务在运行，本次跳过') printf 'An update task is already running, skipped' ;;
 	'没有配置任何更新条目') printf 'No update entries configured' ;;
+	'开始检查 %s 个条目') printf 'Checking %s entries' "$1" ;;
+	'检查完成') printf 'Check completed' ;;
+	'无新版本：%s') printf 'No update: %s' "$1" ;;
 	'未指定更新条目名') printf 'Update entry name not specified' ;;
 	'未找到更新条目：%s') printf 'Update entry not found: %s' "$1" ;;
-	'版本探测失败（网络不可达或代理失效）') printf 'Version check failed (network unreachable or proxy failed)' ;;
+	'版本探测失败：%s') printf 'Version check failed: %s' "$1" ;;
 	'发现新版本：%s → %s') printf 'New version found: %s -> %s' "$1" "$2" ;;
 	'已是最新版本 %s') printf 'Already up to date: %s' "$1" ;;
 	'未找到匹配的资产：%s') printf 'No matching asset found: %s' "$1" ;;
@@ -239,7 +242,6 @@ ui_msg() {
 	'替换目标文件失败') printf 'Failed to replace target file' ;;
 	'更新完成：%s') printf 'Update completed: %s' "$1" ;;
 	'自动更新（检查发现新版本 %s）') printf 'Auto update (new version found: %s)' "$1" ;;
-	'本地版本：%s') printf 'Local version: %s' "$1" ;;
 	'版本命令未取到版本号（输出：%s）') printf 'Version command produced no version (output: %s)' "$1" ;;
 	'更新已手动停止') printf 'Update stopped manually' ;;
 	'停止更新任务（%s）') printf 'Stop update task (%s)' "$1" ;;

@@ -192,9 +192,8 @@ periodic_update_check() {
 # 防止从 3600s 调回 120s 需等待整个旧周期才能生效。
 # 期间实时响应：disable 提前结束、定时窗边沿（进窗停全部/出窗立即巡检）、Wi-Fi 策略变化。
 sleep_slice() {
-	local start now chunk target=$SLEEP_INTERVAL old_target
-	# 用绝对截止时间计时：每片的读配置/屏幕/Wi-Fi 检查耗时也从间隔里扣，避免 60 片累积出分钟级误差
-	start=$(date +%s)
+	# $1=周期锚点（主循环巡检开始时刻的 epoch）：省略时退化为当前时刻
+	local start=${1:-$(date +%s)} now chunk target=$SLEEP_INTERVAL old_target
 	# 入口取当前屏幕/解锁状态，避免开机即锁屏时误触发边沿
 	SLICE_SCREEN_SEEN=$SCREEN_ON
 	SLICE_UNLOCK_SEEN=$SCREEN_UNLOCK_OK
@@ -386,9 +385,11 @@ while :; do
 		exit 0
 	fi
 
+	# 周期锚定巡检开始时刻：巡检/轮转/更新检查的耗时从本周期间隔内扣除，避免逐周期累积漂移
+	cycle_start=$(date +%s)
 	patrol_once
 	rotate_all_logs
 	periodic_update_check
 
-	sleep_slice
+	sleep_slice "$cycle_start"
 done

@@ -177,27 +177,12 @@ api_get_updates() {
 	load_cfg_sh
 	load_update_conf
 	printf '{"success":true,"items":['
-	local line first=1 name _repo _asset target _mode _svc ins vercmd update_ver detected has rawf
-	rawf="$RUNDIR/.verraw.$$"
+	local line first=1 name _repo _asset target _mode _svc ins vercmd update_ver _auto has
 	while IFS= read -r line; do
 		[ -n "$line" ] || continue
 		IFS='|' read -r name _repo _asset target _mode _svc ins vercmd update_ver _auto <<UEOF
 $line
 UEOF
-		# 只在缺已装版本时补测一次（填了参数按参数，留空逐个兜底）：已记录版本直接返回，避免每次加载都执行命令。
-		# 目标二进制不存在/不可执行时连实测都跳过（首次安装前每次加载都白探一轮，还可能撞上挂死的二进制），
-		# 但条目照常输出（ins_ver 留空）。
-		if [ -z "$ins" ] && [ -x "$SERVER_DIR/$target" ]; then
-			if detected=$(update_local_version "$vercmd" "$target" "$rawf"); then
-				update_log "[$name] $(ui_msg '本地版本：%s' "$detected")"
-				update_set_ins_ver "$name" "$detected"
-				ins=$detected
-				line=$(pick_update_entry "$name")
-			else
-				update_log "[$name] $(ui_msg '版本命令未取到版本号（输出：%s）' "$(cat "$rawf" 2>/dev/null || echo '<空>')")"
-			fi
-		fi
-		# 已装/最新都有就版本比较（不联网，刷新页面也有「有更新」判定）
 		has=false
 		if [ -n "$update_ver" ]; then
 			if [ -z "$ins" ] || [ "$(ver_cmp "$update_ver" "$ins")" -gt 0 ]; then
@@ -210,7 +195,6 @@ UEOF
 	done <<EOF
 $UPDATE_ENTRIES
 EOF
-	rm -f "$rawf"
 	printf ']}\n'
 }
 
@@ -268,7 +252,7 @@ api_update_check() {
 
 # 更新任务状态（updatestatus）：前端据此把「更新」按钮切「暂停」。
 api_update_status() {
-	load_cfg_sh
+	# 高频轮询只读锁文件，不做全量配置加载（pidfile_alive 只依赖 lib 常量）
 	if pidfile_alive "$UPDATE_PID" >/dev/null; then
 		printf '{"success":true,"running":true}\n'
 	else

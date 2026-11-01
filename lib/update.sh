@@ -175,14 +175,14 @@ update_find_sha256() {
 	printf '%s\n' "$b sha256sum"
 }
 
-# 下载：$1=URL $2=目标文件。
+# 下载：$1=URL $2=目标文件 $3=curl 最长秒数（可空默认 300；探测小 JSON 用短超时防黑洞连接拖死检查）。
 # curl 优先（设备上一般无 curl，走 busybox wget）；HTTP 4xx/5xx 不重试（资产不存在属配置错误），
 # 只有网络层失败才换 wget 再试一次，避免把「404 资产不存在」误报成网络故障。
 update_wget() {
-	local url=$1 dest=$2 bb code
+	local url=$1 dest=$2 maxtime=${3:-300} bb code
 	[ -n "$url" ] && [ -n "$dest" ] || return 1
 	if command -v curl >/dev/null 2>&1; then
-		code=$(curl -fsSL --max-time 300 -o "$dest" -w '%{http_code}' "$url" 2>/dev/null)
+		code=$(curl -fsSL --max-time "$maxtime" -o "$dest" -w '%{http_code}' "$url" 2>/dev/null)
 		if [ "$code" = "200" ]; then
 			return 0
 		fi
@@ -197,30 +197,40 @@ update_wget() {
 }
 
 # ---------- 版本探测 ----------
-# 探测仓库最新 release：成功时写 UPDATE_LATEST_TAG 与 UPDATE_ASSETS（每行 name=digest），返回 0。
+# 探测仓库最新 release：成功时写 UPDATE_LATEST_TAG 与 UPDATE_ASSETS（每行 name|digest|size），返回 0。
+# 双通道：代理前缀优先，失败退直连；单通道 curl 限时 120s（黑洞连接最长拖 4 分钟会拖死检查）。
 update_fetch_latest() {
-	local repo=$1 url tmp
+	local repo=$1 tmp prefix url1 url2 urls url
 	UPDATE_LATEST_TAG=""
 	UPDATE_ASSETS=""
 	[ -n "$repo" ] || return 1
 	mkdir -p "$UPDATE_TMPDIR" 2>/dev/null || return 1
 	tmp="$UPDATE_TMPDIR/api.json"
+	# 探测双通道：代理前缀优先，失败退直连（代理时好时坏、直连可用的网络都能覆盖）
+	prefix=$(update_proxy_prefix)
+	url1="${prefix}https://api.github.com/repos/${repo}/releases/latest"
+	url2="https://api.github.com/repos/${repo}/releases/latest"
+	urls="$url1"
+	[ -n "$url2" ] && [ "$url2" != "$url1" ] && urls="$urls
+$url2"
+	for url in $urls; do
+		rm -f "$tmp"
+		update_wget "$url" "$tmp" 120 || continue
+		[ -s "$tmp" ] || continue
+		UPDATE_LATEST_TAG=$(awk '
+			/"tag_name"[[:space:]]*:/ {
+				l = $0
+				sub(/.*"tag_name"[[:space:]]*:[[:space:]]*"/, "", l)
+				sub(/".*/, "", l)
+				print l
+				exit
+			}' "$tmp" 2>/dev/null)
+		UPDATE_ASSETS=$(awk "$UPDATE_ASSETS_AWK" "$tmp" 2>/dev/null)
+		# 代理偶发返回 200 错误页或截断响应：tag 或资产列表解析不出都视为失败，退下一通道
+		[ -n "$UPDATE_LATEST_TAG" ] && [ -n "$UPDATE_ASSETS" ] && { rm -f "$tmp"; return 0; }
+	done
 	rm -f "$tmp"
-	url=$(update_api_url "$repo")
-	update_wget "$url" "$tmp" || { rm -f "$tmp"; return 1; }
-	[ -s "$tmp" ] || { rm -f "$tmp"; return 1; }
-	UPDATE_LATEST_TAG=$(awk '
-		/"tag_name"[[:space:]]*:/ {
-			l = $0
-			sub(/.*"tag_name"[[:space:]]*:[[:space:]]*"/, "", l)
-			sub(/".*/, "", l)
-			print l
-			exit
-		}' "$tmp" 2>/dev/null)
-	UPDATE_ASSETS=$(awk "$UPDATE_ASSETS_AWK" "$tmp" 2>/dev/null)
-	rm -f "$tmp"
-	[ -n "$UPDATE_LATEST_TAG" ] || return 1
-	return 0
+	return 1
 }
 
 # 从资产映射取 sha256（$1=映射 name|digest|size $2=资产名）；无 digest 输出空。
@@ -451,9 +461,9 @@ update_backup_file() {
 update_rollback_file() {
 	local dst=$1 bak="$1.svchub_bak"
 	[ -f "$bak" ] || return 1
-	cp -f "$bak" "$dst" 2>/dev/null || return 1
+	# 走同目录 tmp+mv（rename 不触碰运行中 inode），与 update_replace_file 同一原则
+	mv -f "$bak" "$dst" 2>/dev/null || return 1
 	chmod 755 "$dst" 2>/dev/null
-	rm -f "$bak"
 	return 0
 }
 
@@ -525,11 +535,12 @@ UPDATE_VER_PROBES='--version version -v v'
 
 update_ver_probe() {
 	local bin=$1 args=$2 rawfile=$3 out ver
-	# 在服务目录执行，限时 10 秒防挂死；stderr 一并收（部分程序版本印在 stderr）
+	# 在服务目录执行，限时 10 秒防挂死；stderr 一并收（部分程序版本印在 stderr）。
+	# timeout 直接作用于二进制（不经 sh 转发）：常驻二进制被杀不留孤儿；参数词切分传递
 	if command -v timeout >/dev/null 2>&1; then
-		out=$( cd "$SERVER_DIR" 2>/dev/null && printf '%s\n' "$bin $args" | timeout 10 sh 2>&1 ) || true
+		out=$( cd "$SERVER_DIR" 2>/dev/null && timeout 10 "$bin" $args 2>&1 ) || true
 	else
-		out=$( cd "$SERVER_DIR" 2>/dev/null && printf '%s\n' "$bin $args" | sh 2>&1 ) || true
+		out=$( cd "$SERVER_DIR" 2>/dev/null && "$bin" $args 2>&1 ) || true
 	fi
 	# 原始输出回传（供失败时记日志）：压成单行并截断
 	if [ -n "$rawfile" ]; then
@@ -574,6 +585,24 @@ update_local_version() {
 		update_ver_probe "$bin" "$p" "$rawfile" && return 0
 	done
 	return 1
+}
+
+# 实测本地版本并回写 ins_ver（第 7 段）：vercmd 非空按参数（失败再逐个兜底），
+# 留空且不知道版本时也逐个兜底；目标二进制不存在/不可执行时跳过，返回传入的 ins。
+# $1=条目名 $2=vercmd $3=目标路径 $4=已装版本旧值 → 输出实测/回退后的版本（写 update.log）。
+update_refresh_ins_ver() {
+	local name=$1 vercmd=$2 target=$3 ins=$4 cur rawf="$UPDATE_TMPDIR/.verraw.$$"
+	cur=$ins
+	if { [ -n "$vercmd" ] || [ -z "$cur" ]; } && [ -x "$SERVER_DIR/$target" ]; then
+		if cur=$(update_local_version "$vercmd" "$target" "$rawf"); then
+			[ "$cur" = "$ins" ] || update_set_ins_ver "$name" "$cur"
+		else
+			update_log "[$name] $(ui_msg '版本命令未取到版本号（输出：%s）' "$(cat "$rawf" 2>/dev/null || echo '<空>')")"
+			cur=$ins
+		fi
+		rm -f "$rawf"
+	fi
+	printf '%s\n' "$cur"
 }
 
 # ---------- 日志 ----------

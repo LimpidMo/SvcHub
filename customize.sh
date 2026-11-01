@@ -297,7 +297,7 @@ fi
 
 # 可执行位修复（zip 解压可能丢 exec 位，无位则 CGI 404 / 后端 127）。
 chmod 755 "$MODPATH/action.sh" "$MODPATH/service.sh" "$MODPATH/supervisor.sh" \
-    "$MODPATH/httpd.sh" "$MODPATH/uninstall.sh" "$MODPATH/customize.sh" \
+    "$MODPATH/httpd.sh" "$MODPATH/updater.sh" "$MODPATH/uninstall.sh" "$MODPATH/customize.sh" \
     "$MODPATH/webroot/cgi-bin/api.cgi" 2>/dev/null \
     && ui_print "$(inst_msg '- 已修复脚本可执行权限')" \
     || ui_print "$(inst_msg '! 可执行权限修复失败，外部访问 CGI 可能 404')"

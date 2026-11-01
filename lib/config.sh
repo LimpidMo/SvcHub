@@ -406,7 +406,6 @@ validate_update_rows() {
 		if (mode != "file" && mode != "dir" && mode != "raw") { printf "%s", r; exit }
 		if (svc != "") {
 			if (!valid_name(svc)) { printf "%s", r; exit }
-			if (svc !~ /^[A-Za-z0-9._-]+$/) { printf "%s", r; exit }
 		}
 		if (index(vercmd, "|") > 0) { printf "%s", r; exit }
 		# 段数超过 10 说明某段内含 |（会被当分隔符切开），按非法拒绝。
@@ -427,7 +426,7 @@ load_update_conf() {
 	local f="$UPDATE_CONF" bad
 	UPDATE_ENTRIES=""
 	[ -f "$f" ] || return 0
-	bad=$(awk '
+	rows=$(awk '
 	BEGIN { FS = "|" }
 	{
 		sub(/\r$/, "")
@@ -440,7 +439,7 @@ load_update_conf() {
 		}
 		print line
 	}' "$f" 2>/dev/null) || return 0
-	[ -n "$bad" ] || return 0
+	[ -n "$rows" ] || return 0
 	# 格式校验：非法行整条跳过并记日志（其余条目照常生效）
 	while IFS= read -r line; do
 		[ -n "$line" ] || continue
@@ -451,7 +450,7 @@ load_update_conf() {
 		UPDATE_ENTRIES="${UPDATE_ENTRIES:+$UPDATE_ENTRIES
 }$line"
 	done <<EOF
-$bad
+$rows
 EOF
 	return 0
 }

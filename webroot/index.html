@@ -465,7 +465,7 @@
                 <div class="section-hd">
                     <span class="section-title" data-i18n="sec.update">二进制更新</span>
                     <div class="actions">
-                        <button class="btn btn-lg btn-primary" id="btn-update-all" onclick="updateAllEntries()" data-i18n="btn.updateAll">更新全部</button>
+                        <button class="btn btn-lg btn-primary" id="btn-update-all" style="display:none;" onclick="updateAllEntries()" data-i18n="btn.updateAll">更新全部</button>
                         <button class="btn btn-lg" id="btn-check-updates" onclick="checkAllUpdates()" data-i18n="btn.checkUpdate">检查更新</button>
                         <button class="btn btn-lg" onclick="openUpdateModal()" data-i18n="btn.addUpdate">添加</button>
                         <button class="btn btn-lg" onclick="loadUpdateEntries(true, true)" data-i18n="btn.refresh">刷新</button>
@@ -605,7 +605,7 @@
                 <div class="form" style="padding:0 0 10px 0;border:none;">
                     <label class="form-label" data-i18n="label.updAsset">资产文件名 *（必须）</label>
                     <input type="text" class="form-input" id="input-update-asset" placeholder="如 memos_{ver}_linux_arm64.tar.gz，{ver} 替换为版本号" data-i18n-attr="placeholder:ph.updAsset">
-                    <div class="form-hint" data-i18n="hint.updAsset">资产名含版本号时用 {ver} 占位</div>
+                    <div class="form-hint" data-i18n="hint.updAsset">资产名含版本号时用 {ver}（=去 v 的版本号）占位，完整 tag 用 {tag}</div>
                 </div>
                 <div class="form" style="padding:0 0 10px 0;border:none;">
                     <label class="form-label" data-i18n="label.updTarget">目标文件路径 *（必须）</label>
@@ -971,7 +971,7 @@
                 'label.updRepo': 'GitHub 仓库 *（必须）', 'ph.updRepo': 'owner/repo，如 usememos/memos',
                 'label.updAsset': '资产文件名 *（必须）',
                 'ph.updAsset': '如 memos_{ver}_linux_arm64.tar.gz',
-                'hint.updAsset': '资产名含版本号时用 {ver} 占位',
+                'hint.updAsset': '资产名含版本号时用 {ver}（=去 v 的版本号）占位，完整 tag 用 {tag}',
                 'label.updTarget': '目标文件路径 *（必须）', 'ph.updTarget': '填到二进制文件，如 ./memos/memos',
                 'hint.updTarget': '整个目录模式解压到该文件所在文件夹',
                 'label.updVercmd': '版本查询参数（可空）', 'ph.updVercmd': '如 version、--version、v、-v，留空自动逐个试',
@@ -1118,12 +1118,12 @@
                 'label.proxyPrefix': 'GitHub Proxy Prefix', 'ph.proxyPrefix': 'Empty = direct',
                 'label.checkInterval': 'Check Interval', 'label.ivOff': 'Off', 'label.ivHour': 'Hourly',
                 'label.ivDay': 'Daily', 'label.ivWeek': 'Weekly',
-                'hint.updateProxy': 'The interval only checks for new versions and marks them; files are replaced only when you click Update',
+                'hint.updateProxy': 'Checking only marks new versions; entries with auto-update enabled are replaced automatically',
                 'label.updName': 'Name * (required)', 'ph.updName': 'e.g. memos',
                 'label.updRepo': 'GitHub Repo * (required)', 'ph.updRepo': 'owner/repo, e.g. usememos/memos',
                 'label.updAsset': 'Asset File Name * (required)',
                 'ph.updAsset': 'e.g. memos_{ver}_linux_arm64.tar.gz',
-                'hint.updAsset': 'Use {ver} when the name carries the version',
+                'hint.updAsset': 'Use {ver} (= version without leading v) for versioned names, {tag} for the full tag',
                 'label.updTarget': 'Target File Path * (required)', 'ph.updTarget': 'The binary itself, e.g. ./memos/memos',
                 'hint.updTarget': 'Dir mode extracts into the containing folder',
                 'label.updVercmd': 'Version Args (optional)', 'ph.updVercmd': 'e.g. version, --version,v, -v; empty = try all',
@@ -1701,27 +1701,37 @@
             renderUpdateAllBtn();
         }
 
-        // 「更新全部」按钮随运行状态切换：运行中变「暂停」（黑底），点击停止；检查期间禁用
+        // 「更新全部」按钮：仅检查后存在待更新条目时显示；运行中变「暂停」（黑底），点击停止
         function renderUpdateAllBtn() {
             const b = document.getElementById('btn-update-all');
             if (!b) return;
+            const anyPending = updateEntries.some(u => {
+                const info = updateCheckInfo[u.name];
+                return !!(info ? info.has_update : u.has_update);
+            });
             if (checkBusy) {
                 b.disabled = true;
                 return;
             }
             if (updateRunning && updateRunningName === '__all__') {
+                b.style.display = '';
                 b.textContent = t('btn.pause');
                 b.className = 'btn btn-lg';
+                b.disabled = false;
                 b.setAttribute('onclick', 'stopUpdate()');
             } else if (updateRunning) {
+                b.style.display = anyPending ? '' : 'none';
                 b.textContent = t('btn.updating');
                 b.className = 'btn btn-lg btn-primary';
                 b.disabled = true;
-            } else {
+            } else if (anyPending) {
+                b.style.display = '';
                 b.textContent = t('btn.updateAll');
                 b.className = 'btn btn-lg btn-primary';
                 b.disabled = false;
                 b.setAttribute('onclick', 'updateAllEntries()');
+            } else {
+                b.style.display = 'none';
             }
         }
 
@@ -1751,20 +1761,14 @@
             if (btn) {
                 // 检查中按钮变「暂停检查」（黑底、可点击停止），结束后还原
                 btn.textContent = b ? t('btn.pauseCheck') : t('btn.checkUpdate');
-                btn.setAttribute('onclick', b ? 'stopCheck()' : 'checkAllUpdates()');
+                btn.setAttribute('onclick', b ? 'stopUpdate()' : 'checkAllUpdates()');
             }
             // 检查与更新共用单实例锁：检查期间「更新全部」同样不可发起新任务
             const all = document.getElementById('btn-update-all');
             if (all) all.disabled = b;
         }
 
-        // 暂停检查：检查与更新共用同一把 pid 锁，updatestop 按进程组终止；轮询发现停止后按钮还原
-        async function stopCheck() {
-            if (!checkBusy) return;
-            const r = await runAction('updatestop');
-            if (parseSuccess(r)) toast(t('toast.updateStopSent'));
-            else toastRunError(r, t('toast.updateFail'));
-        }
+
 
         // 更新类操作的失败提示：优先后端 JSON error，回退默认文案。
         function toastRunError(r, fallbackMsg) {
@@ -1888,7 +1892,6 @@
 
         function closeUpdateModal() { hideAnyModal('modal-update'); }
 
-        // 复制：当前条目列表转 JSON（只含 8 个配置字段，版本记录是设备相关的不导出）
         // 复制：当前条目列表转 JSON（只含 8 个配置字段，版本记录是设备相关的不导出）。
         // copyText 是回调式（成功调 done，不返回值），成功提示放回调里。
         function copyUpdateJson() {
