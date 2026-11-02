@@ -43,8 +43,8 @@
 | Service Status | Service Config | Settings |
 |---------|---------|---------|
 | ![Service status](docs/public/images/01-status.png) | ![Service config](docs/public/images/02-config.png ) |![Settings](docs/public/images/03-settings.png)|
-| Start/Stop Features | Service Logs | Web Login |
-| ![Start/stop](docs/public/images/04-start_stop.png) | ![Logs](docs/public/images/05-log.png ) |![Login](docs/public/images/06-login.png)|
+| Start/Stop Features | Binary Update | Service Logs |
+| ![Start/stop](docs/public/images/04-start_stop.png) | ![Update](docs/public/images/05-update.png ) |![Logs](docs/public/images/06-log.png)|
 </div>
 
 ## Core Features
@@ -53,6 +53,9 @@
 - **Multiple start/stop strategies**: scheduled stop window, screen on/off control, Wi-Fi based start/stop and more, to meet diverse scheduling needs
 - **Patrol keep-alive**: patrols every 60 seconds by default (configurable 10~84600), automatically revives services tagged `start`, and rotates logs automatically.
 - **WebUI**: Chinese/English bilingual, with one interface for service start/stop, configuration and log viewing. Supports both the in-manager WebUI and direct browser access, plus PWA installation
+- **Update service**: binary file update from GitHub warehouse is supported, and the service update can be checked every hour/day/week, and the automatic update service can be started.
+
+>Tips: This module does not open the wake-up lock by default. If you need to reduce the impact of lock screen Doze or CPU sleep on the inspection and update check, you can open the wake-up lock in the "Basic Settings"
 
 ## Getting Started
 
@@ -60,7 +63,8 @@
 2. In your root manager → Modules → Install from local storage, flash the ZIP; volume keys offer an optional DNS resolve mount (skipped by default)
 3. Reboot after installation; existing configuration is preserved on upgrade
 4. In KernelSU or APatch manager → Modules → open SvcHub → enter the WebUI
-   > Magisk users have no in-manager WebUI entry. With external access enabled (on by default), visit `http://127.0.0.1:5555` in a browser; default password is `admin`
+
+> Magisk users have no manager WebUI access. The default setting for the first installation is to enable external access; accessing via the browser, go to `http://127.0.0.1:5555`, with the default password `admin`. A mandatory password change is required upon the first login. KernelSU/APatch default-disable external access. After changing the password, it is enabled within the manager.
 
 ## Notes
 

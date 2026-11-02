@@ -20,7 +20,7 @@ const path = require('path');
 const { execFile, execFileSync } = require('child_process');
 
 const REPO = path.resolve(__dirname, '..');
-const WHITE = new Set(['status', 'getconfig', 'getsettings', 'getservices', 'saveconfig', 'savesettings', 'saveservices', 'readlog', 'logs', 'start', 'stop', 'clearlog', 'runcmd', 'runcmdtermux', 'webuistart', 'webuistop', 'webuistatus', 'webuipasswd', 'webuiregen', 'webuitoken']);
+const WHITE = new Set(['status', 'getconfig', 'getsettings', 'getservices', 'saveconfig', 'savesettings', 'saveservices', 'readlog', 'logs', 'start', 'stop', 'clearlog', 'runcmd', 'runcmdtermux', 'webuistart', 'webuistop', 'webuistatus', 'webuipasswd', 'webuiregen', 'webuitoken', 'getupdates', 'saveupdates', 'updatecheck', 'updateone', 'updateall', 'updatestatus', 'updatestop']);
 const OUT_MAX = 512 * 1024;
 
 // 命令行参数：模式必须是第一个参数（reset/stop/reflash），其余为可选隔离参数。
@@ -109,7 +109,7 @@ function copyScripts() {
     fs.mkdirSync(path.join(sandbox, 'config'), { recursive: true });
     fs.mkdirSync(path.join(sandbox, 'webroot', 'cgi-bin'), { recursive: true });
     fs.mkdirSync(path.join(sandbox, 'run', 'session'), { recursive: true });
-    for (const f of ['action.sh', 'service.sh', 'supervisor.sh', 'customize.sh', 'uninstall.sh', 'httpd.sh']) {
+    for (const f of ['action.sh', 'service.sh', 'supervisor.sh', 'customize.sh', 'uninstall.sh', 'httpd.sh', 'updater.sh']) {
         fs.copyFileSync(path.join(REPO, f), path.join(sandbox, f));
     }
     fs.copyFileSync(path.join(REPO, 'lib.sh'), path.join(sandbox, 'lib.sh'));

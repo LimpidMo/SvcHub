@@ -46,8 +46,8 @@
 | 服务状态 | 服务配置 | 功能设置|
 |---------|---------|---------|
 | ![服务状态](docs/public/images/01-status.png) | ![服务配置](docs/public/images/02-config.png ) |![功能设置](docs/public/images/03-settings.png)|
-| 启停功能 | 服务日志 | 网页登录|
-| ![启停功能](docs/public/images/04-start_stop.png) | ![服务日志](docs/public/images/05-log.png ) |![网页登录](docs/public/images/06-login.png)|
+| 启停功能 | 二进行更新 | 服务日志|
+| ![启停功能](docs/public/images/04-start_stop.png) | ![二进行更新](docs/public/images/05-update.png ) |![服务日志](docs/public/images/06-log.png)|
 </div>
 
 ## 核心功能
@@ -56,6 +56,9 @@
 - **多种启停策略**：支持定时启停、亮屏启停、Wi-Fi 启停等策略满足多样化启停需求
 - **巡检保活**：默认 60 秒巡检一次（可选 10~84600 秒），自动拉起带有 `start` 标签的服务，日志自动轮转。
 - **WebUI**：中英双语支持，统一界面管理服务启停、启动配置、查看日志。支持管理器内 WebUI 与浏览器网页直连双通道，支持 PWA 安装
+- **更新服务**：支持来源于 GitHub 仓库的二进制文件更新，可设每小时/天/周检查服务更新，可开启自动更新服务
+
+>注：本模块默认不开启唤醒锁，如需减少锁屏 Doze 或 CPU 休眠的对巡检、更新检查等的影响，可在「基本设置」开启唤醒锁
 
 ## 快速开始
 
@@ -63,7 +66,8 @@
 2. 在 Root 管理器中 → 模块 → 从本地安装，选择对应 ZIP 文件刷入，音量键可选是否挂载 DNS 解析配置，默认不挂载
 3. 安装完成后重启设备，升级时自动保留已有配置
 4. 在 KernelSU 或 APatch 等管理器 → 模块 → 点击打开 SvcHub → 进入 WebUI
-   > Magisk 用户无管理器 WebUI 入口，首次安装默认开启外部访问；浏览器访问 `http://127.0.0.1:5555`，默认密码 `admin`，首次登录强制修改。KernelSU / APatch 默认关闭外部访问，改密后在管理器内开启
+
+> Magisk 用户无管理器 WebUI 入口，首次安装默认开启外部访问；浏览器访问 `http://127.0.0.1:5555`，默认密码 `admin`，首次登录强制修改。KernelSU / APatch 默认关闭外部访问，改密后在管理器内开启
 
 ## 注意事项
 

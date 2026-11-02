@@ -12,7 +12,7 @@ import zipfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# 刷机必需文件（23 个）：脚本 + 公共库 + 前端 + CGI + PWA + META-INF
+# 刷机必需文件（25 个）：脚本 + 公共库 + 前端 + CGI + PWA + META-INF
 REQUIRED_FILES = [
     "module.prop",
     "customize.sh",
@@ -27,7 +27,9 @@ REQUIRED_FILES = [
     "lib/proc.sh",
     "lib/policy.sh",
     "lib/webui.sh",
+    "lib/update.sh",
     "httpd.sh",
+    "updater.sh",
     "webroot/index.html",
     "webroot/manifest.json",
     "webroot/sw.js",

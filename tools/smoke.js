@@ -226,7 +226,7 @@ async function testPageAndStatus(ctx) {
 
 async function testSettings(ctx) {
     const gs = await execJson(ctx.bridgePort, 'getsettings');
-    eq('getsettings key count', 18, gs ? Object.keys(gs).length : 0);
+    eq('getsettings key count', 20, gs ? Object.keys(gs).length : 0);
     ok('getsettings hides secrets', !!(gs && !('webui_password_hash' in gs) && !('webui_token' in gs)));
     eq('getsettings webui_enabled', '1', gs && gs.webui_enabled);
     const ws = await execJson(ctx.bridgePort, 'webuistatus');
@@ -248,7 +248,7 @@ async function testSettings(ctx) {
     const conf = fs.readFileSync(path.join(ctx.sandbox, 'config', 'setting.conf'), 'utf8');
     const bootLine = conf.split(/\r?\n/).find((l) => l.startsWith('boot_commands=')) || '';
     ok('boot_commands stored escaped', bootLine.indexOf('\\n') >= 0);
-        eq('setting.conf key count', 21, conf.split(/\r?\n/).filter((l) => /^[a-z_]+=/.test(l)).length);
+        eq('setting.conf key count', 23, conf.split(/\r?\n/).filter((l) => /^[a-z_]+=/.test(l)).length);
 
     let e = await execJson(ctx.bridgePort, 'savesettings', kv({ nope: 'x' }));
     ok('unknown key rejected', !!(e && e.success === false));
@@ -298,6 +298,78 @@ async function testServicesConfig(ctx) {
     const e = await execJson(ctx.bridgePort, 'saveservices', kv({ termux_services: 'bad name|80|start|echo x|' }));
     ok('invalid row rejected with line', !!(e && e.success === false && /第 1 行/.test(e.error)), JSON.stringify(e));
     eq('services file unchanged on reject', svcFile, fs.readFileSync(path.join(ctx.sandbox, 'config', 'services.conf'), 'utf8'));
+}
+
+async function testUpdates(ctx) {
+    // 条目 CRUD：保存 → 读回 → 校验 → 删除
+    const rows = 'memos|usememos/memos|memos_{ver}_linux_arm64.tar.gz|./memos/memos|file||v0.30.9|version|v0.31.0';
+    let r = await execJson(ctx.bridgePort, 'saveupdates', kv({ update_entries: rows }));
+    ok('saveupdates ok', !!(r && r.success === true), JSON.stringify(r));
+    const gu = await execJson(ctx.bridgePort, 'getupdates');
+    ok('getupdates returns items', !!(gu && gu.success === true && Array.isArray(gu.items) && gu.items.length === 1), JSON.stringify(gu));
+    eq('update entry name', 'memos', gu && gu.items[0] && gu.items[0].name);
+    eq('update entry repo', 'usememos/memos', gu && gu.items[0] && gu.items[0].repo);
+    eq('update entry ins_ver', 'v0.30.9', gu && gu.items[0] && gu.items[0].ins_ver);
+    eq('update entry vercmd', 'version', gu && gu.items[0] && gu.items[0].vercmd);
+    eq('update entry update_ver', 'v0.31.0', gu && gu.items[0] && gu.items[0].update_ver);
+    eq('update entry has_update persisted', true, gu && gu.items[0] && gu.items[0].has_update);
+    const upConf = fs.readFileSync(path.join(ctx.sandbox, 'config', 'update.conf'), 'utf8');
+    ok('update.conf written', upConf.indexOf('usememos/memos') >= 0);
+
+    // 非法条目整单拒绝（repo 格式错）
+    let e = await execJson(ctx.bridgePort, 'saveupdates', kv({ update_entries: 'bad|notarepo|f.zip|p|file||' }));
+    ok('invalid update row rejected', !!(e && e.success === false && /第 1 行/.test(e.error)), JSON.stringify(e));
+    eq('update file unchanged on reject', upConf, fs.readFileSync(path.join(ctx.sandbox, 'config', 'update.conf'), 'utf8'));
+
+    // 关联不存在的二进制服务时拒绝
+    e = await execJson(ctx.bridgePort, 'saveupdates', kv({ update_entries: 'm2|usememos/memos|f.zip|p|file|nosuchsvc|' }));
+    ok('missing linked service rejected', !!(e && e.success === false && /不存在/.test(e.error)), JSON.stringify(e));
+
+    // 版本查询命令含管道符：会被当分隔符切成 9 段，必须整单拒绝
+    e = await execJson(ctx.bridgePort, 'saveupdates', kv({ update_entries: 'm3|usememos/memos|f.zip|p|file|||app --version | head -1' }));
+    ok('vercmd pipe rejected', !!(e && e.success === false), JSON.stringify(e));
+
+    // 未知键拒绝
+    e = await execJson(ctx.bridgePort, 'saveupdates', kv({ nope: 'x' }));
+    ok('unknown update key rejected', !!(e && e.success === false));
+
+    // 检查周期校验
+    let s = await execJson(ctx.bridgePort, 'savesettings', kv({ update_check_interval: '3600' }));
+    ok('update_check_interval saved', !!(s && s.success === true), JSON.stringify(s));
+    const gs = await execJson(ctx.bridgePort, 'getsettings');
+    eq('update_check_interval value', '3600', gs && gs.update_check_interval);
+    s = await execJson(ctx.bridgePort, 'savesettings', kv({ update_check_interval: '123' }));
+    ok('bad interval rejected', !!(s && s.success === false));
+    s = await execJson(ctx.bridgePort, 'savesettings', kv({ update_proxy_prefix: 'ftp://x' }));
+    ok('bad proxy prefix rejected', !!(s && s.success === false));
+    s = await execJson(ctx.bridgePort, 'savesettings', kv({ update_proxy_prefix: 'https://v4.gh-proxy.org' }));
+    ok('proxy prefix saved', !!(s && s.success === true));
+    // 末尾无 / 自动补
+    const gs3 = await execJson(ctx.bridgePort, 'getsettings');
+    eq('proxy prefix trailing slash', 'https://v4.gh-proxy.org/', gs3 && gs3.update_proxy_prefix);
+
+    // 运行状态与停止：空闲时 running=false，无任务时 stop 拒绝
+    let st = await execJson(ctx.bridgePort, 'updatestatus');
+    ok('updatestatus idle', !!(st && st.success === true && st.running === false), JSON.stringify(st));
+    st = await execJson(ctx.bridgePort, 'updatestop');
+    ok('updatestop idle rejected', !!(st && st.success === false && /没有正在运行/.test(st.error)), JSON.stringify(st));
+
+    // 更新子命令：条目名走 shell 参数（与前端 sq() 包裹同范式），不是 stdin
+    let u = await execJson(ctx.bridgePort, "updateone 'nosuchentry'");
+    ok('updateone unknown entry rejected', !!(u && u.success === false && /未找到/.test(u.error)), JSON.stringify(u));
+    // 名称不合法（空参数）同样拒绝
+    u = await execJson(ctx.bridgePort, 'updateone');
+    ok('updateone empty name rejected', !!(u && u.success === false && /名称不合法/.test(u.error)), JSON.stringify(u));
+
+    // 清空条目：空载荷应被接受（前端删光最后一条靠它清空）
+    r = await execJson(ctx.bridgePort, 'saveupdates', kv({ update_entries: '' }));
+    ok('saveupdates empty accepted', !!(r && r.success === true), JSON.stringify(r));
+    const gu2 = await execJson(ctx.bridgePort, 'getupdates');
+    eq('update entries cleared', 0, gu2 && gu2.items ? gu2.items.length : -1);
+
+    // updateall 放在清空之后断言：避免冒烟环境对真实仓库触发 20MB 下载
+    u = await execJson(ctx.bridgePort, 'updateall');
+    ok('updateall accepted', !!(u && u.success === true), JSON.stringify(u));
 }
 
 async function testCommands(ctx) {
@@ -432,6 +504,7 @@ async function main() {
         await testSettings(ctx);
         await testServiceLifecycle(ctx);
         await testServicesConfig(ctx);
+        await testUpdates(ctx);
         await testCommands(ctx);
         await testExternalAuth(ctx);
         await testLoginLock(ctx);

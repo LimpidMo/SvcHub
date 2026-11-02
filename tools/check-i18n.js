@@ -34,7 +34,7 @@ function lineOf(text, index) {
 // ---------- 后端文案 ----------
 const shellFiles = [
     'action.sh', 'service.sh', 'supervisor.sh', 'httpd.sh', 'uninstall.sh',
-    'lib.sh', 'customize.sh', 'webroot/cgi-bin/api.cgi',
+    'updater.sh', 'lib.sh', 'customize.sh', 'webroot/cgi-bin/api.cgi',
 ];
 for (const f of fs.readdirSync(path.join(ROOT, 'lib')).sort()) {
     if (f.endsWith('.sh')) shellFiles.push('lib/' + f);

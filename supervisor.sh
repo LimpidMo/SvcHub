@@ -167,6 +167,7 @@ patrol_once() {
 
 # 周期版本检查：到点后后台拉起 updater.sh check（只探测版本，不替换文件）。
 # 间隔取 setting.conf 的 update_check_interval（0=关闭）；上次检查时间记 run/update_last_check。
+# 主循环与 sleep_slice 每分片都调用：开机首轮立即判一次，之后误差上界=分片大小（≤60s）。
 # 已有更新任务在跑则跳过（单实例锁由 updater.sh 自己兜底，这里先判省一次 fork）。
 periodic_update_check() {
 	local interval now last
@@ -177,8 +178,12 @@ periodic_update_check() {
 	*) return 0 ;;
 	esac
 	now=$(date +%s)
-	last=$(cat "$UPDATE_LAST_CHECK" 2>/dev/null | tr -dc '0-9')
-	[ -n "$last" ] || last=0
+	# read 内建读时间戳（每分片都会走到，免 cat/tr 两次 fork）
+	last=""
+	[ -f "$UPDATE_LAST_CHECK" ] && read -r last < "$UPDATE_LAST_CHECK" 2>/dev/null
+	case "$last" in
+	''|*[!0-9]*) last=0 ;;
+	esac
 	[ $((now - last)) -ge "$interval" ] || return 0
 	# 上一任务还在跑：本轮不重排，直接返回（下次巡检再试）
 	pidfile_alive "$UPDATE_PID" >/dev/null && return 0
@@ -224,6 +229,8 @@ sleep_slice() {
 		if [ "$target" != "$old_target" ]; then
 			sup_log "$(ui_msg '检查间隔更新为 %ss' "$target")"
 		fi
+		# 版本检查也按分片判到期：误差上界=分片大小，不被巡检间隔（可到小时级）放大
+		periodic_update_check
 		# 边沿检查要求立即巡检时结束休眠
 		slice_tick || break
 	done
