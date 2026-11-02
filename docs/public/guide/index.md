@@ -12,15 +12,17 @@ SvcHub 是一个 KernelSU / Magisk / APatch 通用 Root 模块，用于**开机�
 | 运行身份 | Termux 用户，可单独开启「root 运行」 | root 用户 |
 | 工作目录 | `/data/data/com.termux/files/home` | 可配置，默认 `/data/media/0/Server` |
 
-> 注：启动 Termux 中的服务不会启动 Termux 后台，无需自启动软件挂后台。
+::: tip
+注：启动 Termux 中的服务不会启动 Termux 后台，无需自启动软件挂后台。
+:::
 
 ## 界面概览
 
 | 服务状态 | 服务配置 | 功能设置 |
 |---------|---------|---------|
 | ![服务状态](../images/01-status.png) | ![服务配置](../images/02-config.png) | ![功能设置](../images/03-settings.png) |
-| 启停功能 | 服务日志页 | 网页登录页 |
-| ![启停功能](../images/04-start_stop.png) | ![服务日志页](../images/05-log.png) | ![网页登录页](../images/06-login.png) |
+| 启停功能 | 二进制更新 | 服务日志 |
+| ![启停功能](../images/04-start_stop.png) | ![二进制更新](../images/05-update.png) | ![服务日志](../images/06-log.png) |
 
 ## 快速开始
 

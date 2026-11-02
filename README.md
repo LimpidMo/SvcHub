@@ -6,7 +6,7 @@
   <a href="./README.md">中文</a> | <a href="./README.en.md">English</a> 
   
   <p>
-    <b>一个 Termux / 二进制服务启动和保活的管理模块，支持多种启停策略，WebUI 聚合管理</b>
+    <b>一个 Termux / 二进制服务启动、保活和更新的管理模块，支持多种启停策略，WebUI 聚合管理</b>
   </p>
 
   <p>
@@ -46,8 +46,8 @@
 | 服务状态 | 服务配置 | 功能设置|
 |---------|---------|---------|
 | ![服务状态](docs/public/images/01-status.png) | ![服务配置](docs/public/images/02-config.png ) |![功能设置](docs/public/images/03-settings.png)|
-| 启停功能 | 二进行更新 | 服务日志|
-| ![启停功能](docs/public/images/04-start_stop.png) | ![二进行更新](docs/public/images/05-update.png ) |![服务日志](docs/public/images/06-log.png)|
+| 启停功能 | 二进制更新 | 服务日志|
+| ![启停功能](docs/public/images/04-start_stop.png) | ![二进制更新](docs/public/images/05-update.png ) |![服务日志](docs/public/images/06-log.png)|
 </div>
 
 ## 核心功能

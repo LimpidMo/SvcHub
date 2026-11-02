@@ -12,15 +12,17 @@ The original motivation: run services on a bare kernel and manage them in one pl
 | Runs as | Termux user, with an optional per-service "run as root" switch | root |
 | Working directory | `/data/data/com.termux/files/home` | Configurable, default `/data/media/0/Server` |
 
-> Note: Starting a service inside Termux does not start the Termux background app; no autostart helper is needed.
+::: tip
+Note: Starting a service inside Termux does not start the Termux background app; no autostart helper is needed.
+:::
 
 ## Screenshots
 
 | Service Status | Service Config | Settings |
 |---------|---------|---------|
 | ![Service status](../../images/01-status.png) | ![Service config](../../images/02-config.png) | ![Settings](../../images/03-settings.png) |
-| Start/Stop Features | Service Logs | Web Login |
-| ![Start/stop](../../images/04-start_stop.png) | ![Logs](../../images/05-log.png) | ![Login](../../images/06-login.png) |
+| Start/Stop Features | Update | Service Logs |
+| ![Start/stop](../../images/04-start_stop.png) | ![Update](../../images/05-update.png) | ![Logs](../../images/06-log.png) |
 
 ## Getting Started
 

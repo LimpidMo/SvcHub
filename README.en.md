@@ -4,7 +4,7 @@
   <a href="./README.md">中文</a> | <a href="./README.en.md">English</a>
 
   <p>
-    <b>A Termux/binary service start and keeplive management module, support a variety of start and stop policies, WebUI aggregation management</b>
+    <b>A Termux/binary service start and keeplive and update management module, support a variety of start and stop policies, WebUI aggregation management</b>
   </p>
 
   <p>

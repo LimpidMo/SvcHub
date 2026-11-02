@@ -23,4 +23,6 @@ Once enabled, services start/stop by the selected group; the two groups are mutu
 - **SSID**: shared by both groups, one Wi-Fi name per line; empty = any Wi-Fi
 - Best paired with services without the start tag
 
-> Note: no WakeLock is held by default. Enable Wake Lock in Basic Settings to reduce Doze delays or CPU sleep in feature resume (unsupported on some kernels).
+::: tip
+Note: no WakeLock is held by default. Enable Wake Lock in Basic Settings to reduce Doze delays or CPU sleep in feature resume (unsupported on some kernels).
+:::
