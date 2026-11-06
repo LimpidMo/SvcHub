@@ -110,6 +110,33 @@ EOF
 	printf ']}\n'
 }
 
+# 单服务运行时长：pid 文件活 → 读 /proc/<pid>/stat 的 starttime（rest 第 20 段，jiffies）换算秒。
+# 服务行展开时即时查询（status 是高频接口，不冗余携带全量时长）；进程读取瞬间死亡回 0。
+# 真机 /proc/uptime 与 starttime 同基准；MSYS 沙盒两者基准不一致恒算出负值钳 0，仅真机数值有意义。
+api_get_uptime() {
+	local name=$1 pid now up
+	valid_name "$name" || { printf '{"uptime":0}\n'; return 0; }
+	pid=$(pidfile_alive "$RUNDIR/$name.pid") || { printf '{"uptime":0}\n'; return 0; }
+	now=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)
+	case "$now" in ''|*[!0-9.]*) printf '{"uptime":0}\n'; return 0 ;; esac
+	up=$(cat "/proc/$pid/stat" 2>/dev/null | UPNOW=$now awk '
+	BEGIN { now = ENVIRON["UPNOW"] + 0 }
+	{
+		pos = 0
+		for (i = length($0); i > 0; i--)
+			if (substr($0, i, 1) == ")") { pos = i; break }
+		if (pos == 0) next
+		nf = split(substr($0, pos + 2), f, " ")
+		if (nf < 22) next
+		up = now - f[20] / 100
+		if (up < 0) up = 0
+		printf "%d", up
+		exit
+	}
+	')
+	printf '{"uptime":%d}\n' "${up:-0}"
+}
+
 # 资源占用：按运行中服务的进程组（leader pid）聚合 CPU/内存。
 # CPU=两轮采样 ticks 差值占比（间隔约 1s，USER_HZ=100 下 tick 数即厘秒数）；内存=组内 RSS 求和（KB）。
 api_get_usage() {
@@ -773,6 +800,8 @@ status)
 	api_get_status
 	;;svcusage)
 	api_get_usage
+	;;svcuptime)
+	api_get_uptime "$2"
 	;;start)
 	api_start_service "$2" "$3"
 	;;

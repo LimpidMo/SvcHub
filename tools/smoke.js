@@ -228,6 +228,12 @@ async function testPageAndStatus(ctx) {
     ok('svcusage json', !!(us && Array.isArray(us.services)));
     ok('svcusage lists running svc', !!(us && us.services.some((s) => s.name === 'demo-termux' && s.type === 'termux')));
     ok('svcusage fields', !!(us && us.services.every((s) => typeof s.pid === 'number' && typeof s.cpu === 'string' && typeof s.ram === 'number')));
+
+    // 运行时长：单服务即时查询；MSYS /proc 基准失真数值可为 0，仅校验字段类型
+    const up = await execJson(ctx.bridgePort, 'svcuptime demo-termux');
+    ok('svcuptime json', !!(up && typeof up.uptime === 'number'));
+    const upBad = await execJson(ctx.bridgePort, 'svcuptime no-such-svc');
+    ok('svcuptime unknown svc', !!(upBad && upBad.uptime === 0));
 }
 
 async function testSettings(ctx) {

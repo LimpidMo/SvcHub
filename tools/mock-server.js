@@ -20,7 +20,7 @@ const path = require('path');
 const { execFile, execFileSync } = require('child_process');
 
 const REPO = path.resolve(__dirname, '..');
-const WHITE = new Set(['svcusage', 'status', 'getconfig', 'getsettings', 'getservices', 'saveconfig', 'savesettings', 'saveservices', 'readlog', 'logs', 'start', 'stop', 'clearlog', 'runcmd', 'runcmdtermux', 'webuistart', 'webuistop', 'webuistatus', 'webuipasswd', 'webuiregen', 'webuitoken', 'getupdates', 'saveupdates', 'updatecheck', 'updateone', 'updateall', 'updatestatus', 'updatestop']);
+const WHITE = new Set(['svcusage', 'svcuptime', 'status', 'getconfig', 'getsettings', 'getservices', 'saveconfig', 'savesettings', 'saveservices', 'readlog', 'logs', 'start', 'stop', 'clearlog', 'runcmd', 'runcmdtermux', 'webuistart', 'webuistop', 'webuistatus', 'webuipasswd', 'webuiregen', 'webuitoken', 'getupdates', 'saveupdates', 'updatecheck', 'updateone', 'updateall', 'updatestatus', 'updatestop']);
 const OUT_MAX = 512 * 1024;
 
 // 命令行参数：模式必须是第一个参数（reset/stop/reflash），其余为可选隔离参数。

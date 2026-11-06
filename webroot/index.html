@@ -162,6 +162,8 @@
         .log-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
         .log-title { font-weight: 500; font-size: 13px; }
         .usage-modal { width: 90%; max-width: 560px; }
+        .usage-hd { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .usage-stat { font-size: 12px; color: var(--muted); font-weight: 400; white-space: nowrap; }
         .usage-table { width: 100%; border-collapse: collapse; font-size: 12px; }
         .usage-table th, .usage-table td { padding: 6px; border-bottom: 1px solid var(--line); text-align: left; }
         .usage-table th { color: var(--muted); font-weight: 500; font-size: 11px; }
@@ -178,6 +180,7 @@
         .debug { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 4px; padding: 12px; margin: 16px; font-size: 11px; max-height: 50vh; box-sizing: border-box; overflow: hidden; }
         .debug pre { white-space: pre-wrap; word-break: break-all; margin-top: 8px; max-height: calc(50vh - 60px); overflow-y: auto; }
         .expand { padding: 12px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
+        .expand-uptime { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
         .expand-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
         .expand-row:last-child { margin-bottom: 0; }
         .expand-label { font-size: 10px; color: var(--muted); width: 60px; flex-shrink: 0; }
@@ -585,7 +588,7 @@
 
     <div class="modal" id="modal-usage">
         <div class="modal-box usage-modal">
-            <div class="modal-hd" data-i18n="usage.title">资源占用</div>
+            <div class="modal-hd usage-hd"><span data-i18n="usage.title">资源占用</span><span class="usage-stat" id="usage-stat"></span></div>
             <div class="modal-bd" id="usage-body"><div class="empty" data-i18n="empty.loading">加载中...</div></div>
             <div class="modal-ft">
                 <button class="btn" id="usage-refresh-btn" onclick="toggleUsageRefresh()" data-i18n="log.pause">暂停</button>
@@ -981,7 +984,7 @@
                 'label.wifi': 'Wi-Fi 启停服务',
                 'btn.wifiOn': '连接启停组 ({n})', 'btn.wifiOff': '断开启停组 ({n})',
                 'label.ssid': 'Wi-Fi SSID / 名称', 'ph.ssid': '两组共用，每行一个，留空 = 任意 Wi-Fi',
-                'modal.svcAdd': '添加服务', 'modal.svcEdit': '编辑 {type} 服务', 'modal.svcAddType': '添加 {type} 服务',
+                'modal.svcAdd': '添加服务', 'modal.svcEdit': '编辑 {type} 服务', 'modal.svcAddType': '添加 {type} 服务', 'modal.svcTypeBinary': '二进制',
                 'label.autoKeep': '自动启动 & 保活', 'label.svcName': '服务名称 *（必须）',
                 'label.svcPort': '端口（仅标识，非执行参数）', 'ph.svcPort': '用于打开 Web 页',
                 'label.svcCmd': '启动命令 *（必须）', 'label.rootRun': 'root 运行',
@@ -1011,7 +1014,8 @@
                 'btn.pause': '暂停', 'btn.updating': '更新中...',
                 'confirm.updDelTitle': '确认删除', 'confirm.updDelMsg': '确定要删除更新配置 <strong>{name}</strong> 吗？',
                 'log.title': '{name} 日志', 'log.pause': '暂停', 'log.resume': '刷新', 'log.clear': '清空',
-                'usage.title': '资源占用', 'usage.refresh': '刷新', 'usage.empty': '暂无运行中的服务', 'usage.total': '合计',
+                'usage.title': '资源占用', 'usage.refresh': '刷新', 'usage.empty': '暂无运行中的服务', 'usage.total': '合计', 'usage.stat': '服务总数 {total} ({termux}+{binary}) · 运行中 {run} · 停止 {stop}',
+                'expand.uptime': '已运行：{t}', 'uptime.under': '小于1分钟', 'uptime.day': '天', 'uptime.hour': '小时', 'uptime.min': '分',
                 'usage.col.type': '类型', 'usage.col.name': '服务', 'usage.col.cpu': 'CPU', 'usage.col.ram': '内存',
                 'usage.type.termux': 'Termux', 'usage.type.binary': '二进制',
                 'pick.titleOn': '选择连接组服务（连上时运行，断开则停止）',
@@ -1134,7 +1138,7 @@
                 'btn.wifiOn': 'On Connect ({n})', 'btn.wifiOff': 'On Disconnect ({n})',
                 'label.ssid': 'Wi-Fi SSID / Name', 'ph.ssid': 'Shared by both groups, one per line, empty = any Wi-Fi',
                 'modal.svcAdd': 'Add Service', 'modal.svcEdit': 'Edit {type} Service',
-                'modal.svcAddType': 'Add {type} Service',
+                'modal.svcAddType': 'Add {type} Service', 'modal.svcTypeBinary': 'Binary',
                 'label.autoKeep': 'Auto-start & keep-alive',
                 'label.svcName': 'Service Name * (required)',
                 'label.svcPort': 'Port (label only)',
@@ -1166,7 +1170,8 @@
                 'modal.updAdd': 'Add Update Entry', 'modal.updEdit': 'Edit Update Entry',
                 'btn.pause': 'Pause', 'btn.updating': 'Updating...',
                 'log.title': '{name} Log', 'log.pause': 'Pause', 'log.resume': 'Resume', 'log.clear': 'Clear',
-                'usage.title': 'Resource Usage', 'usage.refresh': 'Refresh', 'usage.empty': 'No running services', 'usage.total': 'Total',
+                'usage.title': 'Resource Usage', 'usage.refresh': 'Refresh', 'usage.empty': 'No running services', 'usage.total': 'Total', 'usage.stat': 'Total {total} ({termux}+{binary}) · Running {run} · Stopped {stop}',
+                'expand.uptime': 'Uptime: {t}', 'uptime.under': 'Under 1 min', 'uptime.day': 'd', 'uptime.hour': 'h', 'uptime.min': 'm',
                 'usage.col.type': 'Type', 'usage.col.name': 'Service', 'usage.col.cpu': 'CPU', 'usage.col.ram': 'Memory',
                 'usage.type.termux': 'Termux', 'usage.type.binary': 'Binary',
                 'pick.titleOn': 'Pick On-Connect services (run when connected, stop when disconnected)',
@@ -2216,6 +2221,7 @@
             // 资源占用弹窗打开中：按当前语言重画表格（不发请求）
             if (usageOpen && Array.isArray(usageRows)) renderUsage(usageRows);
             updateUsageRefreshBtn();
+            updateUsageStat();
             // 打开中的选择弹窗按当前 mode 重取标题（未开则跳过）
             if (typeof pickMode !== 'undefined' && document.getElementById('modal-wifi-pick').classList.contains('show')) {
                 document.getElementById('wifi-pick-title').textContent = pickTitle(pickMode);
@@ -2302,7 +2308,7 @@
                             : `<button class="btn btn-md btn-primary" onclick="startSvc('${isTermux ? 'termux' : 'binary'}','${s.name}')">${t('btn.start')}</button><button class="btn btn-md" onclick="showLog('${s.name}')">${t('btn.log')}</button>`}
                     </div>
                 </div>
-                <div class="expand" id="expand-${id}-${i}" style="display:none;">
+                <div class="expand" id="expand-${id}-${i}" data-name="${escapeHtml(s.name)}" data-running="${running ? 1 : 0}" style="display:none;">
                     <textarea class="expand-textarea" readonly ondblclick="copyToClipboard(this)" oninput="autoResize(this)">${escapeHtml(displayCmd(s.cmd))}</textarea>
                 </div>`;
             }).join('');
@@ -2317,6 +2323,16 @@
         // 命令解转义：字面 \n \t \" \\ → 明文；单遍替换防 \\n 被二次解码
         function displayCmd(s) {
             return String(s || '').replace(/\\(\\|n|t|")/g, (m, g) => g === 'n' ? '\n' : g === 't' ? '\t' : g);
+        }
+
+        // 秒 -> "x天x小时x分"（大单位优先，最小粒度分钟；不足 1 分钟单独提示）
+        function formatUptime(sec) {
+            const n = Math.max(0, Math.floor(Number(sec) || 0));
+            if (n < 60) return t('uptime.under');
+            const d = Math.floor(n / 86400), h = Math.floor(n % 86400 / 3600), m = Math.floor(n % 3600 / 60);
+            if (d) return d + t('uptime.day') + h + t('uptime.hour') + m + t('uptime.min');
+            if (h) return h + t('uptime.hour') + m + t('uptime.min');
+            return m + t('uptime.min');
         }
 
         // 命令保存归一：每行补 ; 保留换行，转义为字面 \n 单行存储；三个 replace 顺序敏感（先双写 \ 再产新转义，调换会二次转义）
@@ -2336,12 +2352,31 @@
             if (e.target.closest('.actions')) return;
             const el = document.getElementById(`expand-${id}-${idx}`);
             if (el) {
-                el.style.display = el.style.display === 'none' ? 'block' : 'none';
-                if (el.style.display === 'block') {
+                const show = el.style.display === 'none';
+                el.style.display = show ? 'block' : 'none';
+                if (show) {
                     const textarea = el.querySelector('.expand-textarea');
                     if (textarea) autoResize(textarea);
+                    // 展开时即时拉运行时长（status 高频接口不携带，此处取到的数据最新）
+                    fetchExpandUptime(el);
                 }
             }
+        }
+
+        // 展开区运行时长：svcuptime 单服务查询；拉取期间收起则丢弃结果
+        async function fetchExpandUptime(el) {
+            if (el.dataset.running !== '1' || !el.dataset.name) return;
+            const r = await invoke('svcuptime ' + sq(el.dataset.name));
+            if (r.errno !== 0 || !r.stdout) return;
+            let up = 0;
+            try { up = Number(JSON.parse(r.stdout).uptime) || 0; } catch (e) { return; }
+            const old = el.querySelector('.expand-uptime');
+            if (old) old.remove();
+            if (el.style.display === 'none') return;
+            const div = document.createElement('div');
+            div.className = 'expand-uptime';
+            div.textContent = t('expand.uptime', { t: formatUptime(up) });
+            el.insertBefore(div, el.firstChild);
         }
 
         function autoResize(el) {
@@ -2752,12 +2787,21 @@
         let usageTimer = null;
         let usageGen = 0;   // 链代号：启停时递增，让在途旧链失效
 
+        // 标题行统计：服务总数（termux+binary 各类个数）/运行中/停止，算自 statusData（打开时与每次数据刷新后更新）
+        function updateUsageStat() {
+            let run = 0, tx = 0, bx = 0;
+            (statusData.termux_services || []).forEach(s => { if (s) { tx++; if (s.status === 'running') run++; } });
+            (statusData.binary_services || []).forEach(s => { if (s) { bx++; if (s.status === 'running') run++; } });
+            document.getElementById('usage-stat').textContent = t('usage.stat', { total: tx + bx, termux: tx, binary: bx, run: run, stop: tx + bx - run });
+        }
+
         function openUsageModal() {
             usageOpen = true;
             document.getElementById('usage-body').innerHTML = usageSkeleton();
             showAnyModal('modal-usage');
             usageAuto = true;
             updateUsageRefreshBtn();
+            updateUsageStat();
             // 管理器通道是同步 exec（阻塞主线程不重绘）：先让骨架绘制一帧再发起请求
             requestAnimationFrame(() => requestAnimationFrame(() => { startUsageAutoRefresh(); }));
         }
@@ -2835,6 +2879,7 @@
                 }
                 usageRows = rows;
                 renderUsage(rows);
+                updateUsageStat();
             } finally { usageLoading = false; }
         }
 
@@ -2933,7 +2978,7 @@
             const editing = typeof idx === 'number' && idx >= 0;
             const s = editing ? svcArr(type)[idx]
                 : { name: '', port: '', auto: 'start', cmd: '', end: '' };
-            const label = type === 'termux' ? 'Termux' : t('sec.binary');
+            const label = type === 'termux' ? 'Termux' : t('modal.svcTypeBinary');
             document.getElementById('edit-svc-type').value = type;
             document.getElementById('modal-svc-title').textContent = editing ? t('modal.svcEdit', { type: label }) : t('modal.svcAddType', { type: label });
             document.getElementById('edit-svc-idx').value = editing ? idx : -1;

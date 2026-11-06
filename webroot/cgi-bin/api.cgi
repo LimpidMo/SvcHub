@@ -303,7 +303,7 @@ webuistart|webuistop)
     # 开关走管理器，CGI 不代理。
     cgi_fail "403 Forbidden" "$(ui_msg 请在管理器内操作)"
     ;;
-svcstatus|svcusage|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|runcmd|runcmdtermux|getupdates|saveupdates|updatecheck|updateone|updateall|updatestatus|updatestop)
+svcstatus|svcusage|svcuptime|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|runcmd|runcmdtermux|getupdates|saveupdates|updatecheck|updateone|updateall|updatestatus|updatestop)
     auth_check 1 || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
     require_password_changed
     # 滑动过期：每次有效访问续满 TTL，锁屏回来不断登。
@@ -341,13 +341,14 @@ svcstatus|svcusage|getsettings|getservices|savesettings|saveservices|start|stop|
         esac
         cgi_authed "$OUT"
         ;;
-    start|stop|readlog|clearlog|updateone|updateall|updatestatus|updatestop)
+    start|stop|readlog|clearlog|updateone|updateall|updatestatus|updatestop|svcuptime)
         # 查询参数转 argv（白名单函数直调，参数经 valid_name 校验）。
         P1=$(qparam p1)
         P2=$(qparam p2)
         case "$SUB" in
         start) webui_log "$(ui_msg '启动服务：%s（%s）' "$(log_flat "${P2:-$P1}")" "$(client_ip)")"; OUT=$(api_start_service "$P1" "$P2" 2>/dev/null) ;;
         stop) webui_log "$(ui_msg '停止服务：%s（%s）' "$(log_flat "${P1:-?}")" "$(client_ip)")"; OUT=$(api_stop_service "$P1" 2>/dev/null) ;;
+        svcuptime) OUT=$(api_get_uptime "$P1" 2>/dev/null) ;;
         readlog) OUT=$(api_read_log "$P1" "$P2" 2>/dev/null) ;;
         clearlog)
             webui_log "$(ui_msg '清空日志：%s（%s）' "$(log_flat "${P1:-?}")" "$(client_ip)")"
