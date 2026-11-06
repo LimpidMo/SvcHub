@@ -222,6 +222,12 @@ async function testPageAndStatus(ctx) {
     ok('status server_dir', !!(st && typeof st.server_dir === 'string'));
     ok('status service arrays', !!(st && Array.isArray(st.termux_services) && Array.isArray(st.binary_services)));
     ok('patrol started sample service', !!(st && st.termux_services.some((x) => x.name === 'demo-termux' && x.status === 'running')));
+
+    // 资源占用：运行中服务按进程组聚合；MSYS pgrp 语义失真，兜底仅统计 leader 自身，数值可为 0
+    const us = await execJson(ctx.bridgePort, 'svcusage');
+    ok('svcusage json', !!(us && Array.isArray(us.services)));
+    ok('svcusage lists running svc', !!(us && us.services.some((s) => s.name === 'demo-termux' && s.type === 'termux')));
+    ok('svcusage fields', !!(us && us.services.every((s) => typeof s.pid === 'number' && typeof s.cpu === 'string' && typeof s.ram === 'number')));
 }
 
 async function testSettings(ctx) {

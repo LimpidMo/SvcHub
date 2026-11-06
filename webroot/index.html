@@ -161,6 +161,20 @@
         .log-content { white-space: pre-wrap; word-break: break-all; padding: 12px; height: 100%; overflow-y: auto; }
         .log-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
         .log-title { font-weight: 500; font-size: 13px; }
+        .usage-modal { width: 90%; max-width: 560px; }
+        .usage-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .usage-table th, .usage-table td { padding: 6px; border-bottom: 1px solid var(--line); text-align: left; }
+        .usage-table th { color: var(--muted); font-weight: 500; font-size: 11px; }
+        .usage-table tr:last-child td { border-bottom: none; }
+        .usage-table tfoot td { border-top: 1px solid var(--line); font-weight: 600; }
+        .usage-num { text-align: right; font-family: monospace; white-space: nowrap; }
+        .skel-row { display: flex; gap: 10px; margin: 16px 0; }
+        .skel-bar { height: 12px; border-radius: 4px; background: var(--line); animation: skel 1.2s ease-in-out infinite; }
+        /* 列表骨架：复用 .item 行布局，占位块渐隐示意（状态点/名称端口/按钮） */
+        .skel-item { cursor: default; }
+        .skel-item .dot { background: var(--line); animation: skel 1.2s ease-in-out infinite; }
+        .skel-btn { width: 46px; height: 28px; border-radius: 6px; background: var(--line); animation: skel 1.2s ease-in-out infinite; flex-shrink: 0; }
+        @keyframes skel { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
         .debug { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 4px; padding: 12px; margin: 16px; font-size: 11px; max-height: 50vh; box-sizing: border-box; overflow: hidden; }
         .debug pre { white-space: pre-wrap; word-break: break-all; margin-top: 8px; max-height: calc(50vh - 60px); overflow-y: auto; }
         .expand { padding: 12px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
@@ -239,6 +253,7 @@
                             <option value="auto-start" data-i18n="filter.autoStart">自启动</option>
                             <option value="auto-stop" data-i18n="filter.autoStop">非自启动</option>
                         </select>
+                        <button class="btn btn-md" onclick="openUsageModal()" data-i18n="btn.usage">占用</button>
                         <button class="btn btn-md" onclick="loadStatus(true)" data-i18n="btn.refresh">刷新</button>
                     </div>
                 </div>
@@ -260,7 +275,7 @@
                         <button class="btn btn-lg" onclick="openModal('termux')" data-i18n="btn.add">添加</button>
                     </div>
                 </div>
-                <div class="section-body" id="config-termux-list"><div class="empty" data-i18n="empty.clickRefresh">点击刷新加载</div></div>
+                <div class="section-body" id="config-termux-list"><div class="empty" data-i18n="empty.loading">加载中...</div></div>
             </div>
             <div class="section">
                 <div class="section-hd">
@@ -276,7 +291,7 @@
                         <input type="text" class="form-input" id="input-server-dir" onblur="autoSaveBasic()" placeholder="/storage/emulated/0/ → 自动转换可执行目录 /data/media/0/" data-i18n-attr="placeholder:hint.serverDirPh">
                         <div class="form-hint" data-i18n="hint.serverDir">务必将二进制文件设为可执行权限</div>
                     </div>
-                    <div id="config-binary-list"><div class="empty" data-i18n="empty.clickRefresh">点击刷新加载</div></div>
+                    <div id="config-binary-list"><div class="empty" data-i18n="empty.loading">加载中...</div></div>
                 </div>
             </div>
         
@@ -565,6 +580,17 @@
                 </div>
             </div>
             <div class="modal-bd"><div class="log-content" id="log-content" data-i18n="empty.loading">加载中...</div></div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-usage">
+        <div class="modal-box usage-modal">
+            <div class="modal-hd" data-i18n="usage.title">资源占用</div>
+            <div class="modal-bd" id="usage-body"><div class="empty" data-i18n="empty.loading">加载中...</div></div>
+            <div class="modal-ft">
+                <button class="btn" id="usage-refresh-btn" onclick="toggleUsageRefresh()" data-i18n="log.pause">暂停</button>
+                <button class="btn" onclick="closeUsageModal()" data-i18n="debug.close">关闭</button>
+            </div>
         </div>
     </div>
 
@@ -908,7 +934,7 @@
                 'sec.update': '二进制更新',
                 'filter.all': '全显示', 'filter.running': '已运行', 'filter.stopped': '已停止',
                 'filter.autoStart': '自启动', 'filter.autoStop': '非自启动',
-                'btn.refresh': '刷新', 'btn.sort': '排序', 'btn.sortOk': '确认', 'btn.add': '添加',
+                'btn.refresh': '刷新', 'btn.usage': '占用', 'btn.sort': '排序', 'btn.sortOk': '确认', 'btn.add': '添加',
                 'btn.edit': '编辑', 'btn.delete': '删除', 'btn.save': '保存', 'btn.cancel': '取消',
                 'btn.ok': '确定', 'btn.log': '日志', 'btn.passwd': '修改密码', 'btn.token': '长期 Token',
                 'btn.tokenDays': 'Token ({d}d)',
@@ -985,6 +1011,9 @@
                 'btn.pause': '暂停', 'btn.updating': '更新中...',
                 'confirm.updDelTitle': '确认删除', 'confirm.updDelMsg': '确定要删除更新配置 <strong>{name}</strong> 吗？',
                 'log.title': '{name} 日志', 'log.pause': '暂停', 'log.resume': '刷新', 'log.clear': '清空',
+                'usage.title': '资源占用', 'usage.refresh': '刷新', 'usage.empty': '暂无运行中的服务', 'usage.total': '合计',
+                'usage.col.type': '类型', 'usage.col.name': '服务', 'usage.col.cpu': 'CPU', 'usage.col.ram': '内存',
+                'usage.type.termux': 'Termux', 'usage.type.binary': '二进制',
                 'pick.titleOn': '选择连接组服务（连上时运行，断开则停止）',
                 'pick.titleOff': '选择断开组服务（断开则运行，连上则停止）',
                 'pick.titleScreen': '选择锁屏白名单服务（若已运行，锁屏时不停止）',
@@ -1053,7 +1082,7 @@
                 'sec.update': 'Binary Updates',
                 'filter.all': 'All', 'filter.running': 'Running', 'filter.stopped': 'Stopped',
                 'filter.autoStart': 'Auto-start', 'filter.autoStop': 'No auto-start',
-                'btn.refresh': 'Refresh', 'btn.sort': 'Sort', 'btn.sortOk': 'Done', 'btn.add': 'Add',
+                'btn.refresh': 'Refresh', 'btn.usage': 'Usage', 'btn.sort': 'Sort', 'btn.sortOk': 'Done', 'btn.add': 'Add',
                 'btn.edit': 'Edit', 'btn.delete': 'Delete', 'btn.save': 'Save', 'btn.cancel': 'Cancel',
                 'btn.ok': 'OK', 'btn.log': 'Logs', 'btn.passwd': 'Change Password',
                 'btn.token': 'Token', 'btn.tokenDays': 'Token ({d}d)', 'btn.copy': 'Copy', 'btn.show': 'Show', 'btn.hide': 'Hide',
@@ -1137,6 +1166,9 @@
                 'modal.updAdd': 'Add Update Entry', 'modal.updEdit': 'Edit Update Entry',
                 'btn.pause': 'Pause', 'btn.updating': 'Updating...',
                 'log.title': '{name} Log', 'log.pause': 'Pause', 'log.resume': 'Resume', 'log.clear': 'Clear',
+                'usage.title': 'Resource Usage', 'usage.refresh': 'Refresh', 'usage.empty': 'No running services', 'usage.total': 'Total',
+                'usage.col.type': 'Type', 'usage.col.name': 'Service', 'usage.col.cpu': 'CPU', 'usage.col.ram': 'Memory',
+                'usage.type.termux': 'Termux', 'usage.type.binary': 'Binary',
                 'pick.titleOn': 'Pick On-Connect services (run when connected, stop when disconnected)',
                 'pick.titleOff': 'Pick On-Disconnect services (run when disconnected, stop when connected)',
                 'pick.titleScreen': 'Pick Lock Whitelist services (kept running when the screen locks)',
@@ -2144,15 +2176,46 @@
             renderStatusList('binary-list', statusData.binary_services, false);
         }
 
+        // 列表骨架屏：模拟服务行布局（状态点 + 名称/端口条 + 按钮块），行数按状态缓存里的服务数
+        // （首次访问无缓存兜底 3 行）；数据到达后由 renderStatusList/renderConfigLists 覆盖
+        function skeletonRows(n, cfg) {
+            let btn = '';
+            for (let i = 0; i < (cfg ? 2 : 3); i++) btn += '<span class="skel-btn"></span>';
+            const row = '<div class="item skel-item">' + (cfg ? '' : '<span class="dot"></span>')
+                + '<div class="item-info"><div class="skel-bar" style="width:38%"></div>'
+                + '<div class="skel-bar" style="width:20%;margin-top:8px"></div></div>'
+                + '<div class="actions">' + btn + '</div></div>';
+            let html = '';
+            for (let i = 0; i < n; i++) html += row;
+            return html;
+        }
+
+        function svcSkeletonCount(type) {
+            const cached = loadStatusCache();
+            const arr = cached ? (type === 'binary' ? cached.binary_services : cached.termux_services) : null;
+            return Array.isArray(arr) && arr.length ? arr.length : 3;
+        }
+
+        function renderListSkeletons() {
+            document.getElementById('termux-list').innerHTML = skeletonRows(svcSkeletonCount('termux'));
+            document.getElementById('binary-list').innerHTML = skeletonRows(svcSkeletonCount('binary'));
+            document.getElementById('config-termux-list').innerHTML = skeletonRows(svcSkeletonCount('termux'), true);
+            document.getElementById('config-binary-list').innerHTML = skeletonRows(svcSkeletonCount('binary'), true);
+        }
+
         // 语言切换后重画所有动态文案区：只重渲染 DOM，不发请求、不碰任何输入框的值。
-        // 未加载过的列表留空态，交由各自加载函数在就绪后渲染。
+        // 未加载过的列表保留骨架屏，交由各自加载函数在就绪后渲染（statusData/configData
+        // 初始即空数组，不能按"有字段"判断，否则首屏会被"暂无服务"覆盖骨架）。
         function renderAll() {
-            if (isStatusLoaded || statusData) renderStatusFromCache();
-            if (isServicesLoaded || typeof configData.termux_services !== 'undefined') renderConfigLists();
+            if (isStatusLoaded) renderStatusFromCache();
+            if (isServicesLoaded) renderConfigLists();
             updateWifiPickBtn();
             updateScreenPickBtn();
             updateScreenOnPickBtn();
             updateLogRefreshBtn();
+            // 资源占用弹窗打开中：按当前语言重画表格（不发请求）
+            if (usageOpen && Array.isArray(usageRows)) renderUsage(usageRows);
+            updateUsageRefreshBtn();
             // 打开中的选择弹窗按当前 mode 重取标题（未开则跳过）
             if (typeof pickMode !== 'undefined' && document.getElementById('modal-wifi-pick').classList.contains('show')) {
                 document.getElementById('wifi-pick-title').textContent = pickTitle(pickMode);
@@ -2208,7 +2271,7 @@
         let statusFilter = 'all';
         function setStatusFilter(v) {
             statusFilter = v;
-            if (statusData) renderStatusFromCache();
+            if (isStatusLoaded) renderStatusFromCache();
         }
 
         function renderStatusList(id, services, isTermux) {
@@ -2472,10 +2535,19 @@
             return arr.map(s => `${s.name}|${s.port || ''}|${s.auto}|${s.cmd}|${s.end || ''}`).join('\n');
         }
 
+        // 配置列表骨架只代表"加载中"：加载失败/后端未就绪时摘掉，回到可手动刷新的空态
+        // （isServicesLoaded 已置位的手动刷新失败不动列表，保留旧数据）
+        function resetConfigListsEmpty() {
+            if (isServicesLoaded) return;
+            const empty = '<div class="empty">' + t('empty.clickRefresh') + '</div>';
+            document.getElementById('config-termux-list').innerHTML = empty;
+            document.getElementById('config-binary-list').innerHTML = empty;
+        }
+
         // 配置加载中：切页/刷新并发复用同一 promise，防串行双读拖慢实机。
         // 服务配置页只读服务行：单次 getservices，切页/刷新不再读设置键。
         async function loadConfigSvcs(force = false, silent = false) {
-            if (!backendReady()) { toast(t('toast.notInit'), true); return; }
+            if (!backendReady()) { resetConfigListsEmpty(); toast(t('toast.notInit'), true); return; }
             if (!force && isServicesLoaded) return;
             if (svcLoading) { try { await svcLoading; } catch (e) { /* 忽略 */ } return; }
             svcLoading = (async () => {
@@ -2483,7 +2555,7 @@
                 let rv = await invoke('getservices');
                 if (rv.errno !== 0 || !rv.stdout) rv = await invoke('getservices');
                 if (rv.errno === 401) return; // 已弹登录页
-                if (rv.errno !== 0 || !rv.stdout) { if (force && !silent) toast(t('toast.refreshFail'), true); return; }
+                if (rv.errno !== 0 || !rv.stdout) { resetConfigListsEmpty(); if (force && !silent) toast(t('toast.refreshFail'), true); return; }
                 try {
                     const v = JSON.parse(rv.stdout);
                     configData.termux_services = parseRows(v.termux_services || '', 'termux');
@@ -2491,7 +2563,7 @@
                     isServicesLoaded = true;
                     renderConfigLists();
                     if (force && !silent) toast(t('toast.refreshed'));
-                } catch (e) { toast(t('toast.parseFail'), true); }
+                } catch (e) { resetConfigListsEmpty(); toast(t('toast.parseFail'), true); }
             })();
             try { await svcLoading; } finally { svcLoading = null; }
         }
@@ -2670,6 +2742,132 @@
         function hideAnyModal(id) {
             document.getElementById(id).classList.remove('show');
             if (!anyModalOpen()) document.body.classList.remove('modal-open');
+        }
+
+        // —— 资源占用弹窗：运行中服务按进程组（leader pid）聚合的 CPU/内存（svcusage 子命令） ——
+        let usageOpen = false;
+        let usageLoading = false;
+        let usageRows = null;
+        let usageAuto = false;
+        let usageTimer = null;
+        let usageGen = 0;   // 链代号：启停时递增，让在途旧链失效
+
+        function openUsageModal() {
+            usageOpen = true;
+            document.getElementById('usage-body').innerHTML = usageSkeleton();
+            showAnyModal('modal-usage');
+            usageAuto = true;
+            updateUsageRefreshBtn();
+            // 管理器通道是同步 exec（阻塞主线程不重绘）：先让骨架绘制一帧再发起请求
+            requestAnimationFrame(() => requestAnimationFrame(() => { startUsageAutoRefresh(); }));
+        }
+
+        function updateUsageRefreshBtn() {
+            document.getElementById('usage-refresh-btn').textContent = usageAuto ? t('log.pause') : t('usage.refresh');
+        }
+
+        // 自动刷新：上次数据到了再隔 LOG_POLL_MS 拉下一次（链式，慢请求不会叠加排队）；按钮在暂停/刷新间切换
+        function startUsageAutoRefresh() {
+            stopUsageAutoRefresh();
+            const gen = ++usageGen;
+            const tick = async () => {
+                if (gen !== usageGen) return;
+                if (!usageAuto || !usageOpen || !document.getElementById('modal-usage').classList.contains('show')) return;
+                try { await fetchUsage(); } catch (e) { /* 单次失败不中断轮询 */ }
+                if (gen === usageGen && usageAuto && usageOpen) usageTimer = setTimeout(tick, LOG_POLL_MS);
+            };
+            usageTimer = setTimeout(tick, 0);   // 首次立即执行，完成后按间隔续排
+        }
+
+        function stopUsageAutoRefresh() {
+            usageGen++;
+            if (usageTimer) { clearTimeout(usageTimer); usageTimer = null; }
+        }
+
+        function toggleUsageRefresh() {
+            usageAuto = !usageAuto;
+            updateUsageRefreshBtn();
+            if (usageAuto) {
+                toast(t('toast.autoRefresh'));
+                startUsageAutoRefresh();   // 恢复时也走链，避免与在途请求叠加
+            } else {
+                stopUsageAutoRefresh();
+            }
+        }
+
+        function closeUsageModal() {
+            usageOpen = false;
+            stopUsageAutoRefresh();
+            hideAnyModal('modal-usage');
+        }
+
+        // 采样期间占位骨架：行数对齐当前运行中服务数（statusData 未加载时兜底 3 行）
+        function usageSkeleton() {
+            let n = 0;
+            if (statusData) {
+                (statusData.termux_services || []).forEach(s => { if (s && s.status === 'running') n++; });
+                (statusData.binary_services || []).forEach(s => { if (s && s.status === 'running') n++; });
+            }
+            if (n < 1) n = 3;
+            const w = ['16%', '30%', '14%', '16%', '24%'];
+            const row = w.map(p => '<div class="skel-bar" style="width:' + p + '"></div>').join('');
+            let html = '';
+            for (let r = 0; r < n; r++) html += '<div class="skel-row">' + row + '</div>';
+            return html;
+        }
+
+        // 后端两轮采样约 1s；弹窗已关或已有请求在跑则丢弃
+        async function fetchUsage() {
+            if (!usageOpen || usageLoading) return;
+            usageLoading = true;
+            try {
+                const r = await invoke('svcusage');
+                if (!usageOpen) return;
+                if (r.errno === 401 || r.errno === 404) return; // 已弹登录页
+                let rows = null;
+                if (r.errno === 0 && r.stdout) {
+                    try { rows = JSON.parse(r.stdout).services; } catch (e) { rows = null; }
+                }
+                if (!Array.isArray(rows)) {
+                    usageRows = null;
+                    document.getElementById('usage-body').innerHTML = '<div class="empty">' + t('toast.parseFail') + '</div>';
+                    return;
+                }
+                usageRows = rows;
+                renderUsage(rows);
+            } finally { usageLoading = false; }
+        }
+
+        function renderUsage(rows) {
+            const body = document.getElementById('usage-body');
+            if (!rows.length) { body.innerHTML = '<div class="empty">' + t('usage.empty') + '</div>'; return; }
+            const typeName = k => k === 'binary' ? t('usage.type.binary') : t('usage.type.termux');
+            let totalCpu = 0, totalRam = 0;
+            let html = '<table class="usage-table"><thead><tr>'
+                + '<th>' + t('usage.col.type') + '</th><th>' + t('usage.col.name') + '</th>'
+                + '<th class="usage-num">PGID</th><th class="usage-num">' + t('usage.col.cpu') + '</th>'
+                + '<th class="usage-num">' + t('usage.col.ram') + '</th></tr></thead><tbody>';
+            rows.forEach(s => {
+                totalCpu += Number(s.cpu) || 0;
+                totalRam += Number(s.ram) || 0;
+                html += '<tr><td>' + escapeHtml(typeName(s.type)) + '</td>'
+                    + '<td title="' + escapeHtml(s.name) + '">' + escapeHtml(s.name) + '</td>'
+                    + '<td class="usage-num">' + escapeHtml(String(s.pid)) + '</td>'
+                    + '<td class="usage-num">' + escapeHtml(String(s.cpu)) + '%</td>'
+                    + '<td class="usage-num">' + escapeHtml(formatMemKB(s.ram)) + '</td></tr>';
+            });
+            html += '</tbody><tfoot><tr><td colspan="3">' + t('usage.total') + '</td>'
+                + '<td class="usage-num">' + totalCpu.toFixed(1) + '%</td>'
+                + '<td class="usage-num">' + escapeHtml(formatMemKB(totalRam)) + '</td></tr></tfoot></table>';
+            body.innerHTML = html;
+        }
+
+        // KB 起步的内存展示：MB/GB 自适应一位小数
+        function formatMemKB(kb) {
+            const n = Number(kb) || 0;
+            if (n >= 1048576) return (n / 1048576).toFixed(2) + ' GB';
+            if (n >= 1024) return (n / 1024).toFixed(1) + ' MB';
+            return n + ' KB';
         }
 
         function confirmDelete(type, idx) {
@@ -3479,6 +3677,8 @@
             registerSW();
             initTheme();
             initLang();
+            // 首屏骨架先于任何请求渲染（async 函数第一个 await 前同步执行，赶在首次绘制前）
+            renderListSkeletons();
             if (!initRootApi()) {
                 // 无 API 且经 http(s) 加载即直连模式，走登录页。
                 if (/^https?:/.test(location.protocol)) {

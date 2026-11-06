@@ -39,6 +39,51 @@ compute_runset() {
 	} | detect_running
 }
 
+# 采样一轮进程组占用：$1=内存页大小字节，$2="kind name pid" 行列表（换行分隔）。
+# 单次 awk 扫描全部 /proc 进程按 pgrp 分桶聚合（fork 数与服务数无关）：
+# ticks=utime+stime+cutime+cstime（Android USER_HZ=100，tick 数即厘秒数），rss 为组内成员求和换 KB。
+# comm 可含 ")"，按最后一个 ")" 切开再数段：rest 第 3 段=pgrp，12~15=四类 CPU 时间，22=rss。
+# pgrp 全组无命中时回退统计 leader 自身（真机 setsid 后 pid==pgrp 恒命中，仅 MSYS 沙盒 pgrp 语义失真时生效）。
+# glob 与读取间进程可能消亡，gawk 视为 fatal 中断全量——cat 先行消化，awk 从 stdin 读。
+pgroup_sample() {
+	local pagesz=$1 pairs=$2
+	cat /proc/[0-9]*/stat 2>/dev/null | PAIRS=$pairs PGSZ=$pagesz awk '
+	BEGIN {
+		cnt = split(ENVIRON["PAIRS"], tmp, "\n")
+		for (i = 1; i <= cnt; i++) {
+			m = split(tmp[i], p, " ")
+			if (m != 3) continue
+			ord[++k] = p[3]; want[p[3]] = 1; kind[p[3]] = p[1]; nm[p[3]] = p[2]
+		}
+		pgsz = ENVIRON["PGSZ"] + 0
+	}
+	{
+		pos = 0
+		for (i = length($0); i > 0; i--)
+			if (substr($0, i, 1) == ")") { pos = i; break }
+		if (pos == 0) next
+		n = split(substr($0, pos + 2), f, " ")
+		if (n < 22) next
+		g = f[3]
+		if (g in want) {
+			t[g] += f[12] + f[13] + f[14] + f[15]
+			r[g] += f[22]
+			has[g] = 1
+		} else if ($1 in want) {
+			selfT[$1] = f[12] + f[13] + f[14] + f[15]
+			selfR[$1] = f[22]
+		}
+	}
+	END {
+		for (i = 1; i <= k; i++) {
+			g = ord[i]
+			if (g in has) { tt = t[g]; rr = r[g] } else { tt = selfT[g]; rr = selfR[g] }
+			printf "%s %s %s %s %d\n", kind[g], nm[g], g, tt + 0, (rr + 0) * pgsz / 1024
+		}
+	}
+	'
+}
+
 # 按服务类型启动：$1=kind(termux|binary) $2=名称 $3=命令文本。
 # 统一启动收口（巡检/Wi-Fi/WebUI）：termux 默认以完整 Termux 用户身份运行，命中 termux_root_names 名单则
 # 不注入 su 参数改以 root 运行（工作目录与 TERMUX_ENV 不变）；cmd 库存字面 \n，执行前还原为真换行。

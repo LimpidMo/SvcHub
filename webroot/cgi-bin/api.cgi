@@ -303,7 +303,7 @@ webuistart|webuistop)
     # 开关走管理器，CGI 不代理。
     cgi_fail "403 Forbidden" "$(ui_msg 请在管理器内操作)"
     ;;
-svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|runcmd|runcmdtermux|getupdates|saveupdates|updatecheck|updateone|updateall|updatestatus|updatestop)
+svcstatus|svcusage|getsettings|getservices|savesettings|saveservices|start|stop|logs|readlog|clearlog|runcmd|runcmdtermux|getupdates|saveupdates|updatecheck|updateone|updateall|updatestatus|updatestop)
     auth_check 1 || { cgi_fail "401 Unauthorized" "$(ui_msg 未登录)"; exit 0; }
     require_password_changed
     # 滑动过期：每次有效访问续满 TTL，锁屏回来不断登。
@@ -374,6 +374,7 @@ svcstatus|getsettings|getservices|savesettings|saveservices|start|stop|logs|read
     *)
         case "$SUB" in
         status) OUT=$(api_get_status 2>/dev/null) ;;
+        svcusage) OUT=$(api_get_usage 2>/dev/null) ;;
         logs) OUT=$(api_get_logs 2>/dev/null) ;;
         esac
         cgi_authed "$OUT"

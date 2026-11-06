@@ -110,6 +110,47 @@ EOF
 	printf ']}\n'
 }
 
+# 资源占用：按运行中服务的进程组（leader pid）聚合 CPU/内存。
+# CPU=两轮采样 ticks 差值占比（间隔约 1s，USER_HZ=100 下 tick 数即厘秒数）；内存=组内 RSS 求和（KB）。
+api_get_usage() {
+	local pagesz pairs t1 t2 u1f u2f
+	load_cfg_sh
+	pagesz=$(getconf PAGESIZE 2>/dev/null)
+	case "$pagesz" in ''|*[!0-9]*|0) pagesz=4096 ;; esac
+	# pid 文件活=在运行（与 compute_runset 同一判定原语），顺带取 leader pid，免二遍探测
+	pairs=$(
+		for kind in termux binary; do
+			if [ "$kind" = termux ]; then rows=$TERMUX_SERVICES; else rows=$BINARY_SERVICES; fi
+			printf '%s\n' "$rows" | while IFS='|' read -r name port auto cmd endcmd; do
+				[ -n "$name" ] || continue
+				pid=$(pidfile_alive "$RUNDIR/$name.pid") || continue
+				printf '%s %s %s\n' "$kind" "$name" "$pid"
+			done
+		done
+	)
+	[ -n "$pairs" ] || { printf '{"services":[]}\n'; return 0; }
+	t1=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)
+	u1f="$RUNDIR/usage.$$.1" u2f="$RUNDIR/usage.$$.2"
+	pgroup_sample "$pagesz" "$pairs" > "$u1f"
+	sleep 1
+	t2=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)
+	pgroup_sample "$pagesz" "$pairs" > "$u2f"
+	printf '{"services":['
+	paste "$u1f" "$u2f" | U1=$t1 U2=$t2 awk "$AWK_ESC"'
+	{
+		if (NF < 10) next
+		cs = (ENVIRON["U2"] - ENVIRON["U1"]) * 100
+		if (cs < 1) cs = 1
+		c = ($9 - $4) / cs * 100
+		if (c < 0) c = 0
+		if (n++) printf ","
+		printf "{\"type\":\"%s\",\"name\":\"%s\",\"pid\":%s,\"cpu\":\"%.1f\",\"ram\":%d}", esc($1), esc($2), $3, c, $10
+	}
+	'
+	rm -f "$u1f" "$u2f"
+	printf ']}\n'
+}
+
 # 查服务行：输出 kind|row（termux 优先，与旧逻辑一致）；未配置返回 1。
 find_service_row() {
 	local name=$1 row
@@ -730,6 +771,8 @@ if [ -z "$ACTION_SOURCED" ]; then
 case "$1" in
 status)
 	api_get_status
+	;;svcusage)
+	api_get_usage
 	;;start)
 	api_start_service "$2" "$3"
 	;;
