@@ -151,12 +151,15 @@ wifi_connected() {
 		[ "$(sed -n '1p' "$MODDIR/mock_wifi" 2>/dev/null)" = "on" ] && return 0
 		return 1
 	fi
-	# 1. dumpsys connectivity：WIFI 类型 NetworkAgentInfo 且状态 CONNECTED
-	if dumpsys connectivity 2>/dev/null | grep -A 5 "NetworkAgentInfo{type: WIFI" | grep -q "state: CONNECTED"; then
+	# dumpsys connectivity 一次拉取两判复用（每分片都走到，fork 减半）
+	local out
+	out=$(dumpsys connectivity 2>/dev/null)
+	# 1. WIFI 类型 NetworkAgentInfo 且状态 CONNECTED
+	if printf '%s\n' "$out" | grep -A 5 "NetworkAgentInfo{type: WIFI" | grep -q "state: CONNECTED"; then
 		return 0
 	fi
 	# 2. 兜底：默认网络是 Wi-Fi（部分系统版本 NetworkAgentInfo 的 state 字段不在附近）
-	if dumpsys connectivity 2>/dev/null | grep -q "Default network:.*WIFI"; then
+	if printf '%s\n' "$out" | grep -q "Default network:.*WIFI"; then
 		return 0
 	fi
 	# 3. 兜底：wlan0 接口有 IPv4

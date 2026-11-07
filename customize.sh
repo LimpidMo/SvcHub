@@ -23,9 +23,9 @@ inst_msg() {
     '检测到 KernelSU') _im_out=$(printf 'KernelSU detected') ;;
     '检测到 APatch') _im_out=$(printf 'APatch detected') ;;
     '检测到 Magisk') _im_out=$(printf 'Magisk detected') ;;
-    '! Magisk 可能不支持模块 WebUI，请使用 KsuWebUI 管理') _im_out=$(printf '%s%s' '! ' "$(printf 'Magisk may not support module WebUI, use KsuWebUI instead')") ;;
+    '! Magisk 可能不支持模块 WebUI，可外部访问 http://127.0.0.1:5555 或使用 KsuWebUI 进入') _im_out=$(printf '%s%s' '! ' "$(printf 'Magisk may not support module WebUI,You can access it via http://127.0.0.1:5555 or use KsuWebUI to enter.')") ;;
     '! 未识别当前 root 方案，继续安装') _im_out=$(printf '%s%s' '! ' "$(printf 'Root solution not identified, continuing install')") ;;
-    '- 已保留配置 config/%s') _im_out=$(printf '%s%s' '- ' "$(printf 'Kept config config/%s' "$1")") ;;
+    '- 已保留 %s 项配置文件') _im_out=$(printf '%s%s' '- ' "$(printf 'Kept %s config file(s)' "$1")") ;;
     '! 配置 config/%s 保留失败，将使用默认配置') _im_out=$(printf '%s%s' '! ' "$(printf 'Failed to keep config/%s, defaults will be used' "$1")") ;;
     '- 已保留长期登录会话（Token 未过期不断登）') _im_out=$(printf '%s%s' '- ' "$(printf 'Kept long-term login sessions (unexpired Token stays signed in)')") ;;
     '  是否挂载 DNS 配置,用于解决一些服务需要的域名解析问题？') _im_out=$(printf '  Mount DNS config to fix domain resolution for some services?') ;;
@@ -43,7 +43,6 @@ inst_msg() {
     '! skip_mount 创建失败，DNS 配置将被挂载') _im_out=$(printf '%s%s' '! ' "$(printf 'Failed to create skip_mount, DNS config will be mounted')") ;;
     '- 后期若需挂载DNS配置，手动删除模块文件夹内skip_mount文件或执行:') _im_out=$(printf '%s%s' '- ' "$(printf 'To mount DNS later, delete the skip_mount file in the module folder or run:')") ;;
     '  rm /data/adb/modules/%s/skip_mount 后重启即可') _im_out=$(printf '  rm /data/adb/modules/%s/skip_mount then reboot' "$1") ;;
-    '- 已修复脚本可执行权限') _im_out=$(printf '%s%s' '- ' "$(printf 'Fixed script executable permissions')") ;;
     '- Magisk 默认开启外部访问，首次登录请改默认密码') _im_out=$(printf '%s%s' '- ' "$(printf 'Magisk: external access is on by default; change the default password at first login')") ;;
     '- 外部访问默认关闭，设置密码后可在管理器内开启') _im_out=$(printf '%s%s' '- ' "$(printf 'External access is off by default; set a password to enable it')") ;;
     '! 可执行权限修复失败，外部访问 CGI 可能 404') _im_out=$(printf '%s%s' '! ' "$(printf 'Failed to fix executable permissions, web access CGI may 404')") ;;
@@ -146,7 +145,7 @@ elif [ "${APATCH:-}" = "true" ]; then
 elif [ "${MAGISK:-}" = "true" ] || [ -d /data/adb/magisk ]; then
     IS_MAGISK=1
     ui_print "$(inst_msg '检测到 Magisk')"
-    ui_print "$(inst_msg '! Magisk 可能不支持模块 WebUI，请使用 KsuWebUI 管理')"
+    ui_print "$(inst_msg '! Magisk 可能不支持模块 WebUI，可外部访问 http://127.0.0.1:5555 或使用 KsuWebUI 进入')"
 else
     ui_print "$(inst_msg '! 未识别当前 root 方案，继续安装')"
 fi
@@ -159,12 +158,16 @@ if [ -n "$MODID" ]; then
     OLD_MOD="/data/adb/modules/$MODID"
     if [ -f "$OLD_MOD/config/setting.conf" ] || [ -f "$OLD_MOD/config/services.conf" ]; then
         mkdir -p "$MODPATH/config" 2>/dev/null
+        kept_n=0
         for cf in setting.conf services.conf web.conf update.conf; do
             [ -f "$OLD_MOD/config/$cf" ] || continue
-            cp -f "$OLD_MOD/config/$cf" "$MODPATH/config/" 2>/dev/null \
-                && ui_print "$(inst_msg '- 已保留配置 config/%s' "$cf")" \
-                || ui_print "$(inst_msg '! 配置 config/%s 保留失败，将使用默认配置' "$cf")"
+            if cp -f "$OLD_MOD/config/$cf" "$MODPATH/config/" 2>/dev/null; then
+                kept_n=$((kept_n + 1))
+            else
+                ui_print "$(inst_msg '! 配置 config/%s 保留失败，将使用默认配置' "$cf")"
+            fi
         done
+        [ "$kept_n" -gt 0 ] && ui_print "$(inst_msg '- 已保留 %s 项配置文件' "$kept_n")"
         # 升级沿用旧语言：不重复询问，安装期输出按旧语言走
         OLD_UI_LANG=$(sed -n 's/^language=//p' "$MODPATH/config/setting.conf" 2>/dev/null | head -n 1 | tr -d '\r')
         case "$OLD_UI_LANG" in
@@ -295,11 +298,10 @@ if [ "$DNS_MOUNT" = "false" ]; then
     ui_print "$(inst_msg '  rm /data/adb/modules/%s/skip_mount 后重启即可' "$MODID")"
 fi
 
-# 可执行位修复（zip 解压可能丢 exec 位，无位则 CGI 404 / 后端 127）。
-chmod 755 "$MODPATH/action.sh" "$MODPATH/service.sh" "$MODPATH/supervisor.sh" \
-    "$MODPATH/httpd.sh" "$MODPATH/updater.sh" "$MODPATH/uninstall.sh" "$MODPATH/customize.sh" \
-    "$MODPATH/webroot/cgi-bin/api.cgi" 2>/dev/null \
-    && ui_print "$(inst_msg '- 已修复脚本可执行权限')" \
+# 可执行位修复（zip 解压可能丢 exec 位，无位则 CGI 404 / 后端 127）；成功静默，失败才报。
+chmod 755 "$MODPATH/action.sh" "$MODPATH/service.sh" "$MODPATH/supervisor.sh" 2>/dev/null
+chmod 755 "$MODPATH/httpd.sh" "$MODPATH/updater.sh" "$MODPATH/uninstall.sh" 2>/dev/null
+chmod 755 "$MODPATH/customize.sh" "$MODPATH/webroot/cgi-bin/api.cgi" 2>/dev/null \
     || ui_print "$(inst_msg '! 可执行权限修复失败，外部访问 CGI 可能 404')"
 
 # ==================== Termux 检测 ====================

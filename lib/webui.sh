@@ -19,10 +19,13 @@ webui_log() {
 # Token 长期会话在 tsess_*，不在本 glob 内，重启不断登。
 webui_expire_password_sessions() {
 	local sf exp now
+	now=$(date +%s)
 	for sf in "$WEBUI_SESS_DIR"/sess_*; do
 		[ -f "$sf" ] || continue
-		exp=$(cat "$sf" 2>/dev/null | tr -dc '0-9')
-		now=$(date +%s)
+		# read 内建读过期戳，免 cat|tr 两次 fork；
+		exp=""
+		read -r exp < "$sf" 2>/dev/null || :
+		case "$exp" in *[!0-9]*) exp="" ;; esac
 		[ -n "$exp" ] && [ "$exp" -gt "$now" ] 2>/dev/null && rm -f "$sf"
 	done
 }

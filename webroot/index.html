@@ -359,7 +359,7 @@
                             <div id="webui-manage" style="display:none;">
                                 <div style="display:flex;gap:6px;margin-bottom:10px;">
                                     <button class="btn btn-lg" style="flex:1;" onclick="showWebuiPasswd()" data-i18n="btn.passwd">修改密码</button>
-                                    <button class="btn btn-lg" style="flex:1;" id="btn-webui-token" onclick="showWebuiToken()" data-i18n="btn.token">长期 Token</button>
+                                    <button class="btn btn-lg" style="flex:1;" id="btn-webui-token" onclick="showWebuiToken()" data-i18n="btn.token">Token</button>
                                     <button class="btn btn-lg" onclick="showLog('webui')" data-i18n="btn.log">日志</button>
                                 </div>
                                 <div id="webui-passwd-box" style="display:none;margin-bottom:10px;">
@@ -376,6 +376,7 @@
                                         <button class="btn btn-lg" onclick="copyWebuiToken()" data-i18n="btn.copy">复制</button>
                                     </div>
                                     <button class="btn btn-lg" style="width:100%;margin-top:8px;" onclick="regenWebuiToken()" data-i18n="btn.regen">重新生成（旧值立即失效）</button>
+                                    <div class="form-hint" id="webui-token-hint" style="display:none;" data-i18n="hint.tokenDays">30 天内活跃有效</div>
                                 </div>
                                 <!-- <div class="form-hint">若监听地址为 0.0.0.0 局域网内可访问，请设强密码</div> -->
                             </div>
@@ -726,7 +727,7 @@
             <div class="modal-hd" style="display:flex;justify-content:space-between;align-items:center;">
                 <span data-i18n="login.title">外部访问登录</span>
                 <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);font-weight:normal;">
-                    <span data-i18n="login.tokenMode">长期 Token 登录</span>
+                    <span data-i18n="login.tokenMode">Token 登录</span>
                     <span class="switch"><input type="checkbox" id="login-use-token" onchange="toggleLoginMode()"><span class="switch-slider"></span></span>
                 </label>
             </div>
@@ -739,9 +740,9 @@
                     </div>
                 </div>
                 <div class="form" id="login-token-box" style="padding:0;border:none;display:none;">
-                    <label class="form-label" data-i18n="login.token">长期 Token</label>
+                    <label class="form-label" data-i18n="login.token">Token</label>
                     <div class="form-row">
-                        <input type="password" class="form-input" id="input-login-token" placeholder="长期 Token" autocomplete="off" onkeydown="if(event.key==='Enter')httpLogin()" data-i18n-attr="placeholder:ph.loginToken">
+                        <input type="password" class="form-input" id="input-login-token" placeholder="Token" autocomplete="off" onkeydown="if(event.key==='Enter')httpLogin()" data-i18n-attr="placeholder:ph.loginToken">
                         <button class="btn btn-lg" id="login-token-eye" onclick="togglePwEye('input-login-token','login-token-eye')" data-i18n="btn.show">显示</button>
                     </div>
                 </div>
@@ -939,8 +940,9 @@
                 'filter.autoStart': '自启动', 'filter.autoStop': '非自启动',
                 'btn.refresh': '刷新', 'btn.usage': '占用', 'btn.sort': '排序', 'btn.sortOk': '确认', 'btn.add': '添加',
                 'btn.edit': '编辑', 'btn.delete': '删除', 'btn.save': '保存', 'btn.cancel': '取消',
-                'btn.ok': '确定', 'btn.log': '日志', 'btn.passwd': '修改密码', 'btn.token': '长期 Token',
+                'btn.ok': '确定', 'btn.log': '日志', 'btn.passwd': '修改密码', 'btn.token': 'Token',
                 'btn.tokenDays': 'Token ({d}d)',
+                'hint.tokenDays': '{d} 天内活跃有效',
                 'btn.copy': '复制', 'btn.show': '显示', 'btn.hide': '隐藏', 'btn.clearPick': '清空选择',
                 'btn.open': '打开', 'btn.start': '启动', 'btn.stop': '停止', 'btn.restart': '重启',
                 'btn.termuxRun': '以termux运行', 'btn.run': '运行', 'btn.stopcmd': '收尾命令',
@@ -1027,12 +1029,12 @@
                 'confirm.delBtn': '删除', 'confirm.dfltMsg': '确定要删除该服务吗？',
                 'confirm.clearTitle': '确认清空', 'confirm.clearMsg': '确定要清空 <strong>{name}</strong> 的日志吗？',
                 'confirm.clearBtn': '清空',
-                'login.title': '外部访问登录', 'login.tokenMode': '长期 Token 登录',
-                'login.pw': '密码', 'login.token': '长期 Token', 'login.btn': '登录', 'login.submit': '登录',
+                'login.title': '外部访问登录', 'login.tokenMode': 'Token 登录',
+                'login.pw': '密码', 'login.token': 'Token', 'login.btn': '登录', 'login.submit': '登录',
                 'forcePw.title': '首次登录请修改默认密码', 'forcePw.desc': '默认密码只用于首次登录，请设置新密码后继续。',
                 'forcePw.old': '当前密码', 'forcePw.btn': '确认修改', 'forcePw.success': '密码已修改，请重新登录',
                 'err.pwDefault': '不能使用默认密码 admin',
-                'ph.loginPw': '外部访问密码', 'ph.loginToken': '长期 Token',
+                'ph.loginPw': '外部访问密码', 'ph.loginToken': 'Token',
                 'toast.saving': '保存中...', 'toast.saved': '已保存', 'toast.saveFail': '保存失败', 'toast.langSaveFail': '语言保存失败，后台日志暂不切换',
                 'toast.refreshing': '刷新中...', 'toast.refreshed': '已刷新', 'toast.refreshFail': '刷新失败',
                 'toast.parseFail': '解析失败，请重试', 'toast.copied': '已复制', 'toast.copyFail': '复制失败',
@@ -1062,7 +1064,7 @@
                 'toast.cmdTermux': '以 Termux 运行（测试）命令...', 'toast.cmdDone': '已执行，详情可查看日志',
                 'toast.cmdFail': '执行失败',
                 'toast.starting': '启动 {name}', 'toast.stoppingOnly': '停止 {name}', 'toast.restarting': '重启 {name}',
-                'err.loginPw': '请输入密码', 'err.loginToken': '请输入长期 Token',
+                'err.loginPw': '请输入密码', 'err.loginToken': '请输入Token',
                 'err.loginMany': '尝试过多，请稍后再试', 'err.loginFail': '登录失败',
                 'err.loginHttp': '登录失败（HTTP {code}）：{msg}', 'err.loginReq': '登录请求失败：{msg}',
                 'err.pwOld': '请输入旧密码', 'err.pwShort': '密码至少 6 位', 'err.pwDiff': '两次输入不一致',
@@ -1090,6 +1092,7 @@
                 'btn.edit': 'Edit', 'btn.delete': 'Delete', 'btn.save': 'Save', 'btn.cancel': 'Cancel',
                 'btn.ok': 'OK', 'btn.log': 'Logs', 'btn.passwd': 'Change Password',
                 'btn.token': 'Token', 'btn.tokenDays': 'Token ({d}d)', 'btn.copy': 'Copy', 'btn.show': 'Show', 'btn.hide': 'Hide',
+                'hint.tokenDays': 'Active within {d}d',
                 'btn.clearPick': 'Clear', 'btn.open': 'Open', 'btn.start': 'Start', 'btn.stop': 'Stop',
                 'btn.restart': 'Restart', 'btn.termuxRun': 'Run as Termux', 'btn.run': 'Run',
                 'btn.stopcmd': 'Finish Cmd', 'btn.regen': 'Regenerate (old token dies instantly)',
@@ -1186,13 +1189,13 @@
                 'confirm.clearMsg': 'Clear the <strong>{name}</strong> log?', 'confirm.clearBtn': 'Clear',
                 'confirm.updDelTitle': 'Confirm Delete',
                 'confirm.updDelMsg': 'Delete update entry <strong>{name}</strong>?',
-                'login.title': 'Web Access Login', 'login.tokenMode': 'Log in with long-term Token',
-                'login.pw': 'Password', 'login.token': 'Long-term Token', 'login.btn': 'Log In',
+                'login.title': 'Web Access Login', 'login.tokenMode': 'Log in with Token',
+                'login.pw': 'Password', 'login.token': 'Token', 'login.btn': 'Log In',
                 'login.submit': 'Log In',
                 'forcePw.title': 'Change the default password', 'forcePw.desc': 'The default password is only for the first login. Set a new password to continue.',
                 'forcePw.old': 'Current password', 'forcePw.btn': 'Change password', 'forcePw.success': 'Password changed, please log in again',
                 'err.pwDefault': 'The default password "admin" is not allowed',
-                'ph.loginPw': 'Web access password', 'ph.loginToken': 'Long-term Token',
+                'ph.loginPw': 'Web access password', 'ph.loginToken': 'Token',
                 'toast.saving': 'Saving...', 'toast.saved': 'Saved', 'toast.saveFail': 'Save failed', 'toast.langSaveFail': 'Language save failed, backend logs stay unchanged',
                 'toast.refreshing': 'Refreshing...', 'toast.refreshed': 'Refreshed',
                 'toast.refreshFail': 'Refresh failed', 'toast.parseFail': 'Parse failed, retry',
@@ -1234,7 +1237,7 @@
                 'toast.cmdDone': 'Executed, see the log for details', 'toast.cmdFail': 'Execution failed',
                 'toast.starting': 'Starting {name}', 'toast.stoppingOnly': 'Stopping {name}',
                 'toast.restarting': 'Restarting {name}',
-                'err.loginPw': 'Enter the password', 'err.loginToken': 'Enter the long-term Token',
+                'err.loginPw': 'Enter the password', 'err.loginToken': 'Enter the Token',
                 'err.loginMany': 'Too many attempts, try later', 'err.loginFail': 'Login failed',
                 'err.loginHttp': 'Login failed (HTTP {code}): {msg}',
                 'err.loginReq': 'Login request failed: {msg}', 'err.pwOld': 'Enter the current password',
@@ -3328,6 +3331,12 @@
                     const days = parseInt(d.days, 10);
                     document.getElementById('btn-webui-token').textContent =
                         days > 0 ? t('btn.tokenDays', { d: days }) : t('btn.token');
+                    // 有效期说明放生成按钮下方 hint：{d} 天内活跃有效（滑动续期）
+                    const hint = document.getElementById('webui-token-hint');
+                    if (hint) {
+                        hint.style.display = days > 0 ? 'block' : 'none';
+                        if (days > 0) hint.textContent = t('hint.tokenDays', { d: days });
+                    }
                 }
                 else toast(d.error || t('toast.getFail'), true);
             } catch (e) { toast(t('toast.getFail'), true); }
