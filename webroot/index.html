@@ -130,6 +130,9 @@
         #status-filter option { background: var(--surface); color: var(--text); font-size: 12px; padding: 5px 10px; }
         #status-filter option:checked { background: var(--bg); font-weight: 600; }
         .empty { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 12px; }
+        .page-footer { padding: 28px 16px 12px; text-align: center; color: var(--muted); font-size: 11px; letter-spacing: 0.5px; }
+        .page-footer a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--muted); }
+        .page-footer a:hover { color: var(--text); border-bottom-color: var(--text); }
         .form { padding: 16px; border-bottom: 1px solid var(--line); }
         .form:last-child { border-bottom: none; }
         .form-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: block; letter-spacing: 0.5px; }
@@ -516,6 +519,9 @@
                     </div>
                 </div>
             </div>
+            <div class="page-footer">
+                Powered by <a href="https://github.com/LimpidMo/SvcHub" target="_blank" rel="noopener">SvcHub</a> · LimpidMo
+            </div>
         </div>    </div>
 
     <div class="modal" id="modal-svc">
@@ -563,9 +569,28 @@
                 </div>
             </div>
             <div class="modal-ft">
-                <button class="btn" style="margin-right:auto;" onclick="toggleStopCmdBox()" data-i18n="btn.stopcmd">收尾命令</button>
+                <div style="margin-right:auto;display:flex;gap:6px;">
+                    <button class="btn" onclick="toggleStopCmdBox()" data-i18n="btn.stopcmd">收尾命令</button>
+                    <button class="btn" onclick="copyServiceJson()" data-i18n="btn.copyJson">复制</button>
+                    <button class="btn" onclick="openSvcImportModal()" data-i18n="btn.importJson">导入</button>
+                </div>
                 <button class="btn" onclick="closeModal()" data-i18n="btn.cancel">取消</button>
                 <button class="btn btn-primary" onclick="saveService()" data-i18n="btn.save">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-import-svc">
+        <div class="modal-box">
+            <div class="modal-hd" data-i18n="modal.importSvcTitle">导入服务配置（JSON）</div>
+            <div class="modal-bd">
+                <textarea class="form-input form-textarea" id="input-import-svc-json" style="min-height:180px;" placeholder='{"name":"memos","port":"8080","auto":true,"cmd":"./memos","end":"echo done"}'></textarea>
+                <div class="form-hint" data-i18n="hint.importSvcJson">粘贴单条 JSON，填入表单后确认再保存；root 仅 Termux 服务生效</div>
+                <div class="form-error" id="error-import-svc-json"></div>
+            </div>
+            <div class="modal-ft">
+                <button class="btn" style="margin-right:auto;" onclick="closeSvcImportModal()" data-i18n="btn.cancel">取消</button>
+                <button class="btn btn-primary" onclick="applySvcImport()" data-i18n="btn.importFill">填入表单</button>
             </div>
         </div>
     </div>
@@ -949,6 +974,12 @@
                 'btn.regen': '重新生成（旧值立即失效）', 'btn.confirmChange': '确认修改',
                 'btn.checkUpdate': '检查更新', 'btn.updateAll': '更新全部',
                 'btn.pauseCheck': '暂停检查', 'btn.copyJson': '复制', 'btn.importJson': '导入',
+                'modal.importSvcTitle': '导入服务配置（JSON）',
+                'btn.importFill': '填入表单',
+                'hint.importSvcJson': '单条 JSON 配置，识别后填入；二进制默认 root、root 字段只对 Termux 有效',
+                'err.importKind': '类型不匹配：这是{want}弹窗，粘贴的是{got}配置',
+                'toast.copyEmpty': '表单为空，填写后再复制',
+                'toast.importSvcOk': '已填入表单，请确认后保存',
                 'label.autoUpdate': '自动更新', 'tag.autoUpdate': '自动', 'title.autoUpdate': '检查到新版本后自动执行更新',
                 'upd.importCover': '覆盖（全换）', 'upd.importMerge': '替换（已有不动）',
                 'modal.importTitle': '导入更新配置（JSON）',
@@ -1099,6 +1130,12 @@
                 'btn.confirmChange': 'Confirm',
                 'btn.checkUpdate': 'Check Updates', 'btn.updateAll': 'Update All',
                 'btn.pauseCheck': 'Pause Check', 'btn.copyJson': 'Copy', 'btn.importJson': 'Import',
+                'modal.importSvcTitle': 'Import Service Config (JSON)',
+                'btn.importFill': 'Fill Form',
+                'hint.importSvcJson': 'A single JSON config; recognized and filled into the form; binary is root by default, the root field only applies to Termux',
+                'err.importKind': 'Type mismatch: this is the {want} form, but the pasted JSON is a {got} config',
+                'toast.copyEmpty': 'Form is empty, fill it in before copying',
+                'toast.importSvcOk': 'Form filled, please review and save',
                 'label.autoUpdate': 'Auto Update', 'tag.autoUpdate': 'Auto', 'title.autoUpdate': 'Update automatically when a new version is found',
                 'upd.importCover': 'Overwrite (replace all)', 'upd.importMerge': 'Merge (keep existing)',
                 'modal.importTitle': 'Import Update Entries (JSON)',
@@ -3006,12 +3043,105 @@
 
         function closeModal() { hideAnyModal('modal-svc'); }
 
+        // 弹窗当前服务类型（termux|binary）单点判定：隐藏域 edit-svc-type 的收口（G5）
+        function currentSvcType() {
+            return document.getElementById('edit-svc-type').value === 'binary' ? 'binary' : 'termux';
+        }
+
+        // 服务表单 <-> JSON：5 字段与存储行同构（cmd/end 存储态为字面 \n 单行，直接取输入框原始值往返无损）。
+        // kind 标记导出来源（termux/binary），导入时弹窗类型不符即报错；root 是 Termux 专属展示开关（termux_root_names 名单键），
+        // binary 本身即 root，无此开关也不导出该字段。
+        function svcFormJson() {
+            const el = id => document.getElementById(id);
+            const data = {
+                kind: currentSvcType(),
+                name: el('input-svc-name').value.trim(),
+                port: el('input-svc-port').value.trim(),
+                auto: el('input-svc-auto').checked,
+                cmd: el('input-svc-cmd').value,
+                end: el('svc-stop-box').style.display === 'none' ? '' : el('input-svc-stop').value
+            };
+            if (data.kind === 'termux') data.root = el('input-svc-root').checked;
+            return data;
+        }
+
+        function applySvcFormJson(s) {
+            const el = id => document.getElementById(id);
+            el('input-svc-name').value = s.name;
+            el('input-svc-port').value = s.port;
+            el('input-svc-auto').checked = s.auto;
+            el('input-svc-cmd').value = s.cmd;
+            el('input-svc-stop').value = s.end;
+            // 与 openModal 同规则：收尾命令有值才展开输入区
+            el('svc-stop-box').style.display = s.end ? 'block' : 'none';
+            el('svc-root-wrap').style.display = currentSvcType() === 'termux' ? 'flex' : 'none';
+            el('input-svc-root').checked = currentSvcType() === 'termux' && s.root;
+        }
+
+        // 复制：当前服务表单内容转 JSON（与导入格式同构，来回往返不丢字段）。
+        // 空表单（添加态还没填）导出的是无效信息，直接提示不导。
+        function copyServiceJson() {
+            const f = svcFormJson();
+            if (!f.name && !f.cmd && !f.end) { toast(t('toast.copyEmpty'), true); return; }
+            copyText(JSON.stringify(f, null, 2), () => toast(t('toast.copied')));
+        }
+
+        // 导入：解析 JSON（仅单对象）→ 校验 → 只填表不落盘，由用户确认后自行保存。
+        // 一个表单只吃一条配置：数组（含单条数组）一律报错，避免「多条填哪条」的歧义。
+        function parseSvcImportJson() {
+            const txt = document.getElementById('input-import-svc-json').value.trim();
+            const errEl = document.getElementById('error-import-svc-json');
+            errEl.textContent = '';
+            let v;
+            try { v = JSON.parse(txt); } catch (e) { errEl.textContent = t('toast.importBad'); return null; }
+            if (Array.isArray(v) || !v || typeof v !== 'object') { errEl.textContent = t('toast.importBad'); return null; }
+            // 类型门禁：导出 JSON 带 kind，弹窗类型不符即拒填（Termux JSON 填二进制弹窗或反之都算错位）
+            const formType = currentSvcType();
+            if (v.kind !== undefined && v.kind !== formType) {
+                errEl.textContent = t('err.importKind', { want: formType === 'termux' ? t('sec.termux') : t('modal.svcTypeBinary'), got: v.kind === 'binary' ? t('modal.svcTypeBinary') : t('sec.termux') });
+                return null;
+            }
+            const s = {
+                name: String(v.name || '').trim(),
+                port: String(v.port || '').trim(),
+                auto: v.auto !== false && v.auto !== 'stop',
+                cmd: String(v.cmd || ''),
+                end: String(v.end || ''),
+                root: v.root === true || v.root === '1'
+            };
+            // 与保存路径同规则：name 非空合法、cmd 非空无管道、port 复用打开按钮的 1~65535 判定（可空）；end/cmd 存储态可为字面 \n
+            if (!s.name || !s.cmd
+                || !/^[A-Za-z0-9._-]+$/.test(s.name)
+                || (s.port && parseValidPort(s.port) === null)
+                || /[|]/.test(s.cmd) || /[|]/.test(s.end)) {
+                errEl.textContent = t('toast.importBad');
+                return null;
+            }
+            return s;
+        }
+
+        function openSvcImportModal() {
+            document.getElementById('input-import-svc-json').value = '';
+            document.getElementById('error-import-svc-json').textContent = '';
+            showAnyModal('modal-import-svc');
+        }
+
+        function closeSvcImportModal() { hideAnyModal('modal-import-svc'); }
+
+        function applySvcImport() {
+            const s = parseSvcImportJson();
+            if (!s) return;
+            applySvcFormJson(s);
+            closeSvcImportModal();
+            toast(t('toast.importSvcOk'));
+        }
+
         // 保存服务编辑：读表单 -> 校验 -> 写回数组 -> 只发本类键（saveservices，不碰设置与另一类）
         let svcSaving = false;
         async function saveService() {
             if (svcSaving) return;
             const el = id => document.getElementById(id);
-            const type = el('edit-svc-type').value === 'binary' ? 'binary' : 'termux';
+            const type = currentSvcType();
             const idx = parseInt(el('edit-svc-idx').value);
             const s = {
                 name: el('input-svc-name').value.trim(),
