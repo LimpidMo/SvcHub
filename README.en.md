@@ -49,11 +49,11 @@
 
 ## Core Features
 
-- **Two Service Types**: Manage startup and cleanup commands for **Termux services** and **binary services**. Termux services run without the app in the background and can optionally run as root.
-- **Multiple start/stop strategies**: scheduled stop window, screen on/off control, Wi-Fi based start/stop and more, to meet diverse scheduling needs
-- **Patrol keep-alive**: patrols every 60 seconds by default (configurable 10~84600), automatically revives services tagged `start`, and rotates logs automatically.
-- **WebUI**: Chinese/English bilingual, with one interface for service start/stop, configuration and log viewing. Supports both the in-manager WebUI and direct browser access, plus PWA installation
-- **Update service**: binary file update from GitHub warehouse is supported, and the service update can be checked every hour/day/week, and the automatic update service can be started.
+- **WebUI**: bilingual (Chinese/English) interface for unified start/stop, configuration management, service logs and resource usage; browser access supports PWA installation
+- **Two service types**: startup configuration and cleanup-command management for **Termux services** and **binary services**. Termux services run without keeping the app in the background and can run as root
+- **Multiple start/stop strategies**: scheduled window start/stop, screen on/off start/stop, Wi-Fi start/stop and more, to meet diverse scheduling needs
+- **Patrol keep-alive**: patrols every 60 seconds by default (configurable 10~86400 seconds), automatically revives services tagged `start`, and rotates logs automatically
+- **Update service**: binary updates from GitHub repositories, version checks every hour/day/week, optional automatic updates, automatic rollback if replacement fails
 
 >Tips: This module does not open the wake-up lock by default. If you need to reduce the impact of lock screen Doze or CPU sleep on the inspection and update check, you can open the wake-up lock in the "Basic Settings"
 
@@ -76,6 +76,23 @@
 ## Documentation
 
 Full user guide and development docs: [https://limpidmo.github.io/SvcHub](https://limpidmo.github.io/SvcHub).
+
+- [Docs Home](https://limpidmo.github.io/SvcHub/en/) — feature overview and docs entry
+
+**Guide**
+
+- [Introduction](https://limpidmo.github.io/SvcHub/en/guide/) — module scope and core concepts
+- [Start/Stop Services](https://limpidmo.github.io/SvcHub/en/guide/features) — schedule / screen / Wi-Fi control and priority
+- [Patrol Keep-alive](https://limpidmo.github.io/SvcHub/en/guide/keepalive) — patrol interval and service keep-alive
+- [Service Examples](https://limpidmo.github.io/SvcHub/en/guide/examples) — Termux and binary service examples
+- [Termux Service](https://limpidmo.github.io/SvcHub/en/guide/termux) · [Binary Service](https://limpidmo.github.io/SvcHub/en/guide/binary) — configuration reference
+- [Notes](https://limpidmo.github.io/SvcHub/en/guide/notes) · [FAQ](https://limpidmo.github.io/SvcHub/en/guide/faq) — usage notes and troubleshooting
+- [Changelog](https://limpidmo.github.io/SvcHub/guide/changelog) — release history
+
+**Development**
+
+- [Local Development](https://limpidmo.github.io/SvcHub/en/dev/) — run real scripts in a PC sandbox
+- [Module Build](https://limpidmo.github.io/SvcHub/en/dev/build) — packaging and validation
 
 ## License
 
