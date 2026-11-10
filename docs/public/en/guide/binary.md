@@ -11,7 +11,7 @@ Most binary service files on this page come from GitHub repositories or other tr
 - Flags like `--port` or `--data` do not work for every service — check the project's own documentation.
 - **The port field is only a label** — the actual listening port is decided by the service's own configuration; not every port serves a web page.
 - **Service configurations may change between versions; the examples here can therefore age or become incompatible — trust the live project and treat this page as reference only.**
-- Some services need DNS resolution; enable it during SvcHub installation as needed. For SSL certificates you can use Termux's CA bundle: `pkg update && pkg install ca-certificates -y`, then prepend `export SSL_CERT_FILE=/data/data/com.termux/files/usr/etc/tls/cert.pem` to the service command, or obtain a working certificate yourself.
+- Some services need DNS resolution; enable it during SvcHub installation as needed. For SSL certificates you can use Termux's CA bundle: `pkg update && pkg install ca-certificates -y`, then prepend `export SSL_CERT_FILE=/data/data/com.termux/files/usr/etc/tls/cert.pem` to the service command, or obtain a trusted certificate yourself.
 - Download files from the corresponding repository's Releases.
 - If you find a service useful, consider giving its repository a Star ⭐ to support its releases.
 
@@ -26,6 +26,7 @@ Most binary service files on this page come from GitHub repositories or other tr
 ```shell
 cd memos
 chmod +x ./memos
+# defaults to 8081 without --port
 ./memos --port 5230
 ```
 
@@ -57,18 +58,21 @@ export MAGPIE_BUN="$PWD/bun"
 ## WorkBuddy2API account gateway
 
 - **About**: wraps Tencent CodeBuddy accounts into an OpenAI-compatible multi-account API gateway, with a built-in web panel
-- **Download**: [linguo2625469/workbuddy2api-panel (no longer maintained)](https://github.com/linguo2625469/workbuddy2api-panel) or its downstream fork [zx-yk/workbuddy2api-panel](https://github.com/zx-yk/workbuddy2api-panel) — get the latest `wb2api-panel-vX.X.X-linux-arm64.tar.gz` (contains the `wb2api` binary and `config.example.json`)
+- **Download**: [linguo2625469/workbuddy2api-panel (no longer maintained)](https://github.com/linguo2625469/workbuddy2api-panel) or its downstream fork [misakano7545/workbuddy2api-panel](https://github.com/misakano7545/workbuddy2api-panel) — get the latest `wb2api-panel-X.X.X-linux-arm64.tar.gz` (contains the `wb2api` binary and `config.example.json`)
 - **Name**: `wb2api`
 - **Port**: `7863`
 - **Service command**:
 
 ```shell
+# use Termux's CA certificate to solve login issues
+export SSL_CERT_FILE=/data/data/com.termux/files/usr/etc/tls/cert.pem
 cd wb2api
 chmod +x ./wb2api
+./wb2api
 ```
 
 ::: warning
-**Note**: WorkBuddy2API is a reverse proxy for an unofficial client — the account may be risk-controlled or banned!!! Evaluate the risk yourself before use. The first launch generates `config.json` in the same folder (with a random `api_key`, also shown in the log). The service needs DNS: choose to mount the DNS resolver config during SvcHub installation, or set `dns_servers` explicitly in `config.json` (e.g. `["223.5.5.5","119.29.29.29"]`).
+**Note**: WorkBuddy2API is a reverse proxy for an unofficial client — the account may be risk-controlled or banned!!! Evaluate the risk yourself before use. The first launch generates `config.json` in the same folder (with a random `api_key`, also shown in the log). The service needs DNS: choose to mount the DNS resolver config during SvcHub installation.
 :::
 
 ## Mihomo proxy core
@@ -84,7 +88,7 @@ cd mihomo
 chmod +x ./mihomo
 # use the current directory as mihomo's working dir, auto-discovering config.yaml, cache, etc.
 ./mihomo -d ./ 
-# alternatively use -f to point at a config file
+# alternatively use -f to specify a config file
 # mihomo -f config.yaml
 ```
 
@@ -98,6 +102,8 @@ chmod +x ./mihomo
 - **Service command**:
 
 ```shell
+# if update checks fail, try Termux's CA certificate
+export SSL_CERT_FILE=/data/data/com.termux/files/usr/etc/tls/cert.pem
 export PATH=$PWD
 cd stash
 chmod +x ./stash-linux-arm64v8 ./ffmpeg ./ffprobe

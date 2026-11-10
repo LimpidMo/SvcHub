@@ -11,7 +11,7 @@
 - `--port` 或 `--data`等命令并非对所有服务均有效，具体查看相关项目文档
 - **端口字段仅用于标识** ，实际监听以服务自身配置为准；并非所有端口均为服务的 Web 页
 - **部分服务配置可能会随版本更新而改变，配置因此可能会有时效性、兼容性问题，以实际情况为准，本篇仅作参考**
-- 部分服务需要 DNS 解析，安装 SvcHub 时按需开启，若需 SSL 证书可使用 Termux 的CA证书 `pkg update && pkg install ca-certificates -y`，服务命令前加`export SSL_CERT_FILE=/data/data/com.termux/files/usr/etc/tls/cert.pem`，或自行获取可行的证书
+- 部分服务需要 DNS 解析，安装 SvcHub 时按需开启，若需 SSL 证书可使用 Termux 的CA证书 `pkg update && pkg install ca-certificates -y`，服务命令前加`export SSL_CERT_FILE=/data/data/com.termux/files/usr/etc/tls/cert.pem`，或自行获取可信的证书
 - 下载文件前往对应仓库的 Release 中下载
 - 若觉得服务好用也可以为他们仓库点点 Star ⭐， 助力更新发版
 
@@ -26,13 +26,14 @@
 ```shell
 cd memos
 chmod +x ./memos
+# 无 --port 参数时默认8081
 ./memos --port 5230
 ```
 
 ## Magpie 本地 AI 网关路由
 
 - **介绍**：一个本地 AI 网关，用于集中管理和无缝切换各类 AI Agent 的底层模型，且支持插件、自动签到。
-- **下载**：[yetone/magpie](https://github.com/yetone/magpie/)，下载最新 `magpie-cli-android-arm64`，无需解压
+- **下载**：[yetone/magpie](https://github.com/yetone/magpie)，下载最新 `magpie-cli-android-arm64`，无需解压
   - 若需使用插件服务需使用 bun，则需下载[oven-sh/bun/](https://github.com/oven-sh/bun) 下载最新的`bun-linux-aarch64.zip`解压放到 magpie 同一文件夹
 - **名称**：`magpie`
 - **端口**：`3430`
@@ -57,18 +58,21 @@ export MAGPIE_BUN="$PWD/bun"
 ## WorkBuddy2API 网关面板
 
 - **介绍**：把腾讯 CodeBuddy 账号包装为 OpenAI 兼容 API 的多账号网关，自带 Web 管理面板
-- **下载**：[linguo2625469/workbuddy2api-panel 已停更](https://github.com/linguo2625469/workbuddy2api-panel) 或使用其Fork下游[zx-yk/workbuddy2api-panel](https://github.com/zx-yk/workbuddy2api-panel)，下载最新 `wb2api-panel-vX.X.X-linux-arm64.tar.gz`（内含 `wb2api` 二进制与 `config.example.json`）
+- **下载**：[linguo2625469/workbuddy2api-panel 已停更](https://github.com/linguo2625469/workbuddy2api-panel) 或使用其Fork下游[misakano7545/workbuddy2api-panel](https://github.com/misakano7545/workbuddy2api-panel)，下载最新 `wb2api-panel-X.X.X-linux-arm64.tar.gz`（内含 `wb2api` 二进制与 `config.example.json`）
 - **名称**：`wb2api`
 - **端口**：`7863`
 - **服务命令**：
 
 ```shell
+# 使用 Termux 的CA证书解决登录问题
+export SSL_CERT_FILE=/data/data/com.termux/files/usr/etc/tls/cert.pem
 cd wb2api
 chmod +x ./wb2api
+./wb2api
 ```
 
 ::: warning
-**注意**：WorkBuddy2API 所属反代，因使用非官方客户端肯可能导致账号风控 / 封禁 ！！！请自行评估风险使用。首次启动会在同目录自动生成 `config.json`（含随机 `api_key`）日志中亦会展示。服务所需DNS配置，SvcHub 安装选择挂载 dns 解析配置，D或在 `config.json` 里显式配置 `dns_servers`（如 `["223.5.5.5","119.29.29.29"]`）
+**注意**：WorkBuddy2API 所属反代，因使用非官方客户端肯可能导致账号风控 / 封禁 ！！！请自行评估风险使用。首次启动会在同目录自动生成 `config.json`（含随机 `api_key`）日志中亦会展示。服务所需DNS配置，SvcHub 安装选择挂载 dns 解析配置
 :::
 
 ## Mihomo 代理内核
@@ -84,7 +88,7 @@ cd mihomo
 chmod +x ./mihomo
 # 设置当前为mihomo的工作目录，自动查找 config.yaml、缓存等文件
 ./mihomo -d ./ 
-# 亦可执行 使用 -f 指定配置文件
+# 亦可使用 -f 指定配置文件
 # mihomo -f config.yaml
 ```
 
@@ -98,6 +102,8 @@ chmod +x ./mihomo
 - **服务命令**：  
 
 ```shell
+# 若无法检查更新，可尝试使用 Termux 的CA证书
+export SSL_CERT_FILE=/data/data/com.termux/files/usr/etc/tls/cert.pem
 export PATH=$PWD
 cd stash
 chmod +x ./stash-linux-arm64v8 ./ffmpeg ./ffprobe

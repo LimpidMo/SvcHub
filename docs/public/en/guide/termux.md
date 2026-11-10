@@ -116,7 +116,7 @@ sing-box run -c config.json
 - **About**: an advanced subscription manager that merges, filters, de-duplicates, sorts and converts subscriptions from multiple providers (Clash / Surge / Loon and more), with a built-in Web UI and locally stored data.
 - **Install**: run the following install commands in Termux
     - Create the folder: `mkdir -p sub-store`
-    - Download tools: `pkg update && pkg install wget`
+    - Download tools and environment: `pkg update && pkg install wget nodejs -y`
     - Frontend (optional): `wget https://github.com/sub-store-org/Sub-Store-Front-End/releases/latest/download/dist.zip && unzip dist.zip && rm dist.zip && mv dist frontend`
     - Backend: `wget https://github.com/sub-store-org/Sub-Store/releases/latest/download/sub-store.bundle.js`
 - **Name**: `sub-store`

@@ -115,7 +115,7 @@ sing-box run -c config.json
 - **介绍**：高级订阅管理工具，支持多来源订阅的合并、过滤、去重、排序与格式转换（Clash / Surge / Loon 等），自带 Web 管理界面，数据本地保存。
 - **安装**：Termux 中运行以下下安装命令
     - 创建文件夹：`mkdir -p sub-store`
-    - 下载工具：`pkg update && pkg install wget`
+    - 下载工具和环境：`pkg update && pkg install wget nodejs -y`
     - 前端（可选）：`wget https://github.com/sub-store-org/Sub-Store-Front-End/releases/latest/download/dist.zip && unzip dist.zip && rm dist.zip && mv dist frontend`
     - 后端：`wget https://github.com/sub-store-org/Sub-Store/releases/latest/download/sub-store.bundle.js`
 - **名称**：`sub-store`
