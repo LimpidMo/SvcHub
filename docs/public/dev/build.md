@@ -9,6 +9,6 @@ python tools/pack.py --tag dev  # 打测试包 → dist/SvcHub_v<version>_dev.zi
 ```
 
 - 版本号读 `module.prop` 的 `version` 字段，产出 `dist/SvcHub_v<version>.zip`；同名不覆盖，递增 `_1`/`_2`
-- 新增模块文件需同步补 `tools/pack.py` 的 `REQUIRED_FILES` 清单（当前 23 个，含 `lib/` 六个模块）
-- 打包前先跑 `sh tools/check.sh`（语法 + lib 单测 + i18n + 清单校验）
+- 新增模块文件需同步补 `tools/pack.py` 的 `REQUIRED_FILES` 清单（当前 25 个，含 `lib/` 七个模块）
+- 打包前先跑 `sh tools/check.sh`（语法 + 重复函数 + lib 单测 + i18n + 清单校验）
 - 每次打包覆盖写 `dist/SHA256.txt`（单行：哈希 + 包名）

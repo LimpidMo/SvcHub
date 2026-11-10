@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: SvcHub
-  text: Boot-start & keep-alive manager for Termux and binary services
-  tagline: Run services on a bare kernel and manage them in one place — no more one module per service; aggregated management via WebUI
+  text: Service Start & Keep-alive Management
+  tagline: KernelSU / Magisk / APatch module · Run Termux and binary services on a bare kernel · Multiple start/stop strategies · Service updates · Aggregated WebUI management
   image:
     src: /images/icon.png
     alt: SvcHub
@@ -17,12 +17,12 @@ hero:
       link: https://github.com/LimpidMo/SvcHub
 
 features:
-  - title: Aggregated Management
-    details: Manage all services in one module — start/stop, configure and view logs in a single WebUI, with both in-manager WebUI and browser direct access
-  - title: Two Service Types
-    details: Termux services run as the Termux user without keeping Termux in background; binary services run as root with a configurable working directory
-  - title: Multiple Start/Stop Features
-    details: Scheduled stop window (overnight supported), screen on/off whitelist control, and Wi-Fi connect / disconnect groups — composable as needed
-  - title: Patrol Keep-alive
-    details: Periodic patrol revives killed services; logs rotate automatically when oversized; WebUI supports PWA installation
+  - title: 🗂️ Aggregated Management
+    details: Manage all services in one module — unified WebUI start/stop, configuration and log viewing, no need for one module per service; browser access supports PWA installation
+  - title: 🧩 Two Service Types
+    details: Termux services run as the Termux user without keeping Termux in background and can run as root per allowlist; binary services run as root with a configurable service directory
+  - title: 🚦 Multiple Start/Stop Features
+    details: Scheduled stop window (overnight supported), screen on/off whitelist control, and Wi-Fi connect / disconnect groups — composable; priority is schedule > screen > Wi-Fi > patrol
+  - title: 🔄 Binary Update
+    details: Binary updates from GitHub repositories with hourly / daily / weekly version checks and optional automatic updates; failed replacements roll back automatically
 ---
